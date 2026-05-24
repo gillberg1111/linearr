@@ -5,6 +5,13 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-05-24
+
+### Added
+- **Acknowledgments section** in the README disclosing that Linearr was built
+  collaboratively with Claude Code (Anthropic's AI coding assistant).
+  Architecture, testing, deployment, and maintenance are mine.
+
 ## [1.0.6] - 2026-05-24
 
 ### Fixed

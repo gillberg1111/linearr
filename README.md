@@ -88,6 +88,7 @@ fall-asleep buffer.
 - [Architecture](#architecture)
 - [Contributing](#contributing)
 - [Support the project](#support-the-project)
+- [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -592,6 +593,15 @@ saves you time and you'd like to chip in:
 [☕ Buy me a coffee](https://buymeacoffee.com/gillberg1111)
 
 The button is also embedded at the bottom of the app's landing page.
+
+---
+
+## Acknowledgments
+
+Linearr was built collaboratively with [Claude Code](https://claude.com/claude-code)
+(Anthropic's AI coding assistant) across many pair-programming sessions.
+Architecture, naming, testing against a real Plex / Unraid setup,
+deployment, and ongoing maintenance are mine.
 
 ---
 
