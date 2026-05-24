@@ -10,10 +10,40 @@ All notable changes to Linearr. Format loosely follows
   episodes and new seasons (within each show's configured range) into managed
   playlists; episodes deleted from Plex drop out. Already-played portion is
   preserved. Controlled by the new `AUTO_SYNC` env var (default `true`).
-- **Per-playlist auto-update toggle**: in addition to the global env var,
+- **Per-playlist Auto-update toggle**: in addition to the global env var,
   each playlist has its own **Auto-update: Enabled / Disabled** pill on the
   playlist detail page. Disabled playlists are skipped by the scheduler —
   useful for "locked" curated playlists you don't want changing on their own.
+- **Auto-update choice on configure page**: when creating a new playlist,
+  there's now an **Auto-update** toggle alongside Sort and Filter so you can
+  set the initial state at creation rather than create-then-toggle.
+- **Buy Me a Coffee** support button in the landing-page footer (only on
+  the playlists landing page — not on the configure or detail flows so it
+  doesn't intrude while you're working).
+- **Logo + visual identity**: banner, favicon (16/32/64), and Unraid
+  template icon. Topbar brand mark swapped from a CSS gradient placeholder
+  to the real logo image.
+- **Tagline**: *"The missing show sequencer for Plex. Automated round-robin
+  rotation and chronological crossover alignment for your episodes (and
+  their movies)."* — appears on the README, Dockerfile image label, Unraid
+  Overview/Description, and the app's landing page subtitle.
+
+### Changed
+- **Accent color** swapped from Plex orange (`#e5a00d`) to a balanced blue
+  (`#4d96ff`, `rgb(77, 150, 255)`) across the entire UI — buttons, pills,
+  toggles, brand mark, ambient page glow. Buy Me a Coffee button matches.
+  This is a deliberate visual distinction from Plex's own brand (Plex
+  trademark concerns).
+- **Project rename**: codebase renamed from *Plex Rotator* → briefly
+  *Plaitarr* → **Linearr**. Container image now publishes to
+  `ghcr.io/gillberg1111/linearr`. GitHub auto-redirects old repo URLs.
+
+### Fixed
+- **Season-range validation**: the configure page now prevents picking an
+  "End at" season earlier than "Start from". When you change the start
+  season, end-season cards below it are hidden and any invalid prior
+  selection auto-resets to **All**. Server-side validation also rejects
+  end &lt; start as a safety net.
 
 ## [0.1.0] - 2026-05-23
 

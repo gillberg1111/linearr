@@ -62,6 +62,7 @@ fall-asleep buffer.
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
+- [Support the project](#support-the-project)
 
 ---
 
@@ -550,6 +551,17 @@ and unit-tested — keep it that way; side effects belong in `service.py` or
 `plex_client.py`. Run `python tests.py` before any PR.
 
 License: [MIT](LICENSE).
+
+---
+
+## Support the project
+
+Linearr is free, open-source, and has no business model behind it. If it
+saves you time and you'd like to chip in:
+
+[☕ Buy me a coffee](https://buymeacoffee.com/gillberg1111)
+
+The button is also embedded at the bottom of the app's landing page.
 
 ---
 
