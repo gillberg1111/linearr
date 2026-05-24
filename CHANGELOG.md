@@ -5,6 +5,12 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-24
+
+First stable release. Adds the auto-sync background loop and per-playlist
+Auto-update toggle, plus visual identity (logo, favicon, banner, blue
+accent palette) and the project's settled name (Linearr).
+
 ### Added
 - **Auto-sync**: the existing background sweep now also splices newly-aired
   episodes and new seasons (within each show's configured range) into managed
