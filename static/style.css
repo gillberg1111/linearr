@@ -5,8 +5,8 @@
   --fg: #eef0f5;
   --fg-dim: #a4abb8;
   --muted: #7a8190;
-  --accent: #e5a00d;
-  --accent-2: #f7c451;
+  --accent: #4d96ff;
+  --accent-2: #7eb8ff;
   --danger: #e74c3c;
   --border: #2a2d37;
   --border-strong: #3a3e4c;
@@ -27,8 +27,8 @@ body {
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(229,160,13,0.08), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(247,196,81,0.05), transparent 60%),
+    radial-gradient(1200px 600px at 20% -10%, rgba(77,150,255,0.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(126,184,255,0.05), transparent 60%),
     var(--bg);
   min-height: 100vh;
 }
@@ -64,7 +64,7 @@ body {
   height: 18px;
   border-radius: 5px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: 0 0 18px rgba(229,160,13,0.4);
+  box-shadow: 0 0 18px rgba(77,150,255,0.4);
 }
 .brand-name { font-size: 1.05rem; }
 
@@ -121,7 +121,7 @@ a { color: var(--accent); }
 .btn:hover { background: var(--bg-elev); border-color: var(--muted); }
 .btn:active { transform: translateY(1px); }
 .btn-primary {
-  background: linear-gradient(180deg, var(--accent) 0%, #cf8d05 100%);
+  background: linear-gradient(180deg, var(--accent) 0%, #3b7dd8 100%);
   border-color: rgba(0,0,0,0.2);
   color: #1a1a1a;
   font-weight: 600;
@@ -245,14 +245,14 @@ a { color: var(--accent); }
 .name-input:focus, .filter-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(229,160,13,0.18);
+  box-shadow: 0 0 0 3px rgba(77,150,255,0.18);
 }
 .counter { color: var(--fg-dim); font-size: 0.85rem; padding: 0 0.4rem; }
 
 /* ---------- selected tray ---------- */
 .selected-tray {
-  background: rgba(229,160,13,0.06);
-  border: 1px solid rgba(229,160,13,0.25);
+  background: rgba(77,150,255,0.06);
+  border: 1px solid rgba(77,150,255,0.25);
   border-radius: var(--radius);
   padding: 0.85rem;
   margin-bottom: 1rem;
@@ -379,7 +379,7 @@ a { color: var(--accent); }
 .show-tile input[type=checkbox]:checked ~ .poster .check {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(229,160,13,0.25);
+  box-shadow: 0 0 0 3px rgba(77,150,255,0.25);
 }
 .show-tile input[type=checkbox]:checked ~ .poster .check::after {
   content: "";
@@ -524,7 +524,7 @@ a { color: var(--accent); }
   transition: transform 0.18s ease, background 0.15s ease;
 }
 .toggle input:checked + .toggle-track {
-  background: rgba(229,160,13,0.25);
+  background: rgba(77,150,255,0.25);
   border-color: var(--accent);
 }
 .toggle input:checked + .toggle-track .toggle-thumb {
@@ -583,7 +583,7 @@ a { color: var(--accent); }
 }
 .season-card input:checked ~ .season-meta,
 .season-card input:checked + .season-poster + .season-meta {
-  background: rgba(229,160,13,0.08);
+  background: rgba(77,150,255,0.08);
 }
 
 .movies-section {
@@ -604,11 +604,11 @@ a { color: var(--accent); }
 .movies-all-btn {
   background: var(--bg-elev-2);
   color: var(--accent);
-  border-color: rgba(229,160,13,0.4);
+  border-color: rgba(77,150,255,0.4);
   font-weight: 600;
 }
 .movies-all-btn:hover {
-  background: rgba(229,160,13,0.12);
+  background: rgba(77,150,255,0.12);
   border-color: var(--accent);
 }
 .movies-all-btn.is-active {
