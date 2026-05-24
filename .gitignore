@@ -10,3 +10,6 @@ data/
 .idea/
 .vscode/
 .claude/
+
+# Local Claude Code context file — project briefing for future sessions
+CLAUDE.md
