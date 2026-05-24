@@ -5,6 +5,123 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-24
+
+**Linearr is now for Plex *and* Jellyfin.** Each managed playlist can target
+Plex, Jellyfin, or both (mirrored to each server). Single-backend installs
+look and behave exactly like v1.0.7 — the dual-backend UI only appears when
+both backends are configured.
+
+### Added
+
+- **Jellyfin support.** New `jellyfin_client.py` implements the full
+  `MediaClient` contract against the Jellyfin REST API. Authenticated via
+  username + password against `POST /Users/AuthenticateByName` (API keys are
+  broken on the playlist endpoints we need — see Jellyfin issue #15600).
+  Configure with `JELLYFIN_URL` / `JELLYFIN_USERNAME` / `JELLYFIN_PASSWORD`.
+- **Triple-pill backend picker** on the configure page when both backends
+  are configured: `Push to: Both / Plex / Jellyfin`. Hidden when only one
+  backend is available.
+- **Cross-backend show matching** at add-time: shows added to a "Both"
+  playlist are matched on the other side by title + year. The matched
+  Plex/Jellyfin IDs are persisted alongside the show row.
+- **Heal-on-sync.** For "Both" playlists, every sync re-attempts matching
+  for shows missing an ID on one side — so adding a show to your
+  previously-empty Jellyfin library auto-resolves on the next sweep without
+  any manual intervention.
+- **Missing-side warning banner** on the configure and playlist pages,
+  listing shows that aren't on every targeted backend. Informational, never
+  blocking — you can deliberately add a show to a "Both" playlist that only
+  exists on one server today and expect to add it to the other later.
+- **Backend badges** on playlist cards (index page), playlist detail
+  header, and individual show rows when applicable.
+- **`_aggregated_shows()`** in `app.py` lists shows across every configured
+  backend and dedupes via title+year normalization, so the show picker is
+  one unified list with per-backend overlays.
+- **41 new unit tests** in `tests.py` (now 87/87 passing):
+  - 18 covering the Jellyfin DELETE safety guard against every dangerous
+    endpoint category (`/Items`, `/Library/VirtualFolders`, `/Users/{id}`,
+    image deletes, recordings, plugins, etc.).
+  - 4 verifying the Plex `Episode/Show/Season/Movie.delete()` monkey-patch
+    is actually applied on import (defense-in-depth verification).
+  - 15 covering the title-match helper across normalization, year
+    disambiguation, None handling.
+  - 8 covering the service-layer dispatch (`ShowConfig.id_for`,
+    `_backends_for`, `_find_match`, etc.).
+
+### Changed
+
+- **Architecture: `MediaClient` interface.** Every backend operation now
+  goes through the abstract base class in `media_client.py`. Plex's existing
+  module-level functions remain as thin shims for back-compat with external
+  callers; internally everything uses the interface. This is what makes
+  dual-backend possible.
+- **Tail-rebuild deduplication.** The 6 near-identical 15-line tail-rebuild
+  blocks across `add_shows_to_playlist`, `reorder_shows`,
+  `set_playlist_sort_mode`, `set_playlist_unwatched_only`, `sync_playlist`,
+  and `add_shows_to_playlist` are collapsed into a single
+  `_rebuild_tail_on()` primitive. ~80 lines of duplication eliminated.
+  Per-backend dispatch loops over the new primitive.
+- **Jellyfin's native atomic playlist replace.** `JellyfinClient`
+  overrides `replace_playlist_items()` with a single `POST /Playlists/{id}`
+  (UpdatePlaylistDto.Ids) — Jellyfin clears `LinkedChildren` then re-adds
+  in one transaction. No PlaylistItemId bookkeeping, no partial-state
+  window. (Plex still uses the existing incremental remove/add.)
+- **`PlexClient` lazy connection.** The PlexServer instance is created on
+  first API call instead of at `PlexClient.__init__`. If Plex is briefly
+  unreachable when the app starts, the app still boots and degrades
+  gracefully per request — instead of hard-crashing during init.
+- **DB schema (additive, no data movement):**
+  - `managed_playlists.backend` (`plex` | `jellyfin` | `both`, default `plex`)
+    with CHECK constraint enforcement on new DBs and helper-layer
+    validation on migrated ones.
+  - `managed_playlists.jellyfin_playlist_id` (nullable)
+  - `playlist_shows.plex_show_item_id` and `jellyfin_show_item_id` (both
+    nullable; one-time backfill copies `show_rating_key` into
+    `plex_show_item_id` for legacy rows since they were all Plex-originated)
+  - `playlist_shows.jellyfin_movie_item_ids` (nullable, comma-separated)
+
+### Safety
+
+- **HTTP-layer DELETE safety guard** in `jellyfin_client.py` deny-by-default
+  for every outbound DELETE; only `/Playlists/{id}/Items` (removing items
+  from a playlist) is allow-listed. The intentional `delete_playlist()`
+  bypass is the single audited route that hits `DELETE /Items?ids=X` —
+  it first verifies the target is a playlist via `GET /Playlists/{id}`,
+  then sets a one-shot bypass flag. Every other DELETE raises
+  `JellyfinSafetyError` before the request goes out.
+- **Plex safety guard unchanged.** The module-level monkey-patch of
+  `Episode.delete` / `Show.delete` / `Season.delete` / `Movie.delete`
+  remains, now also verified by unit tests.
+
+### Single-backend behavior
+
+Plex-only installs see no UI change. The picker is hidden, backend badges
+are hidden, the warning banner only fires if you somehow have a "both" row
+in the DB. Every operation runs exactly once with the Plex client — the
+dispatch loop short-circuits to a single iteration. Tail-rebuild semantics
+on Plex are byte-for-byte identical to v1.0.7.
+
+### Fixed
+
+- **Empty `FLASK_SECRET=` no longer crashes session-using routes.** Previously
+  an empty-string value (set in `.env` but blank) was passed through to Flask
+  instead of falling back to the dev default — every redirect that called
+  `flash()` 500'd, including the success page after creating a playlist
+  (Plex/Jellyfin playlists were created, but the user saw an error). Now any
+  empty/unset value falls back to the dev secret.
+
+### Migration
+
+Migrating from v1.0.7: no manual steps. On first boot, `db.init_db()`
+runs the additive ALTER TABLEs and backfills `plex_show_item_id` from
+`show_rating_key` for every legacy row.
+
+### Testing notes
+
+`tests.py` is stdlib-only, no Plex or Jellyfin connection needed. Integration
+testing against real servers is a manual step before tagging.
+
 ## [1.0.7] - 2026-05-24
 
 ### Added

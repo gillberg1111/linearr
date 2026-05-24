@@ -10,6 +10,10 @@
   </div>
 
   <form method="post" action="{{ url_for('new_configure') }}" class="builder" id="builderForm">
+    {# Default backend selection — triple-pill picker lives on configure.html
+       so users can change it after seeing the show list. #}
+    <input type="hidden" name="backend" value="{{ default_backend }}">
+
     <div class="builder-toolbar">
       <input type="text" name="name" required placeholder="Playlist name"
              class="name-input" autofocus value="{{ prev_name or '' }}">
@@ -20,7 +24,9 @@
     </div>
 
     {% if not shows %}
-      <p class="empty-state">Couldn't load shows from Plex. Check PLEX_URL / PLEX_TOKEN.</p>
+      <p class="empty-state">
+        Couldn't load shows. Check the backend credentials in your environment.
+      </p>
     {% else %}
       <section class="selected-tray" id="selectedWrapper" hidden>
         <div class="selected-tray-head">
@@ -33,23 +39,33 @@
 
       <div class="poster-grid" id="showList">
         {% for s in shows %}
-          <label class="show-tile" data-label="{{ (s.title + ' ' + s.library)|lower }}">
+          {% set both_backends = s.backends|length > 1 %}
+          {% set only_jf = (s.backends|length == 1) and ('jellyfin' in s.backends) %}
+          {% set only_px = (s.backends|length == 1) and ('plex' in s.backends) %}
+          <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
             <input type="checkbox" name="shows" value="{{ s.rating_key }}"
                    {% if selected and s.rating_key in selected %}checked{% endif %}>
             <div class="poster">
               {% if s.thumb %}
                 <img loading="lazy"
-                     src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=240&h=360"
+                     src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ s.thumb_backend }}&w=240&h=360"
                      alt="{{ s.title }}">
               {% else %}
                 <div class="poster-fallback">{{ s.title[:1] }}</div>
               {% endif %}
               <div class="check"></div>
+              {# Backend badge — only renders in dual-backend installs where one
+                 backend has the show and the other doesn't. #}
+              {% if AVAILABLE_BACKENDS|length > 1 and not both_backends %}
+                <div class="backend-badge {% if only_jf %}is-jellyfin{% else %}is-plex{% endif %}">
+                  {% if only_jf %}Jellyfin only{% else %}Plex only{% endif %}
+                </div>
+              {% endif %}
             </div>
             <div class="show-meta">
               <div class="title">{{ s.title }}</div>
               <div class="sub">
-                {% if s.year %}{{ s.year }} · {% endif %}{{ s.library }}
+                {% if s.year %}{{ s.year }} · {% endif %}{{ s.library or '' }}
               </div>
             </div>
           </label>

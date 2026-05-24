@@ -5,7 +5,8 @@
 #   B) Build locally from this repo (default — `build: .` is active)
 #
 # Either way:
-#   1. cp .env.example .env  and fill in PLEX_URL + PLEX_TOKEN
+#   1. cp .env.example .env  and fill in PLEX_URL + PLEX_TOKEN,
+#      JELLYFIN_URL + JELLYFIN_USERNAME + JELLYFIN_PASSWORD, or both.
 #   2. docker compose up -d
 #   3. open http://<host>:5005
 

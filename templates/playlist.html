@@ -4,15 +4,43 @@
   <a href="{{ url_for('index') }}" class="back">← All playlists</a>
 
   <div class="page-head">
-    <h1>{{ playlist.name }}</h1>
+    <h1>
+      {{ playlist.name }}
+      {% if AVAILABLE_BACKENDS|length > 1 or playlist.backend != 'plex' %}
+        <span class="backend-badge backend-badge-inline is-{{ playlist.backend }}">
+          {% if playlist.backend == 'both' %}Plex + Jellyfin
+          {% elif playlist.backend == 'jellyfin' %}Jellyfin
+          {% else %}Plex{% endif %}
+        </span>
+      {% endif %}
+    </h1>
     <p class="subtitle">
       {{ playlist.shows|length }} show{{ '' if playlist.shows|length == 1 else 's' }}
-      · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }} in Plex
+      · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }}
       · sorted by <strong>{{ 'Air Date' if playlist.sort_mode == 'air_date' else 'Rotation' }}</strong>
       {% if playlist.unwatched_only %}· <strong>unwatched only</strong>{% endif %}
       {% if not playlist.auto_sync %}· <strong>auto-update off</strong>{% endif %}
     </p>
   </div>
+
+  {% if missing_on %}
+    <div class="warning-banner">
+      <div class="warning-banner-head">
+        <span class="warning-banner-icon" aria-hidden="true">⚠</span>
+        Some shows aren't on every backend this playlist targets
+      </div>
+      <ul class="warning-banner-list">
+        {% for m in missing_on %}
+          <li><strong>{{ m.title }}</strong> — not in your {{ m.missing }} library</li>
+        {% endfor %}
+      </ul>
+      <p class="warning-banner-foot">
+        These shows appear in this playlist on the side they exist on, but not on the other.
+        Add them to the missing library — Linearr will auto-detect on the next sync — or remove
+        the show below.
+      </p>
+    </div>
+  {% endif %}
 
   <form method="post" action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Sort</span>
@@ -85,6 +113,8 @@
     <form method="post" action="{{ url_for('reorder', playlist_id=playlist.id) }}" id="orderForm">
       <ul class="rotation-list" id="rotationList">
         {% for s in playlist.shows %}
+          {% set on_plex = s.get('plex_show_item_id') %}
+          {% set on_jf = s.get('jellyfin_show_item_id') %}
           <li class="rotation-row" data-key="{{ s.show_rating_key }}">
             <input type="hidden" name="order" value="{{ s.show_rating_key }}">
             <div class="rotation-poster">
@@ -97,7 +127,14 @@
               {% endif %}
             </div>
             <div class="rotation-info">
-              <div class="title">{{ s.show_title }}</div>
+              <div class="title">
+                {{ s.show_title }}
+                {% if playlist.backend == 'both' and not on_jf %}
+                  <span class="backend-badge is-warn">Not on Jellyfin</span>
+                {% elif playlist.backend == 'both' and not on_plex %}
+                  <span class="backend-badge is-warn">Not on Plex</span>
+                {% endif %}
+              </div>
               <div class="sub">
                 {% if s.start_season and s.start_season != 1 or s.end_season %}
                   Seasons {{ s.start_season or 1 }}{% if s.end_season %}–{{ s.end_season }}{% else %}+{% endif %}
@@ -154,23 +191,33 @@
 
         <div class="poster-grid" id="addShowList">
           {% for s in available %}
-            <label class="show-tile" data-label="{{ (s.title + ' ' + s.library)|lower }}">
+            {% set thumb_b = s.thumb_backend if s is mapping else None %}
+            {% set show_backends = s.backends if s is mapping else None %}
+            {% set both = show_backends and (show_backends|length) > 1 %}
+            {% set only_jf = show_backends and (show_backends|length == 1) and ('jellyfin' in show_backends) %}
+            {% set only_px = show_backends and (show_backends|length == 1) and ('plex' in show_backends) %}
+            <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
               <input type="checkbox" name="shows" value="{{ s.rating_key }}"
                      {% if selected and s.rating_key in selected %}checked{% endif %}>
               <div class="poster">
                 {% if s.thumb %}
                   <img loading="lazy"
-                       src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=240&h=360"
+                       src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}{% if thumb_b %}&b={{ thumb_b }}{% endif %}&w=240&h=360"
                        alt="{{ s.title }}">
                 {% else %}
                   <div class="poster-fallback">{{ s.title[:1] }}</div>
                 {% endif %}
                 <div class="check"></div>
+                {% if AVAILABLE_BACKENDS|length > 1 and show_backends and not both %}
+                  <div class="backend-badge {% if only_jf %}is-jellyfin{% else %}is-plex{% endif %}">
+                    {% if only_jf %}Jellyfin only{% else %}Plex only{% endif %}
+                  </div>
+                {% endif %}
               </div>
               <div class="show-meta">
                 <div class="title">{{ s.title }}</div>
                 <div class="sub">
-                  {% if s.year %}{{ s.year }} · {% endif %}{{ s.library }}
+                  {% if s.year %}{{ s.year }} · {% endif %}{{ s.library or '' }}
                 </div>
               </div>
             </label>

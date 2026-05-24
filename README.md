@@ -1,16 +1,22 @@
 <p align="center">
-  <img src="images/banner.png" alt="Linearr — The missing show sequencer for Plex" width="900">
+  <img src="images/banner.png" alt="Linearr — The missing show sequencer for Plex and Jellyfin" width="900">
 </p>
 
 # Linearr
 
-### The missing show sequencer for Plex.
+### The missing show sequencer for Plex and Jellyfin.
 Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
 
 ---
 
-A web app that builds and maintains custom Plex playlists across multiple TV
-shows (and their associated movies). Two ways to order episodes:
+A web app that builds and maintains custom playlists across multiple TV shows
+(and their associated movies) — on **Plex**, **Jellyfin**, or **both at once**.
+Configure either or both backends; each playlist independently targets Plex,
+Jellyfin, or "Both" (mirrored to each server in lockstep). Single-backend
+installs see no UI change — the picker only appears when both backends are
+configured.
+
+Two ways to order episodes:
 
 **Round-robin (Rotation mode)** — pick a stack of shows, and episodes
 interleave in the order you picked them. Never sorted by air date across
@@ -37,10 +43,17 @@ pruning keeps watched episodes from piling up, with a configurable
 fall-asleep buffer.
 
 > [!IMPORTANT]
-> This app **never deletes media files or library items from Plex.** It only
-> manages playlists. A runtime safety guard disables `delete()` on Episodes,
-> Shows, Seasons, and Movies in the Plex API client — even an internal bug
-> couldn't remove anything.
+> This app **never deletes media files or library items from Plex or Jellyfin.**
+> It only manages playlists. Two layers of safety guard back this up:
+> - **Plex** — a runtime monkey-patch disables `delete()` on Episodes, Shows,
+>   Seasons, and Movies in the python-plexapi client.
+> - **Jellyfin** — an HTTP-layer guard deny-by-default refuses every outbound
+>   `DELETE` request; only `DELETE /Playlists/{id}/Items` is allow-listed.
+>   The intentional `delete_playlist()` is the single audited bypass and
+>   verifies the target is a playlist before each call.
+>
+> Even an internal bug couldn't remove anything. Both guards are
+> defense-in-depth and have unit tests verifying they hold.
 
 ---
 
@@ -78,6 +91,7 @@ fall-asleep buffer.
 - [Install with `docker run`](#install-with-docker-run)
 - [Install without Docker (Python)](#install-without-docker-python)
 - [Finding your Plex token](#finding-your-plex-token)
+- [Jellyfin authentication](#jellyfin-authentication)
 - [Configuration reference](#configuration-reference)
 - [Usage walk-through](#usage-walk-through)
 - [How adds, removes, sort changes, and prunes work](#how-adds-removes-sort-changes-and-prunes-work)
@@ -94,6 +108,23 @@ fall-asleep buffer.
 
 ## Features
 
+- **Plex AND Jellyfin support.** Configure either or both. Each playlist
+  targets Plex, Jellyfin, or "Both" (mirrored to each server independently
+  using each server's own library state and watch state). When both backends
+  are configured, a triple-pill picker appears on the configure page:
+  `Push to: Both / Plex / Jellyfin`. With only one backend configured, the
+  picker is hidden and that backend is used.
+  - **Cross-backend matching:** shows added to a "Both" playlist are matched
+    on the other side by normalized title + year. The matched IDs are
+    persisted, so each backend's playlist references the correct local item.
+  - **Heal-on-sync:** every sync re-attempts matching for shows missing an
+    ID on one side. Add a show to a previously-empty Jellyfin library and
+    the next sync auto-resolves it onto every "Both" playlist that should
+    contain it — no manual reconciliation.
+  - **Missing-side warning:** an informational (never blocking) banner lists
+    any shows that aren't on every targeted backend. Add the show to the
+    missing library and the next sync heals it; or remove it from the
+    playlist; or switch the playlist to a single backend.
 - **Two sort modes per playlist:**
   - **Rotation** — round-robin in the order you picked shows.
   - **Air Date** — chronological across every show; multi-part crossovers
@@ -136,10 +167,11 @@ fall-asleep buffer.
   with `AUTO_SYNC=false`, or **per playlist** with the **Auto-update**
   pill on the playlist's detail page (defaults to Enabled). Disabled
   playlists are skipped on every sweep and stay locked until you edit them.
-- **Cover art everywhere** — poster grids, season cards, playlist tiles; a
-  thumbnail proxy means your Plex token never lands in HTML.
-- **Never destructive** — runtime guard refuses any Plex API call that
-  could delete media or library items.
+- **Cover art everywhere** — poster grids, season cards, playlist tiles; the
+  thumbnail proxy keeps every Plex token / Jellyfin access token server-side.
+- **Never destructive** — two-layer safety guard refuses any backend API
+  call that could delete media or library items (Plex's monkey-patch on
+  `Episode/Show/Season/Movie.delete` + Jellyfin's HTTP-layer DELETE allow-list).
 
 ---
 
@@ -149,11 +181,13 @@ fall-asleep buffer.
 git clone https://github.com/gillberg1111/linearr.git
 cd linearr
 cp .env.example .env
-# edit .env — set PLEX_URL and PLEX_TOKEN
+# Edit .env — set PLEX_URL+PLEX_TOKEN, JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD, or both.
 docker compose up -d
 ```
 
-Open <http://localhost:5005>. That's it.
+Open <http://localhost:5005>. That's it. With both backends configured you'll
+see the `Push to: Both / Plex / Jellyfin` picker when creating playlists;
+with only one, that backend is used automatically.
 
 ---
 
@@ -178,15 +212,21 @@ edit/restart it from the Docker tab just like a Community App.
 3. Click **Add another Path, Port, Variable, Label or Device** at the
    bottom and add the following one at a time:
 
-   | Type     | Container Path / Key | Host Path / Value                  | Notes        |
-   | -------- | -------------------- | ---------------------------------- | ------------ |
-   | Port     | `5005` TCP           | `5005`                             |              |
-   | Path     | `/data`              | `/mnt/user/appdata/linearr`   | Read/Write   |
-   | Variable | `PLEX_URL`           | `http://<unraid-ip>:32400`         | required     |
-   | Variable | `PLEX_TOKEN`         | *(your token)*                     | required     |
-   | Variable | `WATCHED_KEEP`       | `2`                                | optional     |
-   | Variable | `PRUNE_INTERVAL_MINUTES` | `10`                           | optional     |
-   | Variable | `TV_LIBRARIES`       | *(blank = all show libraries)*     | optional     |
+   | Type     | Container Path / Key   | Host Path / Value                | Notes                                            |
+   | -------- | ---------------------- | -------------------------------- | ------------------------------------------------ |
+   | Port     | `5005` TCP             | `5005`                           |                                                  |
+   | Path     | `/data`                | `/mnt/user/appdata/linearr`      | Read/Write                                       |
+   | Variable | `PLEX_URL`             | `http://<unraid-ip>:32400`       | required *if Plex enabled* (blank to disable)    |
+   | Variable | `PLEX_TOKEN`           | *(your token)*                   | required *if Plex enabled*                       |
+   | Variable | `JELLYFIN_URL`         | `http://<unraid-ip>:8096`        | required *if Jellyfin enabled* (blank to disable)|
+   | Variable | `JELLYFIN_USERNAME`    | *(your Jellyfin username)*       | required *if Jellyfin enabled*                   |
+   | Variable | `JELLYFIN_PASSWORD`    | *(your Jellyfin password)*       | required *if Jellyfin enabled*                   |
+   | Variable | `WATCHED_KEEP`         | `2`                              | optional                                         |
+   | Variable | `PRUNE_INTERVAL_MINUTES` | `10`                           | optional                                         |
+   | Variable | `TV_LIBRARIES`         | *(blank = all show libraries)*   | optional — applies to BOTH backends if set       |
+
+   At least one backend (Plex *or* Jellyfin) must be configured. Both are
+   optional; both work; both at once works.
 
 4. **Apply** → Unraid pulls the image from `ghcr.io` and starts the
    container.
@@ -245,6 +285,8 @@ docker compose pull && docker compose up -d   # update (registry image)
 
 ## Install with `docker run`
 
+Plex-only:
+
 ```bash
 docker run -d \
   --name linearr \
@@ -255,6 +297,22 @@ docker run -d \
   -e PLEX_TOKEN=YOUR_TOKEN_HERE \
   -e WATCHED_KEEP=2 \
   -e PRUNE_INTERVAL_MINUTES=10 \
+  ghcr.io/gillberg1111/linearr:latest
+```
+
+Both Plex and Jellyfin (triple-pill picker enabled):
+
+```bash
+docker run -d \
+  --name linearr \
+  --restart unless-stopped \
+  -p 5005:5005 \
+  -v /path/to/your/appdata:/data \
+  -e PLEX_URL=http://192.168.1.100:32400 \
+  -e PLEX_TOKEN=YOUR_TOKEN_HERE \
+  -e JELLYFIN_URL=http://192.168.1.100:8096 \
+  -e JELLYFIN_USERNAME=YOUR_JELLYFIN_USERNAME \
+  -e JELLYFIN_PASSWORD=YOUR_JELLYFIN_PASSWORD \
   ghcr.io/gillberg1111/linearr:latest
 ```
 
@@ -306,27 +364,59 @@ WantedBy=multi-user.target
 The token grants admin access to your server — treat it like a password. The
 app never exposes it in HTML; posters proxy through the server.
 
+## Jellyfin authentication
+
+Linearr authenticates against Jellyfin with **username + password** (NOT an
+API key). Set `JELLYFIN_USERNAME` to your Jellyfin login name and
+`JELLYFIN_PASSWORD` to its password.
+
+> [!NOTE]
+> **Why username/password instead of an API key?** Jellyfin's API-key
+> authentication is unresolved-broken on the playlist endpoints Linearr
+> needs (see Jellyfin issues
+> [#15600](https://github.com/jellyfin/jellyfin/issues/15600) and
+> [#12999](https://github.com/jellyfin/jellyfin/issues/12999), open as of
+> 10.11.3) — `GET /Playlists/{id}` and `DELETE /Playlists/{id}/Items`
+> return 400 "Guid can't be empty" when called with an API key.
+> Authenticating as a user via `POST /Users/AuthenticateByName` works for
+> every endpoint, which is the same path the official Jellyfin web UI uses.
+>
+> **How the credentials are handled:** the password is only used during the
+> initial `/Users/AuthenticateByName` call and is held in memory only — never
+> written to the DB. The resulting access token is also memory-only and is
+> rotated automatically on any 401. A stable DeviceId persists to
+> `<DB_DIR>/device_id` so the server's "one access token per (deviceId, user)"
+> rule doesn't churn on every restart.
+>
+> A dedicated low-privilege Jellyfin user works fine — Linearr only needs
+> read access to libraries and the ability to manage playlists owned by
+> that user.
+
 ---
 
 ## Configuration reference
 
-All values are environment variables.
+All values are environment variables. **At least one backend (Plex or
+Jellyfin) must be configured.** Both backends, both, or either alone all work.
 
 | Variable                 | Required | Default                | Notes                                                                                          |
 | ------------------------ | -------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `PLEX_URL`               | yes      | —                      | e.g. `http://192.168.1.100:32400`. LAN IP, not `plex.tv`.                                      |
-| `PLEX_TOKEN`             | yes      | —                      | X-Plex-Token (see above).                                                                      |
+| `PLEX_URL`               | if Plex  | —                      | e.g. `http://192.168.1.100:32400`. LAN IP, not `plex.tv`. Leave blank to disable Plex.         |
+| `PLEX_TOKEN`             | if Plex  | —                      | X-Plex-Token (see above). Leave blank to disable Plex.                                         |
+| `JELLYFIN_URL`           | if Jellyfin | —                   | e.g. `http://192.168.1.100:8096`. LAN IP. Leave blank to disable Jellyfin.                     |
+| `JELLYFIN_USERNAME`      | if Jellyfin | —                   | Jellyfin login name. Leave blank to disable Jellyfin.                                          |
+| `JELLYFIN_PASSWORD`      | if Jellyfin | —                   | Held in memory only; never written to DB. See note above on why username/password.             |
 | `WEB_HOST`               | no       | `0.0.0.0`              | `127.0.0.1` to restrict to localhost.                                                          |
 | `WEB_PORT`               | no       | `5005`                 | HTTP port.                                                                                     |
 | `DB_PATH`                | no       | `/data/rotator.db`     | SQLite file. Container `/data` is the persistent volume.                                       |
 | `WATCHED_KEEP`           | no       | `2`                    | Recently-watched episodes to leave in each playlist as a fall-asleep buffer.                   |
 | `PRUNE_INTERVAL_MINUTES` | no       | `10`                   | How often the prune + auto-sync sweep runs.                                                    |
 | `AUTO_SYNC`              | no       | `true`                 | When true, newly-aired episodes and new seasons are spliced into managed playlists every sweep. Set `false` to lock playlists at creation. |
-| `TV_LIBRARIES`           | no       | *(all show libs)*      | Comma-separated library names to source shows from. Blank = every "show" library.              |
+| `TV_LIBRARIES`           | no       | *(all show libs)*      | Comma-separated library names to source shows from. Blank = every "show" library. Applies to BOTH backends when set. |
 | `FLASK_SECRET`           | no       | `dev-secret-change-me` | Random secret for Flask session cookies. `openssl rand -hex 32`.                               |
 
-The app searches every **movie** library on the server when looking for
-associated movies — that isn't currently filterable.
+The app searches every **movie** library on every configured backend when
+looking for associated movies — that isn't currently filterable.
 
 ---
 
@@ -423,13 +513,17 @@ two-parters intact.
 
 ## Safety guarantee
 
-This app **never** deletes media files or library items from Plex. The only
-destructive Plex operations it performs:
+This app **never** deletes media files or library items from Plex or
+Jellyfin. The only destructive backend operations it performs:
 
-| Operation                | What it touches                          |
-| ------------------------ | ---------------------------------------- |
-| `Playlist.delete()`      | The rotation playlist (metadata only).   |
-| `Playlist.removeItem()`  | One entry IN a playlist. The underlying Episode/Show/Movie/file is untouched. |
+| Operation                                       | What it touches                                                |
+| ----------------------------------------------- | -------------------------------------------------------------- |
+| Plex `Playlist.delete()`                        | The Plex playlist (metadata only).                             |
+| Plex `Playlist.removeItem()`                    | One entry IN a Plex playlist. Underlying media is untouched.   |
+| Jellyfin `DELETE /Items?ids={playlistId}`       | The Jellyfin playlist (metadata only). Only via `delete_playlist()` after verifying the target is a playlist. |
+| Jellyfin `DELETE /Playlists/{id}/Items`         | Items IN a Jellyfin playlist. Underlying media is untouched.   |
+
+### Plex — monkey-patch on import
 
 `plex_client.py` installs a runtime safety guard at import time:
 
@@ -440,25 +534,55 @@ for cls in (Episode, Show, Season, Movie):
 
 So `episode.delete()`, `show.delete()`, `movie.delete()`, etc. fail
 immediately with a clear error instead of doing anything. `Playlist.delete()`
-is intentionally left intact (playlists are pure metadata).
+is intentionally left intact (playlists are pure metadata). Unit tests
+verify each of the four classes' `.delete` is actually patched.
+
+### Jellyfin — HTTP-layer deny-by-default
+
+`jellyfin_client.py` routes every outbound `DELETE` request through
+`_check_delete_safety(path)`, which raises `JellyfinSafetyError` unless the
+path matches the allow-list (currently a single pattern:
+`^/Playlists/[^/]+/Items$`). The intentional `delete_playlist()` is the
+single audited code path that bypasses the check — and it verifies the
+target really is a playlist via `GET /Playlists/{id}` first.
+
+Unit tests assert refusal across 18 dangerous endpoint categories:
+- `DELETE /Items` (mass library delete) and `DELETE /Items/{id}` (single)
+- `DELETE /Items/{id}/Images/...` (asset deletion)
+- `DELETE /Library/VirtualFolders` / `.../Paths` (library removal)
+- `DELETE /Collections/{id}/Items`, `DELETE /Users/{id}`, `DELETE /Devices`
+- `DELETE /Videos/.../AlternateSources`, `.../Subtitles/{n}`, `.../Lyrics`
+- `DELETE /Auth/Keys/{key}`, `DELETE /Plugins/{id}`, `DELETE /LiveTv/Recordings/{id}`
+- and more — see [`tests.py`](tests.py) `test_jellyfin_safety_blocks_library_item_deletion`.
 
 ---
 
 ## Running tests
 
-The pure rotation/sort/prune logic in `rotation.py` has a self-contained test
-suite — no Plex or network required.
+The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 31 passed, 0 failed, 31 total
+# 87 passed, 0 failed, 87 total
 ```
 
-Covers: round-robin interleaving, splice-from-current-position, watched
-pruning with last-N retention, Part N detection, air-date sequence with
-crossover Part 1/2 alignment, show-order tie-breaks, rebuild-tail in both
-rotation and air-date modes, and movie identity preservation across rebuilds.
-If you modify `rotation.py`, run this first.
+Covers:
+- **Rotation logic** (31 tests, original): round-robin interleaving,
+  splice-from-current-position, watched pruning with last-N retention,
+  Part N detection, air-date sequence with crossover Part 1/2 alignment,
+  show-order tie-breaks, rebuild-tail in both rotation and air-date modes,
+  movie identity preservation across rebuilds. Run these if you modify
+  `rotation.py`.
+- **Safety guards** (22 tests): every Plex item class confirmed monkey-patched,
+  every dangerous Jellyfin DELETE endpoint refused by the HTTP-layer guard,
+  the one allow-listed Jellyfin DELETE pattern accepted, lookalike paths
+  rejected.
+- **Cross-backend matching** (15 tests): title normalization, case
+  insensitivity, punctuation handling, year disambiguation, year-known-on-
+  one-side permissiveness, None/empty handling.
+- **Service-layer dispatch** (8 tests): `ShowConfig` back-compat,
+  `id_for(backend)` routing, `movie_ids_for(backend)`, `_backends_for`
+  expansion, `_find_match` with year tiebreak.
 
 ---
 
@@ -541,37 +665,60 @@ journalctl -u linearr -f          # systemd
 ```
 app.py                       — Flask routes (/, /new, /new/configure,
                                 /playlist/<id>, /thumb, /api/preview, …)
+                                + cross-backend show aggregation for the picker
 service.py                   — High-level ops: create / add / remove /
-                                reorder / set-sort / set-unwatched / prune
-plex_client.py               — Wraps python-plexapi; installs the no-delete
-                                safety guard; movie title-matcher
+                                reorder / set-sort / set-unwatched / sync /
+                                prune. Dispatches to each enabled backend
+                                via _clients_for_playlist().
+media_client.py              — Abstract MediaClient base + shared dataclasses.
+                                Single get_client(backend) factory. Pure
+                                title-match helper for cross-backend bridging.
+plex_client.py               — PlexClient(MediaClient): wraps python-plexapi.
+                                Module-level monkey-patch refuses
+                                Episode/Show/Season/Movie.delete().
+                                Module-level shims for backward compat.
+jellyfin_client.py           — JellyfinClient(MediaClient): raw requests
+                                against the Jellyfin REST API. Authenticates
+                                via /Users/AuthenticateByName. HTTP-layer
+                                deny-by-default DELETE safety guard.
+                                Atomic playlist replace via UpdatePlaylist.
 rotation.py                  — Pure interleave / air-date-sort / splice /
-                                prune logic; movies tracked by rating_key.
+                                prune logic. Backend-agnostic.
                                 Unit-tested.
-db.py                        — SQLite schema, migrations, helpers
-scheduler.py                 — APScheduler background prune job
+db.py                        — SQLite schema, migrations, helpers.
+                                Tracks per-row backend IDs (plex_show_item_id,
+                                jellyfin_show_item_id) for "Both"-mode
+                                playlists.
+scheduler.py                 — APScheduler background prune + sync sweeps
 templates/
   base.html                  — Layout + top bar
-  index.html                 — Playlist landing page
-  new.html                   — Show picker (with tray + clear)
-  playlist.html              — Per-playlist detail page
+  index.html                 — Playlist landing page (+ backend badges)
+  new.html                   — Show picker (with tray + clear + per-show
+                                "Plex only" / "Jellyfin only" overlays)
+  playlist.html              — Per-playlist detail page (+ backend badge,
+                                missing-side warning banner)
   configure.html             — Per-show season range, specials, movies,
-                                sort/filter pills, AJAX preview
+                                sort/filter pills, AJAX preview, and the
+                                triple-pill "Push to" backend picker
+                                (shown only when ≥2 backends configured)
   _preview_partial.html      — Just the preview list (rendered server-side
                                 on initial load and via /api/preview AJAX)
   linearr.xml                — Unraid Community Applications template (XML),
                                 lives here per CA's required folder structure
 static/
   picker.js                  — Tray-based show picker (reusable)
-  style.css                  — All styles
+  style.css                  — All styles (incl. backend-badge + warning-banner)
 images/                      — Logo, banner, favicons, Unraid icon (SVG + PNG)
 ca_profile.xml               — Repository-wide metadata for Unraid CA
-tests.py                     — Self-contained unit tests for rotation.py
+tests.py                     — Self-contained unit tests (rotation, safety
+                                guards, title matching, dispatch — 87 total)
 ```
 
-The Plex playlist itself is the source of truth for episode order. SQLite
-only stores configuration (which shows in which playlist, their seasons,
-specials choice, included movies, position, and sort + filter modes).
+Each backend's playlist is the source of truth for *its own* episode order.
+SQLite only stores configuration (which shows in which playlist, their
+seasons, specials choice, included movies, position, sort + filter modes,
+plus which backend(s) each playlist targets and per-row backend IDs for
+"Both"-mode playlists).
 
 ---
 
@@ -606,5 +753,7 @@ deployment, and ongoing maintenance are mine.
 ---
 
 > Linearr follows the `*arr` naming convention popular in the Plex / Sonarr /
-> Radarr ecosystem, but it is not affiliated with the Servarr project or
-> Plex Inc. "Plex" is a trademark of Plex GmbH.
+> Radarr ecosystem, but it is not affiliated with the Servarr project, Plex
+> Inc., or the Jellyfin project. "Plex" is a trademark of Plex GmbH;
+> Jellyfin is a community-developed free software project (GPL-2.0). Linearr
+> is an independent third-party client.

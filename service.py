@@ -1,6 +1,18 @@
 """High-level operations: create / edit / prune managed rotating playlists.
 
-Bridges db (managed state), plex_client (server I/O), and rotation (pure logic).
+Bridges db (managed state), the `MediaClient` interface (server I/O), and
+`rotation` (pure logic). Every server call goes through MediaClient; this
+module never imports a backend-specific module directly.
+
+Dual-backend (v1.1.0):
+  * A `managed_playlists.backend` of 'plex', 'jellyfin', or 'both' decides
+    which backends each operation iterates over.
+  * `_clients_for_playlist(row)` is the single dispatch point.
+  * Each show row carries both `plex_show_item_id` and `jellyfin_show_item_id`
+    (each nullable). Per-backend operations filter to shows that have an ID
+    on that backend; missing-side shows are silently skipped on that side.
+  * For 'both' playlists, sync runs heal-on-sync: shows missing an ID on one
+    side get a fresh title+year match attempt against that backend's library.
 """
 
 from __future__ import annotations
@@ -10,8 +22,14 @@ import os
 from dataclasses import dataclass, field
 
 import db
-import plex_client as plex
 import rotation
+from media_client import (
+    EpisodeRef,
+    MediaClient,
+    MovieSummary,
+    get_client,
+    titles_match,
+)
 from rotation import PlaylistItem
 
 log = logging.getLogger(__name__)
@@ -24,6 +42,14 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class ShowConfig:
+    """The per-show configuration carried through preview/create/sync.
+
+    `rating_key` is the row's primary identifier. For legacy Plex-only rows
+    it equals plex_rating_key. For Jellyfin-originated rows (without a Plex
+    match) it equals jellyfin_rating_key. The dedicated *_rating_key fields
+    below are what we actually use for API calls per backend.
+    """
+
     rating_key: str
     title: str = ""
     thumb: str | None = None
@@ -31,7 +57,29 @@ class ShowConfig:
     end_season: int | None = None
     include_specials: bool = False
     include_movies: bool = False
-    movie_rating_keys: list[str] = field(default_factory=list)
+    movie_rating_keys: list[str] = field(default_factory=list)  # Plex movie ratingKeys
+    # v1.1.0 dual-backend identifiers
+    plex_rating_key: str | None = None
+    jellyfin_rating_key: str | None = None
+    jellyfin_movie_rating_keys: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Legacy callers (Phase 1 / single-backend Plex) pass only rating_key
+        # for a Plex show; mirror it into plex_rating_key so backend dispatch
+        # below works uniformly.
+        if self.plex_rating_key is None and self.rating_key and self.rating_key.isdigit():
+            self.plex_rating_key = self.rating_key
+
+    def id_for(self, backend: str) -> str | None:
+        return self.plex_rating_key if backend == "plex" else self.jellyfin_rating_key
+
+    def movie_ids_for(self, backend: str) -> list[str]:
+        return self.movie_rating_keys if backend == "plex" else self.jellyfin_movie_rating_keys
+
+
+# --------------------------------------------------------------------------- #
+# Dispatch helpers
+# --------------------------------------------------------------------------- #
 
 
 def _watched_keep() -> int:
@@ -41,46 +89,71 @@ def _watched_keep() -> int:
         return 2
 
 
-def _playlist_items_for_rotation(playlist) -> list[PlaylistItem]:
-    items: list[PlaylistItem] = []
-    for ep in playlist.items():
-        oad = getattr(ep, "originallyAvailableAt", None)
-        air = None
-        if oad is not None:
-            try:
-                air = oad.date().isoformat() if hasattr(oad, "date") else oad.isoformat()
-            except Exception:
-                air = None
-        is_movie = getattr(ep, "type", None) == "movie" or not getattr(ep, "grandparentRatingKey", None)
-        items.append(
-            PlaylistItem(
-                rating_key=str(ep.ratingKey),
-                show_rating_key=str(getattr(ep, "grandparentRatingKey", "") or ""),
-                season=int(getattr(ep, "seasonNumber", 0) or 0) if not is_movie else 999,
-                episode=int(getattr(ep, "index", 0) or 0) if not is_movie else 1,
-                view_count=int(getattr(ep, "viewCount", 0) or 0),
-                view_offset_ms=int(getattr(ep, "viewOffset", 0) or 0),
-                title=getattr(ep, "title", "") or "",
-                air_date=air,
-                kind="movie" if is_movie else "episode",
-            )
-        )
-    return items
+def _backends_for(row) -> list[str]:
+    """Backend names this playlist row targets ('plex', 'jellyfin', or both)."""
+    backend = row["backend"] if "backend" in row.keys() else "plex"
+    if backend == "both":
+        return ["plex", "jellyfin"]
+    return [backend]
 
 
-def _hydrate_configs(configs: list[ShowConfig]) -> None:
-    """Fill in missing title/thumb from Plex."""
+def _client_for(backend: str) -> MediaClient:
+    return get_client(backend)
+
+
+def _playlist_id_on(row, backend: str) -> str | None:
+    """The backend-specific playlist id stored on this row (None if not created)."""
+    if backend == "plex":
+        return row["plex_rating_key"] if "plex_rating_key" in row.keys() else None
+    return row["jellyfin_playlist_id"] if "jellyfin_playlist_id" in row.keys() else None
+
+
+def _clients_for_playlist(row) -> list[tuple[str, MediaClient, str | None]]:
+    """Return [(backend, client, backend_playlist_id), ...] for each backend
+    this playlist targets. backend_playlist_id may be None if the playlist
+    hasn't been created on that backend yet (e.g. mid-create failure)."""
+    out: list[tuple[str, MediaClient, str | None]] = []
+    for backend in _backends_for(row):
+        out.append((backend, _client_for(backend), _playlist_id_on(row, backend)))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Per-backend config hydration + episode fetch
+# --------------------------------------------------------------------------- #
+
+
+def _hydrate_configs(configs: list[ShowConfig], backend: str) -> None:
+    """Fill in missing title/thumb from the backend, using whichever id is
+    populated for that backend. Configs already populated stay untouched."""
+    client = _client_for(backend)
     for cfg in configs:
-        if not cfg.title or cfg.thumb is None:
-            summary = plex.get_show_summary(cfg.rating_key)
-            cfg.title = cfg.title or summary.title
-            if cfg.thumb is None:
-                cfg.thumb = summary.thumb
+        target_id = cfg.id_for(backend)
+        if not target_id:
+            continue
+        if cfg.title and cfg.thumb is not None:
+            continue
+        try:
+            summary = client.get_show_summary(target_id)
+        except Exception:
+            log.debug("hydrate skipped for %s on %s (lookup failed)", target_id, backend)
+            continue
+        cfg.title = cfg.title or summary.title
+        if cfg.thumb is None:
+            cfg.thumb = summary.thumb
 
 
-def _episodes_for_config(cfg: ShowConfig, unwatched_only: bool = False) -> list[plex.EpisodeRef]:
-    eps = plex.episodes_for_show(
-        cfg.rating_key,
+def _episodes_for_config(
+    cfg: ShowConfig, backend: str, unwatched_only: bool = False
+) -> list[EpisodeRef]:
+    """Episodes for one show on one backend. Returns [] if the show has no
+    id on this backend (caller should treat that as "skip on this side")."""
+    target_id = cfg.id_for(backend)
+    if not target_id:
+        return []
+    client = _client_for(backend)
+    eps = client.episodes_for_show(
+        target_id,
         start_season=cfg.start_season,
         end_season=cfg.end_season,
         include_specials=cfg.include_specials,
@@ -88,41 +161,40 @@ def _episodes_for_config(cfg: ShowConfig, unwatched_only: bool = False) -> list[
     if unwatched_only:
         eps = [e for e in eps if e.view_count == 0]
 
-    # Append associated movies (if any) as pseudo-episodes attached to this show
-    if cfg.include_movies and cfg.movie_rating_keys:
-        movie_refs: list[plex.EpisodeRef] = []
-        for mrk in cfg.movie_rating_keys:
-            try:
-                m_item = plex.server().fetchItem(int(mrk))
-            except Exception:
+    if cfg.include_movies:
+        movie_refs: list[EpisodeRef] = []
+        for mrk in cfg.movie_ids_for(backend):
+            ms = client.get_movie_summary(mrk)
+            if ms is None:
                 continue
-            oad = getattr(m_item, "originallyAvailableAt", None)
-            air = None
-            if oad is not None:
-                try:
-                    air = oad.date().isoformat() if hasattr(oad, "date") else oad.isoformat()
-                except Exception:
-                    air = None
-            movie_summary = plex.MovieSummary(
-                rating_key=str(m_item.ratingKey),
-                title=m_item.title or "",
-                year=getattr(m_item, "year", None),
-                thumb=getattr(m_item, "thumb", None),
-                air_date=air,
-                view_count=int(getattr(m_item, "viewCount", 0) or 0),
-            )
-            if unwatched_only and movie_summary.view_count > 0:
+            if unwatched_only and ms.view_count > 0:
                 continue
-            movie_refs.append(plex.movie_as_episode_ref(movie_summary, cfg.rating_key, cfg.title or ""))
-        # Sort movies by air date so they slot into the show's chronology sensibly
+            movie_refs.append(client.movie_as_episode_ref(ms, target_id, cfg.title or ""))
         movie_refs.sort(key=lambda m: (m.air_date or "9999-99-99", m.title.lower()))
         eps = eps + movie_refs
+
+    # rebuild_tail keys items by (season, episode) per show. Both backends use
+    # the same show_rating_key field on EpisodeRef, but that's the backend's
+    # own show id. For dual-backend rotation each side computes independently
+    # so this is fine — the kept set is read from THIS side's playlist.
     return eps
 
 
+# --------------------------------------------------------------------------- #
+# DB row → ShowConfig
+# --------------------------------------------------------------------------- #
+
+
 def _config_from_row(row) -> ShowConfig:
-    raw_keys = row["movie_rating_keys"] if "movie_rating_keys" in row.keys() else ""
-    keys = [k for k in (raw_keys or "").split(",") if k]
+    raw_plex_keys = row["movie_rating_keys"] if "movie_rating_keys" in row.keys() else ""
+    plex_movies = [k for k in (raw_plex_keys or "").split(",") if k]
+    raw_jf_keys = row["jellyfin_movie_item_ids"] if "jellyfin_movie_item_ids" in row.keys() else ""
+    jf_movies = [k for k in (raw_jf_keys or "").split(",") if k]
+    plex_id = row["plex_show_item_id"] if "plex_show_item_id" in row.keys() else None
+    jf_id = row["jellyfin_show_item_id"] if "jellyfin_show_item_id" in row.keys() else None
+    # Legacy rows pre-migration don't have plex_show_item_id; fall back to the PK.
+    if plex_id is None and str(row["show_rating_key"]).isdigit():
+        plex_id = str(row["show_rating_key"])
     return ShowConfig(
         rating_key=row["show_rating_key"],
         title=row["show_title"],
@@ -131,12 +203,130 @@ def _config_from_row(row) -> ShowConfig:
         end_season=row["end_season"],
         include_specials=bool(row["include_specials"]),
         include_movies=bool(row["include_movies"]) if "include_movies" in row.keys() else False,
-        movie_rating_keys=keys,
+        movie_rating_keys=plex_movies,
+        plex_rating_key=plex_id,
+        jellyfin_rating_key=jf_id,
+        jellyfin_movie_rating_keys=jf_movies,
     )
 
 
 # --------------------------------------------------------------------------- #
-# Preview
+# Cross-backend show matching (used at add-time + heal-on-sync)
+# --------------------------------------------------------------------------- #
+
+
+def _candidates_for(backend: str) -> list:
+    """List of every show on a backend. Network call — caller caches."""
+    try:
+        return _client_for(backend).list_all_shows()
+    except Exception:
+        log.exception("show matching: couldn't list shows on %s", backend)
+        return []
+
+
+def _find_match(candidates: list, title: str, year: int | None) -> str | None:
+    for s in candidates:
+        if titles_match(s.title, title, s.year, year):
+            return s.rating_key
+    return None
+
+
+def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: list[str]) -> None:
+    """For each config missing an id on a target backend, attempt to find it
+    by title+year. Populates the appropriate *_rating_key field in-place.
+
+    Caches the candidate list per backend so we make at most ONE
+    list_all_shows call per backend, regardless of how many configs need
+    matching.
+    """
+    cache: dict[str, list] = {}
+    def cands(b: str) -> list:
+        if b not in cache:
+            cache[b] = _candidates_for(b)
+        return cache[b]
+
+    for cfg in configs:
+        year = _year_hint(cfg)
+        if "plex" in target_backends and cfg.plex_rating_key is None:
+            mid = _find_match(cands("plex"), cfg.title or "", year)
+            if mid:
+                cfg.plex_rating_key = mid
+        if "jellyfin" in target_backends and cfg.jellyfin_rating_key is None:
+            mid = _find_match(cands("jellyfin"), cfg.title or "", year)
+            if mid:
+                cfg.jellyfin_rating_key = mid
+
+
+def _year_hint(cfg: ShowConfig) -> int | None:
+    """Best-effort year for the ShowConfig — used to disambiguate matches.
+    Tries whichever backend already has an id for this show; cheap, tolerant."""
+    for backend in ("plex", "jellyfin"):
+        target_id = cfg.id_for(backend)
+        if not target_id:
+            continue
+        try:
+            summary = _client_for(backend).get_show_summary(target_id)
+            if summary.year:
+                return summary.year
+        except Exception:
+            continue
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# The single tail-rebuild primitive (replaces 6 near-identical blocks)
+# --------------------------------------------------------------------------- #
+
+
+def _rebuild_tail_on(
+    backend: str,
+    client: MediaClient,
+    playlist_id_on_backend: str,
+    configs: list[ShowConfig],
+    sort_mode: str,
+    unwatched_only: bool,
+) -> tuple[int, int]:
+    """Recompute the future portion of a playlist on a single backend.
+
+    Returns (added_count, removed_count). Configs without an id on this
+    backend are silently filtered out (they don't contribute on this side).
+    """
+    relevant_configs = [c for c in configs if c.id_for(backend)]
+    if not relevant_configs:
+        return (0, 0)
+
+    items = client.get_playlist_items(playlist_id_on_backend)
+    splice = rotation.splice_index(items)
+    kept = items[:splice]
+
+    shows_episodes = [
+        _episodes_for_config(c, backend, unwatched_only=unwatched_only)
+        for c in relevant_configs
+    ]
+    show_order = [c.id_for(backend) for c in relevant_configs]
+    new_tail = rotation.rebuild_tail(kept, shows_episodes, mode=sort_mode, show_order=show_order)
+
+    current_tail = items[splice:]
+    current_tail_keys = [it.rating_key for it in current_tail]
+    new_tail_keys = [e.rating_key for e in new_tail]
+
+    if current_tail_keys == new_tail_keys:
+        return (0, 0)
+
+    to_remove = list(set(current_tail_keys) - set(new_tail_keys))
+    kept_keys = {it.rating_key for it in kept}
+    to_add = [k for k in new_tail_keys if k not in kept_keys]
+
+    if to_remove:
+        client.remove_items_from_playlist(playlist_id_on_backend, to_remove)
+    if to_add:
+        client.add_items_to_playlist(playlist_id_on_backend, to_add)
+
+    return (len(to_add), len(to_remove))
+
+
+# --------------------------------------------------------------------------- #
+# Preview (no backend writes)
 # --------------------------------------------------------------------------- #
 
 
@@ -145,25 +335,26 @@ def preview_playlist(
     limit: int = 2000,
     sort_mode: str = "rotation",
     unwatched_only: bool = False,
+    backend: str = "plex",
 ) -> list[dict]:
-    """Compute the first `limit` episodes of the resulting playlist
-    without touching Plex. Used by the configure UI."""
-    _hydrate_configs(configs)
-    shows_eps = [_episodes_for_config(c, unwatched_only=unwatched_only) for c in configs]
-    show_order = [c.rating_key for c in configs]
+    """Compute the first `limit` episodes of the resulting playlist on a
+    single backend without touching its write APIs. For 'both' playlists,
+    the UI typically previews on whichever backend the user picked shows
+    from. Default 'plex' for back-compat with existing UI."""
+    _hydrate_configs(configs, backend)
+    shows_eps = [_episodes_for_config(c, backend, unwatched_only=unwatched_only) for c in configs]
+    show_order = [c.id_for(backend) for c in configs if c.id_for(backend)]
     composed = rotation.compose(shows_eps, mode=sort_mode, show_order=show_order)
     out: list[dict] = []
     for ep in composed[:limit]:
-        out.append(
-            {
-                "show": ep.show_title,
-                "season": ep.season,
-                "episode": ep.episode,
-                "title": ep.title,
-                "air_date": ep.air_date,
-                "is_special": ep.season == 0,
-            }
-        )
+        out.append({
+            "show": ep.show_title,
+            "season": ep.season,
+            "episode": ep.episode,
+            "title": ep.title,
+            "air_date": ep.air_date,
+            "is_special": ep.season == 0,
+        })
     return out
 
 
@@ -177,8 +368,10 @@ class PlaylistView:
     id: int
     name: str
     plex_rating_key: str | None
+    jellyfin_playlist_id: str | None
+    backend: str  # 'plex' | 'jellyfin' | 'both'
     shows: list[dict]
-    item_count: int
+    item_count: int  # max across enabled backends
     sort_mode: str = "rotation"
     unwatched_only: bool = False
     auto_sync: bool = True
@@ -195,48 +388,89 @@ def create_managed_playlist(
     sort_mode: str = "rotation",
     unwatched_only: bool = False,
     auto_sync: bool = True,
+    backend: str = "plex",
 ) -> int:
     if not configs:
         raise ValueError("Need at least one show to create a playlist")
     if sort_mode not in ("rotation", "air_date"):
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
+    if backend not in ("plex", "jellyfin", "both"):
+        raise ValueError(f"Invalid backend: {backend!r}")
 
-    _hydrate_configs(configs)
-    shows_episodes = [_episodes_for_config(c, unwatched_only=unwatched_only) for c in configs]
-    show_order = [c.rating_key for c in configs]
-    composed = rotation.compose(shows_episodes, mode=sort_mode, show_order=show_order)
-    if not composed:
-        raise ValueError("Selected shows have no episodes for the chosen ranges")
+    target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
 
-    episode_items = plex.fetch_episode_items([e.rating_key for e in composed])
-    plex_playlist = plex.create_playlist(name, episode_items)
+    # Hydrate against the source backend(s) so titles/thumbs are filled in.
+    # For 'both' mode also attempt cross-backend matching.
+    for tb in target_backends:
+        _hydrate_configs(configs, tb)
+    if backend == "both":
+        _enrich_configs_with_matches(configs, target_backends)
+
+    # Per-backend ordered key list (skip configs without an id on that backend).
+    created_ids: dict[str, str] = {}  # backend -> new playlist id
+    try:
+        for tb in target_backends:
+            relevant = [c for c in configs if c.id_for(tb)]
+            if not relevant:
+                # No shows match this side — for 'both' mode that's an edge
+                # case (none of the picked shows existed here at all). Skip
+                # creation on this side; the row will have NULL for it.
+                continue
+            shows_eps = [_episodes_for_config(c, tb, unwatched_only=unwatched_only) for c in relevant]
+            show_order = [c.id_for(tb) for c in relevant]
+            composed = rotation.compose(shows_eps, mode=sort_mode, show_order=show_order)
+            if not composed:
+                continue
+            new_id = _client_for(tb).create_playlist(name, [e.rating_key for e in composed])
+            created_ids[tb] = new_id
+
+        if not created_ids:
+            raise ValueError("Could not create the playlist on any enabled backend "
+                             "(no selected show has episodes on the targeted backend(s))")
+    except Exception:
+        # Roll back any side that succeeded so we don't leak orphan playlists.
+        for tb, pid in created_ids.items():
+            try:
+                _client_for(tb).delete_playlist(pid)
+                log.warning("Rolled back %s playlist after create failure", tb)
+            except Exception:
+                log.exception("Rollback failed for %s playlist %s", tb, pid)
+        raise
 
     playlist_id = db.create_playlist(
         name,
         sort_mode=sort_mode,
         unwatched_only=unwatched_only,
         auto_sync=auto_sync,
+        backend=backend,
     )
-    db.set_plex_rating_key(playlist_id, str(plex_playlist.ratingKey))
+    if "plex" in created_ids:
+        db.set_plex_rating_key(playlist_id, created_ids["plex"])
+    if "jellyfin" in created_ids:
+        db.set_jellyfin_playlist_id(playlist_id, created_ids["jellyfin"])
 
-    db.add_shows(
-        playlist_id,
-        [
-            {
-                "rating_key": c.rating_key,
-                "title": c.title,
-                "thumb": c.thumb,
-                "start_season": c.start_season,
-                "end_season": c.end_season,
-                "include_specials": c.include_specials,
-                "include_movies": c.include_movies,
-                "movie_rating_keys": c.movie_rating_keys,
-            }
-            for c in configs
-        ],
+    db.add_shows(playlist_id, [_config_to_db_dict(c) for c in configs])
+    log.info(
+        "Created playlist '%s' (backend=%s, sides created: %s)",
+        name, backend, ",".join(sorted(created_ids.keys())) or "none",
     )
-    log.info("Created playlist '%s' (%d items)", name, len(episode_items))
     return playlist_id
+
+
+def _config_to_db_dict(c: ShowConfig) -> dict:
+    return {
+        "rating_key": c.rating_key,
+        "plex_show_item_id": c.plex_rating_key,
+        "jellyfin_show_item_id": c.jellyfin_rating_key,
+        "title": c.title,
+        "thumb": c.thumb,
+        "start_season": c.start_season,
+        "end_season": c.end_season,
+        "include_specials": c.include_specials,
+        "include_movies": c.include_movies,
+        "movie_rating_keys": c.movie_rating_keys,
+        "jellyfin_movie_item_ids": c.jellyfin_movie_rating_keys,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -248,64 +482,34 @@ def add_shows_to_playlist(playlist_id: int, new_configs: list[ShowConfig]) -> No
     row = db.get_playlist(playlist_id)
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        raise RuntimeError(f"Plex playlist for '{row['name']}' is missing")
 
     existing_rows = db.list_shows(playlist_id)
     existing_keys = {s["show_rating_key"] for s in existing_rows}
     new_configs = [c for c in new_configs if c.rating_key not in existing_keys]
     if not new_configs:
         return
-    _hydrate_configs(new_configs)
 
-    items = _playlist_items_for_rotation(plex_pl)
-    splice = rotation.splice_index(items)
-    kept = items[:splice]
+    target_backends = _backends_for(row)
+    for tb in target_backends:
+        _hydrate_configs(new_configs, tb)
+    if "both" == row["backend"]:
+        _enrich_configs_with_matches(new_configs, target_backends)
 
-    # Episodes per show (existing first preserving order, then new shows appended).
-    full_configs: list[ShowConfig] = [_config_from_row(r) for r in existing_rows]
-    full_configs.extend(new_configs)
+    db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
+
+    # Rebuild the tail on each enabled backend independently.
+    full_configs: list[ShowConfig] = [_config_from_row(r) for r in db.list_shows(playlist_id)]
     uw = bool(row["unwatched_only"])
-    shows_episodes = [_episodes_for_config(c, unwatched_only=uw) for c in full_configs]
-    show_order = [c.rating_key for c in full_configs]
-    new_tail = rotation.rebuild_tail(
-        kept, shows_episodes, mode=row["sort_mode"], show_order=show_order
-    )
-
-    current_tail_items = items[splice:]
-    current_tail_keys = {it.rating_key for it in current_tail_items}
-    new_tail_keys = [e.rating_key for e in new_tail]
-
-    to_remove_keys = current_tail_keys - set(new_tail_keys)
-    to_remove_episodes = plex.fetch_episode_items(list(to_remove_keys))
-    plex.remove_items(plex_pl, to_remove_episodes)
-
-    kept_keys = {it.rating_key for it in kept}
-    to_add_keys = [k for k in new_tail_keys if k not in kept_keys]
-    to_add_episodes = plex.fetch_episode_items(to_add_keys)
-    plex.add_items(plex_pl, to_add_episodes)
-
-    db.add_shows(
-        playlist_id,
-        [
-            {
-                "rating_key": c.rating_key,
-                "title": c.title,
-                "thumb": c.thumb,
-                "start_season": c.start_season,
-                "end_season": c.end_season,
-                "include_specials": c.include_specials,
-                "include_movies": c.include_movies,
-                "movie_rating_keys": c.movie_rating_keys,
-            }
-            for c in new_configs
-        ],
-    )
-    log.info(
-        "Added %d show(s) to '%s'; removed %d tail items, added %d",
-        len(new_configs), row["name"], len(to_remove_episodes), len(to_add_episodes),
-    )
+    sort_mode = row["sort_mode"]
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            log.info("Skipping %s tail rebuild for '%s': no playlist id on that backend", tb, row["name"])
+            continue
+        try:
+            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
+            log.info("Added shows to '%s' on %s: +%d -%d tail items", row["name"], tb, added, removed)
+        except Exception:
+            log.exception("add_shows tail rebuild failed on %s for '%s'", tb, row["name"])
 
 
 # --------------------------------------------------------------------------- #
@@ -317,17 +521,31 @@ def remove_show_from_playlist(playlist_id: int, show_rating_key: str) -> None:
     row = db.get_playlist(playlist_id)
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        raise RuntimeError(f"Plex playlist for '{row['name']}' is missing")
 
-    items = _playlist_items_for_rotation(plex_pl)
-    to_remove_keys = [it.rating_key for it in items if it.show_rating_key == show_rating_key]
-    to_remove_eps = plex.fetch_episode_items(to_remove_keys)
-    plex.remove_items(plex_pl, to_remove_eps)
+    target_row = db.get_show(playlist_id, show_rating_key)
+    if not target_row:
+        return
+    target_cfg = _config_from_row(target_row)
+
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        show_id_on_backend = target_cfg.id_for(tb)
+        if not show_id_on_backend:
+            continue  # show wasn't on this backend in the first place
+        try:
+            items = client.get_playlist_items(pl_id)
+            to_remove_keys = [
+                it.rating_key for it in items
+                if it.show_rating_key == show_id_on_backend
+            ]
+            client.remove_items_from_playlist(pl_id, to_remove_keys)
+            log.info("Removed %d %s items for show %s from '%s'",
+                     len(to_remove_keys), tb, show_id_on_backend, row["name"])
+        except Exception:
+            log.exception("remove_show failed on %s for '%s'", tb, row["name"])
 
     db.remove_show(playlist_id, show_rating_key)
-    log.info("Removed show %s from '%s' (%d items)", show_rating_key, row["name"], len(to_remove_eps))
 
 
 # --------------------------------------------------------------------------- #
@@ -336,14 +554,9 @@ def remove_show_from_playlist(playlist_id: int, show_rating_key: str) -> None:
 
 
 def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
-    """Change the rotation order. Already-played items stay; the future portion
-    of the playlist is rebuilt to follow the new order."""
     row = db.get_playlist(playlist_id)
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        raise RuntimeError(f"Plex playlist for '{row['name']}' is missing")
 
     existing = {s["show_rating_key"]: s for s in db.list_shows(playlist_id)}
     if set(ordered_keys) != set(existing.keys()):
@@ -351,27 +564,16 @@ def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
 
     db.set_positions(playlist_id, ordered_keys)
 
-    items = _playlist_items_for_rotation(plex_pl)
-    splice = rotation.splice_index(items)
-    kept = items[:splice]
-
-    new_rows = db.list_shows(playlist_id)
-    full_configs = [_config_from_row(r) for r in new_rows]
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
     uw = bool(row["unwatched_only"])
-    shows_episodes = [_episodes_for_config(c, unwatched_only=uw) for c in full_configs]
-    show_order = [c.rating_key for c in full_configs]
-    new_tail = rotation.rebuild_tail(
-        kept, shows_episodes, mode=row["sort_mode"], show_order=show_order
-    )
-
-    current_tail_keys = {it.rating_key for it in items[splice:]}
-    new_tail_keys = [e.rating_key for e in new_tail]
-    to_remove = current_tail_keys - set(new_tail_keys)
-    plex.remove_items(plex_pl, plex.fetch_episode_items(list(to_remove)))
-
-    kept_keys = {it.rating_key for it in kept}
-    to_add = [k for k in new_tail_keys if k not in kept_keys]
-    plex.add_items(plex_pl, plex.fetch_episode_items(to_add))
+    sort_mode = row["sort_mode"]
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
+        except Exception:
+            log.exception("reorder failed on %s for '%s'", tb, row["name"])
     log.info("Reordered '%s'", row["name"])
 
 
@@ -381,11 +583,6 @@ def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
 
 
 def set_playlist_sort_mode(playlist_id: int, sort_mode: str) -> None:
-    """Switch a managed playlist between rotation and air_date sort.
-
-    Already-played items stay; the future portion is rebuilt to match the
-    new mode.
-    """
     if sort_mode not in ("rotation", "air_date"):
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
     row = db.get_playlist(playlist_id)
@@ -393,34 +590,18 @@ def set_playlist_sort_mode(playlist_id: int, sort_mode: str) -> None:
         raise ValueError(f"No managed playlist with id={playlist_id}")
     if row["sort_mode"] == sort_mode:
         return
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        db.set_sort_mode(playlist_id, sort_mode)
-        return
 
     db.set_sort_mode(playlist_id, sort_mode)
 
-    items = _playlist_items_for_rotation(plex_pl)
-    splice = rotation.splice_index(items)
-    kept = items[:splice]
-
-    show_rows = db.list_shows(playlist_id)
-    full_configs = [_config_from_row(r) for r in show_rows]
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
     uw = bool(row["unwatched_only"])
-    shows_episodes = [_episodes_for_config(c, unwatched_only=uw) for c in full_configs]
-    show_order = [c.rating_key for c in full_configs]
-    new_tail = rotation.rebuild_tail(
-        kept, shows_episodes, mode=sort_mode, show_order=show_order
-    )
-
-    current_tail_keys = {it.rating_key for it in items[splice:]}
-    new_tail_keys = [e.rating_key for e in new_tail]
-    to_remove = current_tail_keys - set(new_tail_keys)
-    plex.remove_items(plex_pl, plex.fetch_episode_items(list(to_remove)))
-
-    kept_keys = {it.rating_key for it in kept}
-    to_add = [k for k in new_tail_keys if k not in kept_keys]
-    plex.add_items(plex_pl, plex.fetch_episode_items(to_add))
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
+        except Exception:
+            log.exception("sort_mode change failed on %s for '%s'", tb, row["name"])
     log.info("Switched '%s' to sort_mode=%s", row["name"], sort_mode)
 
 
@@ -430,44 +611,23 @@ def set_playlist_sort_mode(playlist_id: int, sort_mode: str) -> None:
 
 
 def set_playlist_unwatched_only(playlist_id: int, unwatched_only: bool) -> None:
-    """Enable or disable the 'only unwatched' filter on a managed playlist.
-
-    Kept (watched/in-progress) portion stays as a history; the future portion
-    is rebuilt under the new filter. When turning the filter ON, the new tail
-    will exclude any episode the user has watched outside the playlist too.
-    """
     row = db.get_playlist(playlist_id)
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
     if bool(row["unwatched_only"]) == unwatched_only:
         return
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        db.set_unwatched_only(playlist_id, unwatched_only)
-        return
 
     db.set_unwatched_only(playlist_id, unwatched_only)
 
-    items = _playlist_items_for_rotation(plex_pl)
-    splice = rotation.splice_index(items)
-    kept = items[:splice]
-
-    show_rows = db.list_shows(playlist_id)
-    full_configs = [_config_from_row(r) for r in show_rows]
-    shows_episodes = [_episodes_for_config(c, unwatched_only=unwatched_only) for c in full_configs]
-    show_order = [c.rating_key for c in full_configs]
-    new_tail = rotation.rebuild_tail(
-        kept, shows_episodes, mode=row["sort_mode"], show_order=show_order
-    )
-
-    current_tail_keys = {it.rating_key for it in items[splice:]}
-    new_tail_keys = [e.rating_key for e in new_tail]
-    to_remove = current_tail_keys - set(new_tail_keys)
-    plex.remove_items(plex_pl, plex.fetch_episode_items(list(to_remove)))
-
-    kept_keys = {it.rating_key for it in kept}
-    to_add = [k for k in new_tail_keys if k not in kept_keys]
-    plex.add_items(plex_pl, plex.fetch_episode_items(to_add))
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    sort_mode = row["sort_mode"]
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, unwatched_only)
+        except Exception:
+            log.exception("unwatched-toggle failed on %s for '%s'", tb, row["name"])
     log.info("Switched '%s' unwatched_only=%s", row["name"], unwatched_only)
 
 
@@ -477,12 +637,6 @@ def set_playlist_unwatched_only(playlist_id: int, unwatched_only: bool) -> None:
 
 
 def set_playlist_auto_sync(playlist_id: int, enabled: bool) -> None:
-    """Enable or disable auto-sync for a single playlist.
-
-    When disabled, the scheduler skips this playlist on every sweep — newly-
-    aired episodes won't be added automatically. The user must manually edit
-    the playlist (add/remove a show, toggle a setting) to refresh it.
-    """
     row = db.get_playlist(playlist_id)
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
@@ -491,65 +645,78 @@ def set_playlist_auto_sync(playlist_id: int, enabled: bool) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Sync playlist with current Plex metadata (catches newly-aired episodes)
+# Sync (with heal-on-sync for missing IDs in 'both' mode)
 # --------------------------------------------------------------------------- #
 
 
+def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> None:
+    """For 'both' playlists, re-attempt cross-backend matching for any show
+    missing an id on one side. Persists newly-discovered ids so subsequent
+    syncs include the show on that backend too.
+
+    Caches the candidate list per backend (one list_all_shows call max per
+    backend per sync run, regardless of how many shows need healing).
+    """
+    if row["backend"] != "both":
+        return
+    needs_plex = [c for c in full_configs if c.plex_rating_key is None]
+    needs_jf = [c for c in full_configs if c.jellyfin_rating_key is None]
+    if not needs_plex and not needs_jf:
+        return
+
+    plex_cands = _candidates_for("plex") if needs_plex else []
+    jf_cands = _candidates_for("jellyfin") if needs_jf else []
+
+    for cfg in needs_plex:
+        matched = _find_match(plex_cands, cfg.title or "", _year_hint(cfg))
+        if matched:
+            cfg.plex_rating_key = matched
+            db.set_plex_show_item_id(playlist_id, cfg.rating_key, matched)
+            log.info("Healed Plex id for '%s' on playlist %s: %s",
+                     cfg.title, playlist_id, matched)
+    for cfg in needs_jf:
+        matched = _find_match(jf_cands, cfg.title or "", _year_hint(cfg))
+        if matched:
+            cfg.jellyfin_rating_key = matched
+            db.set_jellyfin_show_item_id(playlist_id, cfg.rating_key, matched)
+            log.info("Healed Jellyfin id for '%s' on playlist %s: %s",
+                     cfg.title, playlist_id, matched)
+
+
 def sync_playlist(playlist_id: int) -> tuple[int, int]:
-    """Re-evaluate the canonical episode list against current Plex metadata.
-
-    Picks up newly-aired episodes, new seasons (if within the show's range),
-    and drops episodes that no longer exist in Plex. Already-played items are
-    preserved as-is. The future portion of the playlist is rebuilt to match
-    the new canonical sequence.
-
-    Returns (added, removed) counts.
+    """Re-evaluate canonical episode lists against current backend metadata
+    on every enabled backend. Returns (added, removed) — totals across
+    backends.
     """
     row = db.get_playlist(playlist_id)
     if not row:
         return (0, 0)
-    # Per-playlist opt-out (in addition to the global AUTO_SYNC env)
     if not bool(row["auto_sync"]):
         return (0, 0)
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        return (0, 0)
-
-    items = _playlist_items_for_rotation(plex_pl)
-    splice = rotation.splice_index(items)
-    kept = items[:splice]
-    current_tail = items[splice:]
-    current_tail_keys = [it.rating_key for it in current_tail]
 
     show_rows = db.list_shows(playlist_id)
     if not show_rows:
         return (0, 0)
 
     full_configs = [_config_from_row(r) for r in show_rows]
+    _heal_missing_ids(playlist_id, row, full_configs)
+
+    total_added = 0
+    total_removed = 0
     uw = bool(row["unwatched_only"])
-    shows_episodes = [_episodes_for_config(c, unwatched_only=uw) for c in full_configs]
-    show_order = [c.rating_key for c in full_configs]
-
-    new_tail = rotation.rebuild_tail(
-        kept, shows_episodes, mode=row["sort_mode"], show_order=show_order
-    )
-    new_tail_keys = [e.rating_key for e in new_tail]
-
-    # Nothing changed — skip the round-trip to Plex
-    if current_tail_keys == new_tail_keys:
-        return (0, 0)
-
-    added = len([k for k in new_tail_keys if k not in set(current_tail_keys)])
-    removed = len([k for k in current_tail_keys if k not in set(new_tail_keys)])
-
-    # Rebuild the tail wholesale so order stays correct (esp. in air-date mode).
-    if current_tail:
-        plex.remove_items(plex_pl, plex.fetch_episode_items(current_tail_keys))
-    if new_tail_keys:
-        plex.add_items(plex_pl, plex.fetch_episode_items(new_tail_keys))
-
-    log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
-    return (added, removed)
+    sort_mode = row["sort_mode"]
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
+            if added or removed:
+                log.info("Synced '%s' on %s: +%d, -%d", row["name"], tb, added, removed)
+            total_added += added
+            total_removed += removed
+        except Exception:
+            log.exception("sync failed on %s for '%s'", tb, row["name"])
+    return (total_added, total_removed)
 
 
 def sync_all() -> None:
@@ -561,7 +728,7 @@ def sync_all() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Delete a managed playlist entirely
+# Delete a managed playlist
 # --------------------------------------------------------------------------- #
 
 
@@ -569,41 +736,47 @@ def delete_managed_playlist(playlist_id: int) -> None:
     row = db.get_playlist(playlist_id)
     if not row:
         return
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is not None:
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
         try:
-            plex_pl.delete()
+            if client.playlist_exists(pl_id):
+                client.delete_playlist(pl_id)
         except Exception:
-            log.warning("Failed to delete Plex playlist for '%s' (continuing)", row["name"])
+            log.warning("Failed to delete %s playlist for '%s' (continuing)", tb, row["name"])
     db.delete_playlist(playlist_id)
     log.info("Deleted managed playlist '%s'", row["name"])
 
 
 # --------------------------------------------------------------------------- #
-# Prune watched items (scheduler entry point)
+# Prune watched items
 # --------------------------------------------------------------------------- #
 
 
 def prune_playlist(playlist_id: int, keep_last_n: int | None = None) -> int:
     if keep_last_n is None:
         keep_last_n = _watched_keep()
-
     row = db.get_playlist(playlist_id)
     if not row:
         return 0
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is None:
-        return 0
 
-    items = _playlist_items_for_rotation(plex_pl)
-    indices = rotation.prune_indices(items, keep_last_n)
-    if not indices:
-        return 0
-    remove_keys = [items[i].rating_key for i in indices]
-    eps = plex.fetch_episode_items(remove_keys)
-    plex.remove_items(plex_pl, eps)
-    log.info("Pruned %d watched item(s) from '%s'", len(eps), row["name"])
-    return len(eps)
+    total = 0
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            items = client.get_playlist_items(pl_id)
+            indices = rotation.prune_indices(items, keep_last_n)
+            if not indices:
+                continue
+            remove_keys = [items[i].rating_key for i in indices]
+            client.remove_items_from_playlist(pl_id, remove_keys)
+            log.info("Pruned %d watched item(s) from '%s' on %s",
+                     len(remove_keys), row["name"], tb)
+            total += len(remove_keys)
+        except Exception:
+            log.exception("prune failed on %s for '%s'", tb, row["name"])
+    return total
 
 
 def prune_all() -> None:
@@ -625,16 +798,23 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         return None
     shows = [dict(s) for s in db.list_shows(playlist_id)]
     item_count = 0
-    plex_pl = plex.get_playlist(row["plex_rating_key"])
-    if plex_pl is not None:
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
         try:
-            item_count = len(plex_pl.items())
+            c = client.playlist_item_count(pl_id)
+            if c > item_count:
+                item_count = c
         except Exception:
-            item_count = 0
+            log.debug("item count failed on %s for '%s'", tb, row["name"])
     return PlaylistView(
         id=row["id"],
         name=row["name"],
         plex_rating_key=row["plex_rating_key"],
+        jellyfin_playlist_id=(
+            row["jellyfin_playlist_id"] if "jellyfin_playlist_id" in row.keys() else None
+        ),
+        backend=row["backend"] if "backend" in row.keys() else "plex",
         shows=shows,
         item_count=item_count,
         sort_mode=row["sort_mode"] or "rotation",

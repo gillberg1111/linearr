@@ -24,6 +24,40 @@
     {% endfor %}
 
     {% if mode == 'new' %}
+      {% if AVAILABLE_BACKENDS|length > 1 %}
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Push to</span>
+        <div class="pill-toggle pill-toggle-3">
+          <label class="pill {% if backend == 'both' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="both"
+                   {% if backend == 'both' %}checked{% endif %}>
+            <span>Both</span>
+          </label>
+          <label class="pill {% if backend == 'plex' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="plex"
+                   {% if backend == 'plex' %}checked{% endif %}>
+            <span>Plex</span>
+          </label>
+          <label class="pill {% if backend == 'jellyfin' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="jellyfin"
+                   {% if backend == 'jellyfin' %}checked{% endif %}>
+            <span>Jellyfin</span>
+          </label>
+        </div>
+        <span class="hint">
+          {% if backend == 'both' %}
+            Linearr will mirror this playlist to your Plex AND Jellyfin server. Shows missing on one side are flagged below.
+          {% elif backend == 'plex' %}
+            This playlist will only be created on Plex.
+          {% else %}
+            This playlist will only be created on Jellyfin.
+          {% endif %}
+        </span>
+      </div>
+      {% else %}
+        <input type="hidden" name="backend" value="{{ backend }}">
+      {% endif %}
+
       <div class="sort-mode-bar">
         <span class="sort-mode-label">Episode order</span>
         <div class="pill-toggle">
@@ -83,6 +117,26 @@
         {% if not auto_sync %}· <strong>Auto-update off</strong>{% endif %}.
         Change from the playlist page.
       </p>
+    {% endif %}
+
+    {% if missing_shows %}
+      <div class="warning-banner">
+        <div class="warning-banner-head">
+          <span class="warning-banner-icon" aria-hidden="true">⚠</span>
+          Some shows aren't on every chosen backend
+        </div>
+        <ul class="warning-banner-list">
+          {% for m in missing_shows %}
+            <li><strong>{{ m.title }}</strong> — not in your {{ m.missing }} library</li>
+          {% endfor %}
+        </ul>
+        <p class="warning-banner-foot">
+          These will only appear in the {{ 'other side' if backend == 'both' else 'chosen' }} playlist.
+          To include them on every backend, either add them to the missing library —
+          Linearr will auto-detect on the next sync —
+          or switch the <em>Push to</em> pill above to a single backend.
+        </p>
+      </div>
     {% endif %}
 
     <div class="config-stack">
@@ -330,14 +384,24 @@
         debounceTimer = setTimeout(fetchAndRenderPreview, 600);
       }
 
-      // Sort mode pills: update visuals instantly, then submit
-      const pills = document.querySelectorAll('.sort-mode-bar .pill');
+      // Toggle the .is-active class on pills when any radio inside them changes,
+      // then trigger a preview update. Covers sort_mode AND backend pickers
+      // since both share the .pill-toggle structure.
+      function refreshPillActive(radioName) {
+        document.querySelectorAll(`.pill-toggle .pill`).forEach((p) => {
+          const r = p.querySelector(`input[name="${radioName}"]`);
+          if (r) p.classList.toggle('is-active', r.checked);
+        });
+      }
       document.querySelectorAll('input[name="sort_mode"]').forEach((radio) => {
         radio.addEventListener('change', () => {
-          pills.forEach((p) => {
-            const r = p.querySelector('input[name="sort_mode"]');
-            if (r) p.classList.toggle('is-active', r.checked);
-          });
+          refreshPillActive('sort_mode');
+          scheduleUpdate();
+        });
+      });
+      document.querySelectorAll('input[name="backend"]').forEach((radio) => {
+        radio.addEventListener('change', () => {
+          refreshPillActive('backend');
           scheduleUpdate();
         });
       });

@@ -334,6 +334,224 @@ def test_rebuild_tail_air_date_drops_kept():
 
 
 # --------------------------------------------------------------------------- #
+# Backend safety guards — defense-in-depth
+# --------------------------------------------------------------------------- #
+
+
+def test_jellyfin_safety_blocks_library_item_deletion():
+    """Defense-in-depth: no caller should ever talk DELETE /Items through the
+    standard request path — that endpoint mass-deletes files from disk."""
+    from jellyfin_client import _check_delete_safety, JellyfinSafetyError
+    forbidden_paths = [
+        "/Items",                                      # mass library delete
+        "/Items/abc-123",                              # single library delete
+        "/Items/abc/Images/Primary",                   # delete primary image
+        "/Items/abc/Images/Primary/0",                 # delete image by index
+        "/Library/VirtualFolders",                     # remove a library
+        "/Library/VirtualFolders/Paths",               # remove a media path
+        "/Collections/c1/Items",                       # modify user collection
+        "/Users/u-1",                                  # delete user account
+        "/Devices",                                    # delete device
+        "/Videos/v1/AlternateSources",                 # remove alt video src
+        "/Videos/v1/Subtitles/0",                      # remove subtitle file
+        "/Audio/a1/Lyrics",                            # remove lyrics
+        "/Auth/Keys/somekey",                          # remove an api key
+        "/LiveTv/Recordings/r1",                       # remove DVR recording
+        "/Plugins/p1",                                 # uninstall plugin
+        "/Branding/Splashscreen",                      # remove splashscreen
+        "/UserFavoriteItems/x",                        # untoggle favorite
+        "/UserPlayedItems/x",                          # mark unplayed
+    ]
+    for path in forbidden_paths:
+        try:
+            _check_delete_safety(path)
+            check(f"safety: DELETE {path} refused", False, "guard did not raise")
+        except JellyfinSafetyError:
+            check(f"safety: DELETE {path} refused", True)
+        except Exception as e:
+            check(f"safety: DELETE {path} refused", False, f"wrong exception {e!r}")
+
+
+def test_jellyfin_safety_allows_playlist_item_removal():
+    """Only DELETE we let through the standard path: removing items FROM a
+    playlist (does NOT touch the underlying library items)."""
+    from jellyfin_client import _check_delete_safety
+    try:
+        _check_delete_safety("/Playlists/abc-playlist-id/Items")
+        check("safety: DELETE /Playlists/{id}/Items allowed", True)
+    except Exception as e:
+        check("safety: DELETE /Playlists/{id}/Items allowed", False, f"raised {e!r}")
+
+
+def test_jellyfin_safety_rejects_lookalike_paths():
+    """Sub-paths and variations on the allowed pattern must still be refused —
+    no fuzzy matching that could let a sibling endpoint through."""
+    from jellyfin_client import _check_delete_safety, JellyfinSafetyError
+    suspect_paths = [
+        "/Playlists/abc/Items/some-entry",   # entry sub-path, not the bulk allowed
+        "/PlaylistsX/abc/Items",             # different segment
+        "/Playlists",                        # parent
+        "/Playlists/abc",                    # the playlist itself (goes through delete_playlist bypass)
+    ]
+    for path in suspect_paths:
+        try:
+            _check_delete_safety(path)
+            check(f"safety: lookalike {path} refused", False, "guard did not raise")
+        except JellyfinSafetyError:
+            check(f"safety: lookalike {path} refused", True)
+
+
+def test_plex_safety_patches_destructive_methods():
+    """Plex's safety guard monkey-patches the python-plexapi item classes on
+    import. Verify the patch is actually applied — same defense-in-depth
+    contract as Jellyfin's HTTP guard."""
+    import plex_client
+    from plexapi.video import Episode, Movie, Season, Show
+    for cls in (Episode, Movie, Season, Show):
+        check(
+            f"plex safety: {cls.__name__}.delete is the refuse function",
+            cls.delete is plex_client._refuse_delete,
+            f"got {cls.delete!r}",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Cross-backend title matching (for "Both"-mode show bridging)
+# --------------------------------------------------------------------------- #
+
+
+def test_normalize_title_basic():
+    from media_client import normalize_title
+    check("normalize: lowercases", normalize_title("Breaking Bad") == "breaking bad")
+    check("normalize: strips punctuation", normalize_title("Mr. Robot!") == "mr robot")
+    check("normalize: collapses whitespace", normalize_title("  Foo   Bar  ") == "foo bar")
+    check("normalize: empty -> empty", normalize_title("") == "")
+    check("normalize: None -> empty", normalize_title(None) == "")
+
+
+def test_titles_match_case_and_punctuation():
+    from media_client import titles_match
+    check("match: case-insensitive", titles_match("Breaking Bad", "breaking bad"))
+    check("match: punctuation ignored", titles_match("Mr. Robot", "Mr Robot"))
+    check("match: different shows reject", not titles_match("The Office", "The Office (US)"))
+
+
+def test_titles_match_year_disambiguation():
+    from media_client import titles_match
+    # Same title, both years known + disagree → not a match
+    check("match: year disagreement rejects", not titles_match("The Office", "The Office", 2001, 2005))
+    # Same title, both years known + agree → match
+    check("match: year agreement accepts", titles_match("The Office", "The Office", 2005, 2005))
+    # Same title, one year unknown → still a match (don't punish missing data)
+    check("match: missing year is permissive", titles_match("Breaking Bad", "Breaking Bad", 2008, None))
+    check("match: both years unknown is permissive", titles_match("Breaking Bad", "Breaking Bad", None, None))
+
+
+def test_titles_match_handles_none():
+    from media_client import titles_match
+    check("match: None title rejects", not titles_match(None, "Anything"))
+    check("match: empty title rejects", not titles_match("", "Anything"))
+
+
+# --------------------------------------------------------------------------- #
+# Service-layer dispatch (ShowConfig + backend routing helpers)
+# --------------------------------------------------------------------------- #
+
+
+def test_show_config_back_compat_plex_id():
+    """Legacy callers pass only rating_key for a Plex show. __post_init__
+    should mirror it into plex_rating_key so the new dispatch code finds it."""
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test")
+    check("ShowConfig back-compat: numeric rating_key -> plex_rating_key",
+          cfg.plex_rating_key == "12345" and cfg.jellyfin_rating_key is None)
+
+
+def test_show_config_back_compat_non_numeric():
+    """Non-numeric rating_key (e.g. a Jellyfin GUID) should NOT auto-fill plex_rating_key."""
+    import service
+    cfg = service.ShowConfig(rating_key="abc-def-1234", title="Test")
+    check("ShowConfig: non-numeric rating_key doesn't auto-fill plex_rating_key",
+          cfg.plex_rating_key is None and cfg.jellyfin_rating_key is None)
+
+
+def test_show_config_explicit_jellyfin():
+    """Explicit jellyfin_rating_key passes through."""
+    import service
+    cfg = service.ShowConfig(
+        rating_key="abc-def",
+        title="Test",
+        jellyfin_rating_key="abc-def",
+        jellyfin_movie_rating_keys=["m-1", "m-2"],
+    )
+    check("ShowConfig: explicit jellyfin fields preserved",
+          cfg.jellyfin_rating_key == "abc-def" and cfg.jellyfin_movie_rating_keys == ["m-1", "m-2"])
+
+
+def test_show_config_id_for():
+    """id_for(backend) dispatches to the right field."""
+    import service
+    cfg = service.ShowConfig(
+        rating_key="12345",
+        title="Test",
+        plex_rating_key="12345",
+        jellyfin_rating_key="abc-def",
+        movie_rating_keys=["m-px-1"],
+        jellyfin_movie_rating_keys=["m-jf-1"],
+    )
+    check("id_for('plex')", cfg.id_for("plex") == "12345")
+    check("id_for('jellyfin')", cfg.id_for("jellyfin") == "abc-def")
+    check("movie_ids_for('plex')", cfg.movie_ids_for("plex") == ["m-px-1"])
+    check("movie_ids_for('jellyfin')", cfg.movie_ids_for("jellyfin") == ["m-jf-1"])
+
+
+def test_show_config_id_for_missing_side():
+    """id_for returns None when the show isn't matched on that backend."""
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test", plex_rating_key="12345")
+    check("id_for missing-side returns None", cfg.id_for("jellyfin") is None)
+    check("movie_ids_for missing-side returns []", cfg.movie_ids_for("jellyfin") == [])
+
+
+def test_backends_for_dispatch():
+    """_backends_for expands 'both' into a list, single-backend stays single."""
+    import service
+
+    class FakeRow:
+        def __init__(self, backend):
+            self._b = backend
+        def __getitem__(self, k):
+            if k == "backend":
+                return self._b
+            raise KeyError(k)
+        def keys(self):
+            return ("backend",)
+
+    check("_backends_for('plex')", service._backends_for(FakeRow("plex")) == ["plex"])
+    check("_backends_for('jellyfin')", service._backends_for(FakeRow("jellyfin")) == ["jellyfin"])
+    check("_backends_for('both')", service._backends_for(FakeRow("both")) == ["plex", "jellyfin"])
+
+
+def test_find_match_uses_titles_match():
+    """_find_match should respect titles_match's year disambiguation."""
+    import service
+    from media_client import ShowSummary
+
+    cands = [
+        ShowSummary("rk-1", "The Office", 2001, "BBC", None),       # UK version
+        ShowSummary("rk-2", "The Office", 2005, "US Lib", None),    # US version
+        ShowSummary("rk-3", "Breaking Bad", 2008, "Lib", None),
+    ]
+    check("_find_match: year disambiguates",
+          service._find_match(cands, "The Office", 2005) == "rk-2")
+    check("_find_match: different show -> None",
+          service._find_match(cands, "Better Call Saul", None) is None)
+    check("_find_match: title-only match when year unknown",
+          # When asker has no year, first candidate with matching title wins
+          service._find_match(cands, "The Office", None) == "rk-1")
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 
