@@ -61,7 +61,8 @@ def init_db() -> None:
                 plex_rating_key TEXT,
                 created_at      TEXT NOT NULL,
                 sort_mode       TEXT NOT NULL DEFAULT 'rotation',
-                unwatched_only  INTEGER NOT NULL DEFAULT 0
+                unwatched_only  INTEGER NOT NULL DEFAULT 0,
+                auto_sync       INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS playlist_shows (
@@ -100,6 +101,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE managed_playlists ADD COLUMN sort_mode TEXT NOT NULL DEFAULT 'rotation'")
         if "unwatched_only" not in pl_cols:
             conn.execute("ALTER TABLE managed_playlists ADD COLUMN unwatched_only INTEGER NOT NULL DEFAULT 0")
+        if "auto_sync" not in pl_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN auto_sync INTEGER NOT NULL DEFAULT 1")
 
 
 def create_playlist(name: str, sort_mode: str = "rotation", unwatched_only: bool = False) -> int:
@@ -127,6 +130,14 @@ def set_unwatched_only(playlist_id: int, unwatched_only: bool) -> None:
         conn.execute(
             "UPDATE managed_playlists SET unwatched_only = ? WHERE id = ?",
             (1 if unwatched_only else 0, playlist_id),
+        )
+
+
+def set_auto_sync(playlist_id: int, auto_sync: bool) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET auto_sync = ? WHERE id = ?",
+            (1 if auto_sync else 0, playlist_id),
         )
 
 

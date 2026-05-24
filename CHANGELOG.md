@@ -5,6 +5,16 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Auto-sync**: the existing background sweep now also splices newly-aired
+  episodes and new seasons (within each show's configured range) into managed
+  playlists; episodes deleted from Plex drop out. Already-played portion is
+  preserved. Controlled by the new `AUTO_SYNC` env var (default `true`).
+- **Per-playlist auto-update toggle**: in addition to the global env var,
+  each playlist has its own **Auto-update: Enabled / Disabled** pill on the
+  playlist detail page. Disabled playlists are skipped by the scheduler —
+  useful for "locked" curated playlists you don't want changing on their own.
+
 ## [0.1.0] - 2026-05-23
 
 First public release as **Linearr** (initially named *Plex Rotator*; renamed

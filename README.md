@@ -103,6 +103,12 @@ fall-asleep buffer.
 - **Auto-prune watched** — keeps the last N watched episodes as a
   fall-asleep buffer; removes older watched ones every 10 minutes (both
   configurable).
+- **Auto-sync new episodes** — same 10-minute sweep also splices
+  newly-aired episodes and new seasons into your playlists automatically.
+  Episodes removed from your Plex library drop out. Toggle off **globally**
+  with `AUTO_SYNC=false`, or **per playlist** with the **Auto-update**
+  pill on the playlist's detail page (defaults to Enabled). Disabled
+  playlists are skipped on every sweep and stay locked until you edit them.
 - **Cover art everywhere** — poster grids, season cards, playlist tiles; a
   thumbnail proxy means your Plex token never lands in HTML.
 - **Never destructive** — runtime guard refuses any Plex API call that
@@ -286,7 +292,8 @@ All values are environment variables.
 | `WEB_PORT`               | no       | `5005`                 | HTTP port.                                                                                     |
 | `DB_PATH`                | no       | `/data/rotator.db`     | SQLite file. Container `/data` is the persistent volume.                                       |
 | `WATCHED_KEEP`           | no       | `2`                    | Recently-watched episodes to leave in each playlist as a fall-asleep buffer.                   |
-| `PRUNE_INTERVAL_MINUTES` | no       | `10`                   | How often the prune sweep runs.                                                                |
+| `PRUNE_INTERVAL_MINUTES` | no       | `10`                   | How often the prune + auto-sync sweep runs.                                                    |
+| `AUTO_SYNC`              | no       | `true`                 | When true, newly-aired episodes and new seasons are spliced into managed playlists every sweep. Set `false` to lock playlists at creation. |
 | `TV_LIBRARIES`           | no       | *(all show libs)*      | Comma-separated library names to source shows from. Blank = every "show" library.              |
 | `FLASK_SECRET`           | no       | `dev-secret-change-me` | Random secret for Flask session cookies. `openssl rand -hex 32`.                               |
 
@@ -352,6 +359,14 @@ From the playlist's detail page:
   portion is rebuilt under the new filter.
 - **Prune sweep**: every `PRUNE_INTERVAL_MINUTES`, watched episodes older
   than the most recent `WATCHED_KEEP` are removed.
+- **Auto-sync** (`AUTO_SYNC=true`, default): on the same interval, each
+  managed playlist is re-checked against current Plex metadata. Newly-aired
+  episodes and new seasons (if within the show's configured range) splice
+  into the future portion of the playlist; episodes deleted from your Plex
+  library drop out. Already-played portion is never disturbed. Each
+  playlist also has its own **Auto-update: Enabled / Disabled** pill — set
+  to Disabled, the scheduler skips that one playlist regardless of the
+  global env var.
 
 ### Crossover alignment (Air Date mode)
 

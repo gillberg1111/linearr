@@ -356,6 +356,18 @@ def create_app() -> Flask:
         flash(f"Sort mode set to {'Air Date' if mode == 'air_date' else 'Rotation'}.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
+    @app.route("/playlist/<int:playlist_id>/auto_sync", methods=["POST"])
+    def change_auto_sync(playlist_id: int):
+        enabled = bool(request.form.get("enabled"))
+        try:
+            service.set_playlist_auto_sync(playlist_id, enabled)
+        except Exception as e:
+            log.exception("auto_sync change failed")
+            flash(f"Failed to update setting: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash(f"Auto-update {'enabled' if enabled else 'disabled'}.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
     @app.route("/playlist/<int:playlist_id>/unwatched_only", methods=["POST"])
     def change_unwatched_only(playlist_id: int):
         new_value = bool(request.form.get("enabled"))

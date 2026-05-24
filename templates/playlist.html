@@ -10,6 +10,7 @@
       · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }} in Plex
       · sorted by <strong>{{ 'Air Date' if playlist.sort_mode == 'air_date' else 'Rotation' }}</strong>
       {% if playlist.unwatched_only %}· <strong>unwatched only</strong>{% endif %}
+      {% if not playlist.auto_sync %}· <strong>auto-update off</strong>{% endif %}
     </p>
   </div>
 
@@ -51,6 +52,27 @@
         Episodes you've already watched (anywhere in Plex) are excluded.
       {% else %}
         Includes every episode in the chosen seasons.
+      {% endif %}
+    </span>
+  </form>
+
+  <form method="post" action="{{ url_for('change_auto_sync', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+    <span class="sort-mode-label">Auto-update</span>
+    <div class="pill-toggle">
+      <button type="submit" name="enabled" value="1"
+              class="pill {% if playlist.auto_sync %}is-active{% endif %}">
+        Enabled
+      </button>
+      <button type="submit" name="enabled" value=""
+              class="pill {% if not playlist.auto_sync %}is-active{% endif %}">
+        Disabled
+      </button>
+    </div>
+    <span class="hint">
+      {% if playlist.auto_sync %}
+        Newly-aired episodes and seasons are spliced into this playlist on the background sweep.
+      {% else %}
+        Playlist is locked. New episodes won't be added automatically until you re-enable or edit it manually.
       {% endif %}
     </span>
   </form>

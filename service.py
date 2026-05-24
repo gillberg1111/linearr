@@ -181,6 +181,7 @@ class PlaylistView:
     item_count: int
     sort_mode: str = "rotation"
     unwatched_only: bool = False
+    auto_sync: bool = True
 
 
 # --------------------------------------------------------------------------- #
@@ -465,6 +466,95 @@ def set_playlist_unwatched_only(playlist_id: int, unwatched_only: bool) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Per-playlist auto-sync toggle
+# --------------------------------------------------------------------------- #
+
+
+def set_playlist_auto_sync(playlist_id: int, enabled: bool) -> None:
+    """Enable or disable auto-sync for a single playlist.
+
+    When disabled, the scheduler skips this playlist on every sweep — newly-
+    aired episodes won't be added automatically. The user must manually edit
+    the playlist (add/remove a show, toggle a setting) to refresh it.
+    """
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No managed playlist with id={playlist_id}")
+    db.set_auto_sync(playlist_id, enabled)
+    log.info("Playlist '%s' auto_sync=%s", row["name"], enabled)
+
+
+# --------------------------------------------------------------------------- #
+# Sync playlist with current Plex metadata (catches newly-aired episodes)
+# --------------------------------------------------------------------------- #
+
+
+def sync_playlist(playlist_id: int) -> tuple[int, int]:
+    """Re-evaluate the canonical episode list against current Plex metadata.
+
+    Picks up newly-aired episodes, new seasons (if within the show's range),
+    and drops episodes that no longer exist in Plex. Already-played items are
+    preserved as-is. The future portion of the playlist is rebuilt to match
+    the new canonical sequence.
+
+    Returns (added, removed) counts.
+    """
+    row = db.get_playlist(playlist_id)
+    if not row:
+        return (0, 0)
+    # Per-playlist opt-out (in addition to the global AUTO_SYNC env)
+    if not bool(row["auto_sync"]):
+        return (0, 0)
+    plex_pl = plex.get_playlist(row["plex_rating_key"])
+    if plex_pl is None:
+        return (0, 0)
+
+    items = _playlist_items_for_rotation(plex_pl)
+    splice = rotation.splice_index(items)
+    kept = items[:splice]
+    current_tail = items[splice:]
+    current_tail_keys = [it.rating_key for it in current_tail]
+
+    show_rows = db.list_shows(playlist_id)
+    if not show_rows:
+        return (0, 0)
+
+    full_configs = [_config_from_row(r) for r in show_rows]
+    uw = bool(row["unwatched_only"])
+    shows_episodes = [_episodes_for_config(c, unwatched_only=uw) for c in full_configs]
+    show_order = [c.rating_key for c in full_configs]
+
+    new_tail = rotation.rebuild_tail(
+        kept, shows_episodes, mode=row["sort_mode"], show_order=show_order
+    )
+    new_tail_keys = [e.rating_key for e in new_tail]
+
+    # Nothing changed — skip the round-trip to Plex
+    if current_tail_keys == new_tail_keys:
+        return (0, 0)
+
+    added = len([k for k in new_tail_keys if k not in set(current_tail_keys)])
+    removed = len([k for k in current_tail_keys if k not in set(new_tail_keys)])
+
+    # Rebuild the tail wholesale so order stays correct (esp. in air-date mode).
+    if current_tail:
+        plex.remove_items(plex_pl, plex.fetch_episode_items(current_tail_keys))
+    if new_tail_keys:
+        plex.add_items(plex_pl, plex.fetch_episode_items(new_tail_keys))
+
+    log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
+    return (added, removed)
+
+
+def sync_all() -> None:
+    for row in db.list_playlists():
+        try:
+            sync_playlist(row["id"])
+        except Exception:
+            log.exception("Sync failed for playlist id=%s", row["id"])
+
+
+# --------------------------------------------------------------------------- #
 # Delete a managed playlist entirely
 # --------------------------------------------------------------------------- #
 
@@ -543,6 +633,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         item_count=item_count,
         sort_mode=row["sort_mode"] or "rotation",
         unwatched_only=bool(row["unwatched_only"]),
+        auto_sync=bool(row["auto_sync"]) if "auto_sync" in row.keys() else True,
     )
 
 
