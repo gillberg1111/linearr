@@ -53,6 +53,10 @@ def _parse_configs_from_form(form, show_keys: list[str]) -> list[ShowConfig]:
             end_i = int(end) if end.strip() else None
         except ValueError:
             end_i = None
+        # Safety net: end_season below start_season makes no sense. The UI
+        # already hides invalid choices, but stale form data could still ship.
+        if end_i is not None and end_i < start_i:
+            end_i = None
         configs.append(
             ShowConfig(
                 rating_key=rk,

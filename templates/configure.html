@@ -337,6 +337,47 @@
         'input[type=checkbox][name^="specials_"]'
       ).forEach((el) => el.addEventListener('change', scheduleUpdate));
 
+      // Keep "End at" >= "Start from" for each show. Hides any end-season
+      // card with index < the current start. If the user previously picked
+      // an end below the new start, reset it to "All". Works whichever order
+      // the picks happen in.
+      function syncEndForShow(rk) {
+        const startEl = document.querySelector(`input[name="start_${rk}"]:checked`);
+        if (!startEl) return;
+        const startVal = parseInt(startEl.value, 10);
+        const endRadios = document.querySelectorAll(`input[name="end_${rk}"]`);
+        endRadios.forEach((end) => {
+          const card = end.closest('.season-card');
+          if (!card) return;
+          if (end.value === '') return;  // "All" card always valid
+          const endVal = parseInt(end.value, 10);
+          const invalid = endVal < startVal;
+          card.style.display = invalid ? 'none' : '';
+          if (invalid && end.checked) {
+            const allRadio = document.querySelector(`input[name="end_${rk}"][value=""]`);
+            if (allRadio) allRadio.checked = true;
+          }
+        });
+      }
+
+      // Re-sync end options whenever start changes
+      document.querySelectorAll('input[type=radio][name^="start_"]').forEach((startRadio) => {
+        startRadio.addEventListener('change', () => {
+          const rk = startRadio.name.slice('start_'.length);
+          syncEndForShow(rk);
+        });
+      });
+
+      // Initial sync for whatever's pre-checked on page load
+      const seenShows = new Set();
+      document.querySelectorAll('input[type=radio][name^="start_"]').forEach((r) => {
+        const rk = r.name.slice('start_'.length);
+        if (!seenShows.has(rk)) {
+          seenShows.add(rk);
+          syncEndForShow(rk);
+        }
+      });
+
       // Movies sections: toggle visibility, Select-all button, individual checks
       document.querySelectorAll('.movies-section').forEach((section) => {
         const toggle = section.querySelector('.movies-toggle-input');
