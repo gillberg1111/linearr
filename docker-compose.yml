@@ -1,4 +1,4 @@
-# Plex Rotator — docker compose
+# Plaitarr — docker compose
 #
 # Two ways to run:
 #   A) Pull a pre-built image  (uncomment `image:`, leave `build:` commented)
@@ -10,13 +10,13 @@
 #   3. open http://<host>:5005
 
 services:
-  plex-rotator:
+  plaitarr:
     # --- pick ONE of these two lines ---
     build: .
-    # image: ghcr.io/gillberg1111/plex-rotator:latest
+    # image: ghcr.io/gillberg1111/plaitarr:latest
     # -----------------------------------
 
-    container_name: plex-rotator
+    container_name: plaitarr
     restart: unless-stopped
     env_file: .env
     ports:

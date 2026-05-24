@@ -1,4 +1,4 @@
-# Plex Rotator
+# Plaitarr
 
 A web app that builds and maintains custom Plex playlists across multiple TV
 shows (and their associated movies). Two ways to order episodes:
@@ -104,8 +104,8 @@ fall-asleep buffer.
 ## Quick start
 
 ```bash
-git clone https://github.com/gillberg1111/plex-rotator.git
-cd plex-rotator
+git clone https://github.com/gillberg1111/plaitarr.git
+cd plaitarr
 cp .env.example .env
 # edit .env — set PLEX_URL and PLEX_TOKEN
 docker compose up -d
@@ -128,8 +128,8 @@ edit/restart it from the Docker tab just like a Community App.
 
    | Field            | Value                                                            |
    | ---------------- | ---------------------------------------------------------------- |
-   | **Name**         | `plex-rotator`                                                   |
-   | **Repository**   | `ghcr.io/gillberg1111/plex-rotator:latest`                       |
+   | **Name**         | `plaitarr`                                                   |
+   | **Repository**   | `ghcr.io/gillberg1111/plaitarr:latest`                       |
    | **Network Type** | `Bridge`                                                         |
    | **WebUI**        | `http://[IP]:[PORT:5005]`                                        |
 
@@ -139,7 +139,7 @@ edit/restart it from the Docker tab just like a Community App.
    | Type     | Container Path / Key | Host Path / Value                  | Notes        |
    | -------- | -------------------- | ---------------------------------- | ------------ |
    | Port     | `5005` TCP           | `5005`                             |              |
-   | Path     | `/data`              | `/mnt/user/appdata/plex-rotator`   | Read/Write   |
+   | Path     | `/data`              | `/mnt/user/appdata/plaitarr`   | Read/Write   |
    | Variable | `PLEX_URL`           | `http://<unraid-ip>:32400`         | required     |
    | Variable | `PLEX_TOKEN`         | *(your token)*                     | required     |
    | Variable | `WATCHED_KEEP`       | `2`                                | optional     |
@@ -157,7 +157,7 @@ edit/restart it from the Docker tab just like a Community App.
   `http://192.168.1.50:32400`), **not** `localhost` — the rotator container
   can't see Plex via `localhost`.
 - **Appdata path**: SQLite state lives in
-  `/mnt/user/appdata/plex-rotator/rotator.db`. Back this up if you care
+  `/mnt/user/appdata/plaitarr/rotator.db`. Back this up if you care
   about your playlist configs; episode/show state lives in Plex itself.
 - **Networking**: Bridge mode is fine. No host network needed.
 - **Updates**: container icon → **Check for Updates** (or **Force Update**).
@@ -174,8 +174,8 @@ The repo includes a [`docker-compose.yml`](docker-compose.yml) that supports
 both **build-from-source** (default) and **pull-from-registry**.
 
 ```bash
-git clone https://github.com/gillberg1111/plex-rotator.git
-cd plex-rotator
+git clone https://github.com/gillberg1111/plaitarr.git
+cd plaitarr
 cp .env.example .env
 # edit .env — set PLEX_URL and PLEX_TOKEN
 docker compose up -d
@@ -185,9 +185,9 @@ To pull a pre-built image instead, edit `docker-compose.yml`:
 
 ```yaml
 services:
-  plex-rotator:
+  plaitarr:
     # build: .                                                # comment out
-    image: ghcr.io/gillberg1111/plex-rotator:latest          # uncomment
+    image: ghcr.io/gillberg1111/plaitarr:latest          # uncomment
 ```
 
 Logs / status:
@@ -204,7 +204,7 @@ docker compose pull && docker compose up -d   # update (registry image)
 
 ```bash
 docker run -d \
-  --name plex-rotator \
+  --name plaitarr \
   --restart unless-stopped \
   -p 5005:5005 \
   -v /path/to/your/appdata:/data \
@@ -212,7 +212,7 @@ docker run -d \
   -e PLEX_TOKEN=YOUR_TOKEN_HERE \
   -e WATCHED_KEEP=2 \
   -e PRUNE_INTERVAL_MINUTES=10 \
-  ghcr.io/gillberg1111/plex-rotator:latest
+  ghcr.io/gillberg1111/plaitarr:latest
 ```
 
 ---
@@ -222,8 +222,8 @@ docker run -d \
 You need Python 3.11+.
 
 ```bash
-git clone https://github.com/gillberg1111/plex-rotator.git
-cd plex-rotator
+git clone https://github.com/gillberg1111/plaitarr.git
+cd plaitarr
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -233,23 +233,23 @@ python app.py
 
 The app listens on `WEB_HOST:WEB_PORT` (defaults `0.0.0.0:5005`).
 
-systemd unit (`/etc/systemd/system/plex-rotator.service`):
+systemd unit (`/etc/systemd/system/plaitarr.service`):
 ```ini
 [Unit]
-Description=Plex Rotator
+Description=Plaitarr
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/plex-rotator
-ExecStart=/opt/plex-rotator/.venv/bin/python app.py
+WorkingDirectory=/opt/plaitarr
+ExecStart=/opt/plaitarr/.venv/bin/python app.py
 Restart=on-failure
-EnvironmentFile=/opt/plex-rotator/.env
+EnvironmentFile=/opt/plaitarr/.env
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`systemctl daemon-reload && systemctl enable --now plex-rotator`.
+`systemctl daemon-reload && systemctl enable --now plaitarr`.
 
 ---
 
@@ -431,7 +431,7 @@ docker compose up -d
 ```bash
 git pull
 .venv/bin/pip install -r requirements.txt
-systemctl restart plex-rotator   # if using the systemd unit
+systemctl restart plaitarr   # if using the systemd unit
 ```
 
 SQLite migrations run automatically on startup (lightweight `ALTER TABLE`
@@ -445,7 +445,7 @@ updates.
 **"Couldn't reach Plex" on the New playlist page**
 - Confirm `PLEX_URL` is reachable from inside the container:
   ```bash
-  docker exec -it plex-rotator python -c "import urllib.request; print(urllib.request.urlopen('YOUR_PLEX_URL/identity').status)"
+  docker exec -it plaitarr python -c "import urllib.request; print(urllib.request.urlopen('YOUR_PLEX_URL/identity').status)"
   ```
 - If Plex is on the same host as the rotator, **don't** use
   `localhost`/`127.0.0.1` — use the LAN IP.
@@ -478,8 +478,8 @@ updates.
 **Logs**
 ```bash
 docker compose logs -f                 # compose
-docker logs -f plex-rotator            # plain docker
-journalctl -u plex-rotator -f          # systemd
+docker logs -f plaitarr            # plain docker
+journalctl -u plaitarr -f          # systemd
 ```
 
 ---
@@ -526,3 +526,9 @@ and unit-tested — keep it that way; side effects belong in `service.py` or
 `plex_client.py`. Run `python tests.py` before any PR.
 
 License: [MIT](LICENSE).
+
+---
+
+> Plaitarr follows the `*arr` naming convention popular in the Plex / Sonarr /
+> Radarr ecosystem, but it is not affiliated with the Servarr project or
+> Plex Inc. "Plex" is a trademark of Plex GmbH.

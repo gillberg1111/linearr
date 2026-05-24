@@ -1,7 +1,7 @@
-# Builds and publishes the Plex Rotator container image to ghcr.io.
+# Builds and publishes the Plaitarr container image to ghcr.io.
 #
 # Triggers:
-#   - push to main         -> ghcr.io/<owner>/plex-rotator:latest
+#   - push to main         -> ghcr.io/<owner>/plaitarr:latest
 #   - tag v*  (e.g. v0.1.0) -> :v0.1.0, :0.1, plus :latest
 #   - manual run           -> via the Actions tab "Run workflow" button
 #

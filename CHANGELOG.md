@@ -1,13 +1,15 @@
 # Changelog
 
-All notable changes to Plex Rotator. Format loosely follows
+All notable changes to Plaitarr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
 ## [0.1.0] - 2026-05-23
 
-First public release. Published to ghcr.io and tested on Unraid.
+First public release as **Plaitarr** (initially named *Plex Rotator*; renamed
+to avoid trademark concerns with the Plex name and adopt the community
+`*arr` naming convention). Published to ghcr.io and tested on Unraid.
 
 ### Added
 - **Sort modes**: each playlist can switch between **Rotation** (round-robin) and
