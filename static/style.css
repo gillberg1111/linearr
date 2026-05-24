@@ -805,6 +805,15 @@ a { color: var(--accent); }
   gap: 0.7rem;
 }
 .support-footer .hint { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.btn-coffee {
+  font-family: 'Inter', inherit;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.btn-coffee .coffee-cup { font-size: 1rem; line-height: 1; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 600px) {
