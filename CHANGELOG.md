@@ -5,6 +5,15 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-05-24
+
+### Fixed
+- **Unraid Docker tab icon**: switched the CA template's `<Icon>` (and the
+  `ca_profile.xml` icon) from SVG to the 256×256 PNG. Unraid's Apps tab
+  renders SVG fine, but the Docker tab's installed-container list uses a
+  different rendering path and was leaving the SVG icon blank. PNG works in
+  both views.
+
 ## [1.0.5] - 2026-05-24
 
 ### Changed
