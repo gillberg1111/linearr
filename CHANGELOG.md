@@ -5,6 +5,13 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-05-24
+
+### Changed
+- **Buy Me a Coffee button** is now a styled in-app link sized to match the
+  other primary buttons (was the larger BMC JS widget). Same destination,
+  same blue, just smaller and visually consistent with the rest of the UI.
+
 ## [1.0.2] - 2026-05-24
 
 First stable release. Adds the auto-sync background loop and per-playlist
