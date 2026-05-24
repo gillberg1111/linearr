@@ -52,13 +52,17 @@ fall-asleep buffer.
 </p>
 
 <p align="center">
-  <img src="images/02-new-playlist.png" alt="Show picker" width="430">
-  <img src="images/03-selected.png" alt="Selected tray" width="430">
-  <br><sub><em>Show picker (left) — filter through your TV libraries. As you pick, shows jump into the pinned "Selected" tray (right) where the order = the rotation order.</em></sub>
+  <img src="images/02-new-playlist.png" alt="Show picker" width="900">
+  <br><sub><em>Show picker — filter through your TV libraries and pick the shows you want in the rotation.</em></sub>
 </p>
 
 <p align="center">
-  <img src="images/04-configure.png" alt="Configure page" width="700">
+  <img src="images/03-selected.png" alt="Selected tray" width="900">
+  <br><sub><em>As you pick, shows jump into a pinned "Selected" tray at the top. Order in the tray = the rotation order.</em></sub>
+</p>
+
+<p align="center">
+  <img src="images/04-configure.png" alt="Configure page" width="900">
   <br><sub><em>Per-show configure: season range, specials toggle (only when Season 0 exists), sort mode (Rotation / Air Date), unwatched-only filter, and Auto-update toggle. Every change updates the preview list below without reloading the page.</em></sub>
 </p>
 
