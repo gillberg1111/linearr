@@ -235,12 +235,16 @@ edit/restart it from the Docker tab just like a Community App.
 
 ### Notes for Unraid
 
-- **Plex on the same Unraid box?** Use the LAN IP of the host (e.g.
-  `http://192.168.1.50:32400`), **not** `localhost` — the rotator container
-  can't see Plex via `localhost`.
+- **Plex or Jellyfin on the same Unraid box?** Use the LAN IP of the host
+  (e.g. `http://192.168.1.50:32400` for Plex, `http://192.168.1.50:8096` for
+  Jellyfin), **not** `localhost` — the Linearr container can't see them via
+  `localhost`.
+- **Jellyfin-only install**: leave `PLEX_URL` and `PLEX_TOKEN` blank, fill in
+  `JELLYFIN_URL` / `JELLYFIN_USERNAME` / `JELLYFIN_PASSWORD`. The picker is
+  hidden and every playlist targets Jellyfin.
 - **Appdata path**: SQLite state lives in
-  `/mnt/user/appdata/linearr/rotator.db`. Back this up if you care
-  about your playlist configs; episode/show state lives in Plex itself.
+  `/mnt/user/appdata/linearr/rotator.db`. Back this up if you care about
+  your playlist configs; episode/show state lives in each backend.
 - **Networking**: Bridge mode is fine. No host network needed.
 - **Updates**: container icon → **Check for Updates** (or **Force Update**).
   Unraid will repull the image and restart.
@@ -295,6 +299,22 @@ docker run -d \
   -v /path/to/your/appdata:/data \
   -e PLEX_URL=http://192.168.1.100:32400 \
   -e PLEX_TOKEN=YOUR_TOKEN_HERE \
+  -e WATCHED_KEEP=2 \
+  -e PRUNE_INTERVAL_MINUTES=10 \
+  ghcr.io/gillberg1111/linearr:latest
+```
+
+Jellyfin-only:
+
+```bash
+docker run -d \
+  --name linearr \
+  --restart unless-stopped \
+  -p 5005:5005 \
+  -v /path/to/your/appdata:/data \
+  -e JELLYFIN_URL=http://192.168.1.100:8096 \
+  -e JELLYFIN_USERNAME=YOUR_JELLYFIN_USERNAME \
+  -e JELLYFIN_PASSWORD=YOUR_JELLYFIN_PASSWORD \
   -e WATCHED_KEEP=2 \
   -e PRUNE_INTERVAL_MINUTES=10 \
   ghcr.io/gillberg1111/linearr:latest
