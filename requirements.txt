@@ -1,0 +1,4 @@
+Flask==3.0.3
+plexapi==4.16.1
+APScheduler==3.10.4
+python-dotenv==1.0.1

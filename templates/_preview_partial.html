@@ -1,0 +1,37 @@
+<h2>Preview <span class="hint" id="previewTotal">{{ preview|length }} episode{{ '' if preview|length == 1 else 's' }}</span></h2>
+
+{% if preview %}
+  <div class="pagination-bar">
+    <label class="page-size-label">
+      Show
+      <select id="previewPageSize" class="page-size-select">
+        <option value="10">10</option>
+        <option value="25" selected>25</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="all">All</option>
+      </select>
+      per page
+    </label>
+    <span class="page-info" id="previewPageInfo"></span>
+    <div class="pagination-buttons">
+      <button type="button" id="previewPrev" class="btn btn-sm">← Prev</button>
+      <button type="button" id="previewNext" class="btn btn-sm">Next →</button>
+    </div>
+  </div>
+  <ol class="preview-list preview-list-with-date" id="previewList">
+    {% for ep in preview %}
+      <li>
+        <span class="pl-num">{{ loop.index }}</span>
+        <span class="pl-show">{{ ep.show }}</span>
+        <span class="pl-se {% if ep.is_special %}is-special{% endif %}">
+          {% if ep.is_special %}Special{% else %}S{{ '%02d'|format(ep.season) }}E{{ '%02d'|format(ep.episode) }}{% endif %}
+        </span>
+        <span class="pl-date">{{ ep.air_date or '—' }}</span>
+        <span class="pl-title">{{ ep.title }}</span>
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  <p class="empty-state">No episodes for the current configuration.</p>
+{% endif %}

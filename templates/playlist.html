@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}{{ playlist.name }}{% endblock %}
+{% block content %}
+  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+
+  <div class="page-head">
+    <h1>{{ playlist.name }}</h1>
+    <p class="subtitle">
+      {{ playlist.shows|length }} show{{ '' if playlist.shows|length == 1 else 's' }}
+      · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }} in Plex
+      · sorted by <strong>{{ 'Air Date' if playlist.sort_mode == 'air_date' else 'Rotation' }}</strong>
+      {% if playlist.unwatched_only %}· <strong>unwatched only</strong>{% endif %}
+    </p>
+  </div>
+
+  <form method="post" action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+    <span class="sort-mode-label">Sort</span>
+    <div class="pill-toggle">
+      <button type="submit" name="sort_mode" value="rotation"
+              class="pill {% if playlist.sort_mode == 'rotation' %}is-active{% endif %}">
+        Rotation
+      </button>
+      <button type="submit" name="sort_mode" value="air_date"
+              class="pill {% if playlist.sort_mode == 'air_date' %}is-active{% endif %}">
+        Air Date
+      </button>
+    </div>
+    <span class="hint">
+      {% if playlist.sort_mode == 'air_date' %}
+        Episodes sorted by original air date — multi-part crossovers stay aligned.
+      {% else %}
+        Round-robin across shows. Show order matters; air dates are ignored.
+      {% endif %}
+    </span>
+  </form>
+
+  <form method="post" action="{{ url_for('change_unwatched_only', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+    <span class="sort-mode-label">Filter</span>
+    <div class="pill-toggle">
+      <button type="submit" name="enabled" value=""
+              class="pill {% if not playlist.unwatched_only %}is-active{% endif %}">
+        All episodes
+      </button>
+      <button type="submit" name="enabled" value="1"
+              class="pill {% if playlist.unwatched_only %}is-active{% endif %}">
+        Unwatched only
+      </button>
+    </div>
+    <span class="hint">
+      {% if playlist.unwatched_only %}
+        Episodes you've already watched (anywhere in Plex) are excluded.
+      {% else %}
+        Includes every episode in the chosen seasons.
+      {% endif %}
+    </span>
+  </form>
+
+  <section>
+    <div class="section-head">
+      <h2>Rotation order</h2>
+      <span class="hint">Top row plays first in the round-robin.</span>
+    </div>
+    <form method="post" action="{{ url_for('reorder', playlist_id=playlist.id) }}" id="orderForm">
+      <ul class="rotation-list" id="rotationList">
+        {% for s in playlist.shows %}
+          <li class="rotation-row" data-key="{{ s.show_rating_key }}">
+            <input type="hidden" name="order" value="{{ s.show_rating_key }}">
+            <div class="rotation-poster">
+              {% if s.show_thumb %}
+                <img loading="lazy"
+                     src="{{ url_for('thumb') }}?path={{ s.show_thumb|urlencode }}&w=120&h=180"
+                     alt="{{ s.show_title }}">
+              {% else %}
+                <div class="poster-fallback">{{ s.show_title[:1] }}</div>
+              {% endif %}
+            </div>
+            <div class="rotation-info">
+              <div class="title">{{ s.show_title }}</div>
+              <div class="sub">
+                {% if s.start_season and s.start_season != 1 or s.end_season %}
+                  Seasons {{ s.start_season or 1 }}{% if s.end_season %}–{{ s.end_season }}{% else %}+{% endif %}
+                {% else %}
+                  All seasons
+                {% endif %}
+                {% if s.include_specials %} · specials on{% endif %}
+              </div>
+            </div>
+            <div class="rotation-controls">
+              <button type="button" class="btn btn-icon" data-move="up" title="Move up">▲</button>
+              <button type="button" class="btn btn-icon" data-move="down" title="Move down">▼</button>
+              <form method="post" action="{{ url_for('remove_show', playlist_id=playlist.id) }}"
+                    onsubmit="event.stopPropagation(); return confirm('Remove {{ s.show_title|e }} and ALL its episodes from this playlist?');"
+                    class="inline-form">
+                <input type="hidden" name="show" value="{{ s.show_rating_key }}">
+                <button type="submit" class="btn btn-ghost-danger btn-sm">Remove</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="reorder-actions">
+        <button type="submit" class="btn btn-primary" id="saveOrderBtn" disabled>Save order</button>
+        <span class="hint">Changing the order rebuilds the future portion of the playlist.</span>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Add another show</h2>
+    {% if not available %}
+      <p class="empty-state">No other shows available to add.</p>
+    {% else %}
+      <form method="post" action="{{ url_for('add_configure', playlist_id=playlist.id) }}" class="builder" id="addForm">
+        <div class="builder-toolbar">
+          <input type="text" id="addFilterInput" placeholder="Filter shows…" class="filter-input">
+          <span class="counter"><span id="addSelectedCount">0</span> selected</span>
+          <button type="button" id="addClearBtn" class="btn btn-sm">Clear selection</button>
+          <button type="submit" class="btn btn-primary">Next: configure →</button>
+        </div>
+        <p class="hint">
+          You'll pick the season range and specials for each show on the next step.
+        </p>
+
+        <section class="selected-tray" id="addSelectedWrapper" hidden>
+          <div class="selected-tray-head">
+            <span class="tray-title">Selected to add</span>
+            <span class="tray-count" id="addTrayCount">0</span>
+            <span class="hint">Click a tile to deselect.</span>
+          </div>
+          <div class="poster-grid poster-grid-tray" id="addSelectedTray"></div>
+        </section>
+
+        <div class="poster-grid" id="addShowList">
+          {% for s in available %}
+            <label class="show-tile" data-label="{{ (s.title + ' ' + s.library)|lower }}">
+              <input type="checkbox" name="shows" value="{{ s.rating_key }}"
+                     {% if selected and s.rating_key in selected %}checked{% endif %}>
+              <div class="poster">
+                {% if s.thumb %}
+                  <img loading="lazy"
+                       src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=240&h=360"
+                       alt="{{ s.title }}">
+                {% else %}
+                  <div class="poster-fallback">{{ s.title[:1] }}</div>
+                {% endif %}
+                <div class="check"></div>
+              </div>
+              <div class="show-meta">
+                <div class="title">{{ s.title }}</div>
+                <div class="sub">
+                  {% if s.year %}{{ s.year }} · {% endif %}{{ s.library }}
+                </div>
+              </div>
+            </label>
+          {% endfor %}
+        </div>
+
+        <p class="empty-state" id="addEmptyResults" hidden>No shows match that filter.</p>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="maintenance">
+    <h2>Maintenance</h2>
+    <div class="maintenance-row">
+      <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
+        <button type="submit" class="btn">Prune watched now</button>
+        <span class="hint">Keeps the most recent watched episodes (WATCHED_KEEP); removes older watched ones.</span>
+      </form>
+      <form method="post" action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}"
+            onsubmit="return confirm('Delete this rotating playlist (and its Plex playlist)?');">
+        <button type="submit" class="btn btn-danger">Delete playlist</button>
+      </form>
+    </div>
+  </section>
+
+  <script src="{{ url_for('static', filename='picker.js') }}"></script>
+  <script>
+    // -- Add-show picker (with tray + pagination) --
+    if (document.getElementById('addShowList')) {
+      setupPicker({
+        grid:            document.getElementById('addShowList'),
+        tray:            document.getElementById('addSelectedTray'),
+        trayWrapper:     document.getElementById('addSelectedWrapper'),
+        filterInput:     document.getElementById('addFilterInput'),
+        counter:         document.getElementById('addSelectedCount'),
+        trayCount:       document.getElementById('addTrayCount'),
+        clearBtn:        document.getElementById('addClearBtn'),
+        emptyMsg:        document.getElementById('addEmptyResults'),
+        formRoot:        document.getElementById('addForm'),
+      });
+    }
+
+    // -- Reorder rotation --
+    (() => {
+      const list = document.getElementById('rotationList');
+      const saveBtn = document.getElementById('saveOrderBtn');
+      if (!list) return;
+      let dirty = false;
+      const markDirty = () => { dirty = true; saveBtn.disabled = false; };
+      list.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-move]');
+        if (!btn) return;
+        const row = btn.closest('.rotation-row');
+        if (!row) return;
+        if (btn.dataset.move === 'up' && row.previousElementSibling) {
+          list.insertBefore(row, row.previousElementSibling);
+          markDirty();
+        } else if (btn.dataset.move === 'down' && row.nextElementSibling) {
+          list.insertBefore(row.nextElementSibling, row);
+          markDirty();
+        }
+      });
+    })();
+  </script>
+{% endblock %}

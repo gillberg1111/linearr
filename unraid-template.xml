@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>plex-rotator</Name>
+  <Repository>ghcr.io/gillberg1111/plex-rotator:latest</Repository>
+  <Registry>https://github.com/gillberg1111/plex-rotator</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/gillberg1111/plex-rotator/issues</Support>
+  <Project>https://github.com/gillberg1111/plex-rotator</Project>
+  <Overview>
+    Plex Rotator builds custom Plex playlists across multiple TV shows (and their movies).
+
+    Two sort modes per playlist:
+    - Rotation: round-robin across shows (Show A S01E01, Show B S01E01, Show A S01E02, ...).
+    - Air Date: chronological across every show. Multi-part crossovers stay aligned via
+      "Part 1" / "Pt. 2" / "(N)" title parsing — perfect for "evening TV" mixes of the
+      three Law and Order series, the Chicago shows, etc.
+
+    Pick season ranges per show, opt in to specials, optionally include associated movies
+    (auto-detected from your movie libraries by title match — e.g. "Psych: The Movie" attaches
+    to Psych). Optional "Unwatched only" filter excludes episodes you've already watched.
+    Live AJAX preview means every change updates the episode list immediately — no page reloads.
+
+    Flip any playlist between sort modes or toggle the unwatched filter any time; already-watched
+    episodes stay put, the future portion rebuilds. Edits show up as native Plex playlists in
+    every client. Background scheduler prunes watched episodes (keeping the last few around if
+    you fell asleep).
+
+    Safety: this app NEVER deletes media files or library items from Plex — only playlists.
+  </Overview>
+  <Category>MediaApp:Other Tools:</Category>
+  <WebUI>http://[IP]:[PORT:5005]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/plex-rotator/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gillberg1111/plex-rotator/main/static/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Description>
+    Custom Plex playlists across multiple TV shows (and their movies).
+    • Two sort modes per playlist: Rotation (round-robin) or Air Date (chronological)
+    • Air Date mode aligns multi-part crossovers (Part 1 / Pt. 2 / (1)) across different shows
+    • Per-show season range, optional specials, auto-detected associated movies (e.g. Psych: The Movie)
+    • Per-playlist "Unwatched only" filter
+    • Pinned "Selected" tray when picking shows
+    • Live AJAX preview with 10/25/50/100/All pagination — no page reloads on config changes
+    • Add / remove / reorder shows; switch sort mode or filter any time
+    • Background prune of watched episodes (keeps a configurable fall-asleep buffer)
+    • Native Plex playlist — works in every Plex client
+    • Never deletes media files or library items (hard runtime guard)
+  </Description>
+
+  <Config Name="WebUI Port" Target="5005" Default="5005" Mode="tcp" Description="Port for the rotator web UI." Type="Port" Display="always" Required="true" Mask="false">5005</Config>
+
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/plex-rotator" Mode="rw" Description="Persistent state (SQLite DB)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/plex-rotator</Config>
+
+  <Config Name="PLEX_URL" Target="PLEX_URL" Default="http://192.168.1.100:32400" Mode="" Description="Your Plex server URL (use the LAN IP, not plex.tv)." Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.100:32400</Config>
+
+  <Config Name="PLEX_TOKEN" Target="PLEX_TOKEN" Default="" Mode="" Description="X-Plex-Token. See https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <Config Name="WATCHED_KEEP" Target="WATCHED_KEEP" Default="2" Mode="" Description="How many recently-watched episodes to leave in each playlist as a fall-asleep buffer. Older watched episodes are pruned." Type="Variable" Display="always" Required="false" Mask="false">2</Config>
+
+  <Config Name="PRUNE_INTERVAL_MINUTES" Target="PRUNE_INTERVAL_MINUTES" Default="10" Mode="" Description="How often the background prune sweep runs, in minutes." Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
+
+  <Config Name="TV_LIBRARIES" Target="TV_LIBRARIES" Default="" Mode="" Description="Comma-separated library names to source shows from (e.g. 'TV Shows,Dropout TV'). Leave blank for all TV libraries." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+
+  <Config Name="FLASK_SECRET" Target="FLASK_SECRET" Default="" Mode="" Description="Optional. Random string for Flask session cookies. Generate with: openssl rand -hex 32" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>

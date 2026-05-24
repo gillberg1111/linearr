@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="page-head">
+    <h1>Your playlists</h1>
+    <p class="subtitle">
+      Build playlists that <strong>round-robin</strong> episodes across multiple TV shows, or
+      sort them by <strong>air date</strong> so crossovers and multi-part episodes stay aligned
+      across different shows. Watched episodes prune automatically.
+    </p>
+  </div>
+
+  {% if not playlists %}
+    <div class="empty-state">
+      <p>No playlists yet.</p>
+      <a href="{{ url_for('new_playlist') }}" class="btn btn-primary">Create your first one</a>
+    </div>
+  {% else %}
+    <div class="playlist-grid">
+      {% for p in playlists %}
+        <a class="playlist-card" href="{{ url_for('view_playlist', playlist_id=p.id) }}">
+          <div class="poster-stack">
+            {% for s in p.shows[:4] %}
+              {% if s.show_thumb %}
+                <img class="poster-tile" loading="lazy"
+                     src="{{ url_for('thumb') }}?path={{ s.show_thumb|urlencode }}&w=240&h=360"
+                     alt="{{ s.show_title }}">
+              {% else %}
+                <div class="poster-tile poster-fallback">{{ s.show_title[:1] }}</div>
+              {% endif %}
+            {% endfor %}
+            {% if p.shows|length > 4 %}
+              <div class="poster-tile poster-more">+{{ p.shows|length - 4 }}</div>
+            {% endif %}
+          </div>
+          <div class="playlist-card-body">
+            <h3>{{ p.name }}</h3>
+            <p class="meta">
+              {{ p.shows|length }} show{{ '' if p.shows|length == 1 else 's' }}
+              · {{ p.item_count }} episode{{ '' if p.item_count == 1 else 's' }}
+            </p>
+            <p class="show-names">
+              {% for s in p.shows %}{{ s.show_title }}{% if not loop.last %} · {% endif %}{% endfor %}
+            </p>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

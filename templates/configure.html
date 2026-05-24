@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}Configure rotation{% endblock %}
+{% block content %}
+  {% if mode == 'new' %}
+    <a href="{{ url_for('new_playlist', name=name, selected=show_keys|join(',')) }}" class="back">← Back to show picker</a>
+  {% else %}
+    <a href="{{ url_for('view_playlist', playlist_id=playlist_id, selected=show_keys|join(',')) }}" class="back">← Back to {{ name }}</a>
+  {% endif %}
+
+  <div class="page-head">
+    <h1>{% if mode == 'new' %}Configure “{{ name }}”{% else %}Add shows to “{{ name }}”{% endif %}</h1>
+    <p class="subtitle">
+      Pick which seasons to include for each show. Specials only appear here for shows
+      that actually have a Season 0.
+    </p>
+  </div>
+
+  <form method="post" action="{{ form_action }}" id="configForm" data-preview-url="{{ preview_api_url }}">
+    {% for k, v in hidden.items() %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    {% for rk in show_keys %}
+      <input type="hidden" name="shows" value="{{ rk }}">
+    {% endfor %}
+
+    {% if mode == 'new' %}
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Episode order</span>
+        <div class="pill-toggle">
+          <label class="pill {% if sort_mode == 'rotation' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="rotation"
+                   {% if sort_mode == 'rotation' %}checked{% endif %}>
+            <span>Rotation</span>
+          </label>
+          <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="air_date"
+                   {% if sort_mode == 'air_date' %}checked{% endif %}>
+            <span>Air Date</span>
+          </label>
+        </div>
+        <span class="hint">
+          {% if sort_mode == 'air_date' %}
+            Episodes sorted by original air date. Multi-part crossovers stay aligned via Part 1/2/3 detection. Show order is used as a tiebreaker.
+          {% else %}
+            Round-robin: Show A → Show B → Show A → … Air date is ignored.
+          {% endif %}
+        </span>
+      </div>
+
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Episode filter</span>
+        <label class="toggle">
+          <input type="checkbox" name="unwatched_only" value="1" id="unwatchedOnly"
+                 {% if unwatched_only %}checked{% endif %}>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">Only unwatched episodes</span>
+        </label>
+        <span class="hint">
+          When on, episodes you've already watched (anywhere in Plex) are excluded.
+        </span>
+      </div>
+    {% else %}
+      <input type="hidden" name="sort_mode" value="{{ sort_mode }}">
+      <input type="hidden" name="unwatched_only" value="{{ '1' if unwatched_only else '' }}">
+      <p class="hint sort-mode-inherited">
+        Inherits the playlist's settings:
+        <strong>{{ 'Air Date' if sort_mode == 'air_date' else 'Rotation' }}</strong>
+        {% if unwatched_only %}· <strong>Unwatched only</strong>{% endif %}.
+        Change from the playlist page.
+      </p>
+    {% endif %}
+
+    <div class="config-stack">
+      {% for rk in show_keys %}
+        {% set m = meta.get(rk) %}
+        {% set c = configs.get(rk) %}
+        {% set has_specials = m and m.seasons|selectattr('index', 'equalto', 0)|list|length > 0 %}
+        {% set regular_seasons = m.seasons | rejectattr('index', 'equalto', 0) | list if m else [] %}
+        <article class="config-card">
+          <div class="config-head">
+            {% if m and m.summary.thumb %}
+              <img class="config-poster" loading="lazy"
+                   src="{{ url_for('thumb') }}?path={{ m.summary.thumb|urlencode }}&w=180&h=270"
+                   alt="{{ m.summary.title }}">
+            {% else %}
+              <div class="config-poster poster-fallback">{{ (m.summary.title if m else '?')[:1] }}</div>
+            {% endif %}
+            <div class="config-head-text">
+              <h2 class="config-title">{{ m.summary.title if m else rk }}</h2>
+              <p class="meta">
+                {{ regular_seasons|length }} regular season{{ '' if regular_seasons|length == 1 else 's' }}
+                {% if has_specials %} · Season 0 (specials) available{% endif %}
+              </p>
+
+              {% if has_specials %}
+                <label class="toggle">
+                  <input type="checkbox" name="specials_{{ rk }}" value="1"
+                         {% if c.include_specials %}checked{% endif %}>
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  <span class="toggle-label">Include specials</span>
+                </label>
+              {% endif %}
+            </div>
+          </div>
+
+          {% set movies = m.movies if m else [] %}
+          {% if regular_seasons|length <= 1 %}
+            {% set only = regular_seasons[0] if regular_seasons else None %}
+            <p class="single-season-notice">
+              {% if only %}
+                Only one season — all {{ only.episode_count }} episode{{ '' if only.episode_count == 1 else 's' }} included.
+              {% else %}
+                No regular seasons available.
+                {% if not has_specials %}This show can't be added.{% endif %}
+              {% endif %}
+            </p>
+          {% else %}
+            <div class="season-group">
+              <div class="group-label">Start from</div>
+              <div class="season-grid">
+                {% for s in regular_seasons %}
+                  <label class="season-card">
+                    <input type="radio" name="start_{{ rk }}" value="{{ s.index }}"
+                           {% if (c.start_season or 1) == s.index %}checked{% endif %}>
+                    <div class="poster season-poster">
+                      {% if s.thumb %}
+                        <img loading="lazy"
+                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=180&h=270"
+                             alt="Season {{ s.index }}">
+                      {% else %}
+                        <div class="poster-fallback">S{{ s.index }}</div>
+                      {% endif %}
+                    </div>
+                    <div class="season-meta">
+                      <div class="title">Season {{ s.index }}</div>
+                      <div class="sub">{{ s.episode_count }} ep{{ '' if s.episode_count == 1 else 's' }}</div>
+                    </div>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="season-group">
+              <div class="group-label">End at <span class="hint">(optional)</span></div>
+              <div class="season-grid">
+                <label class="season-card season-card-all">
+                  <input type="radio" name="end_{{ rk }}" value=""
+                         {% if not c.end_season %}checked{% endif %}>
+                  <div class="poster season-poster">
+                    <div class="poster-fallback">∞</div>
+                  </div>
+                  <div class="season-meta">
+                    <div class="title">All</div>
+                    <div class="sub">Entire Series</div>
+                  </div>
+                </label>
+                {% for s in regular_seasons %}
+                  <label class="season-card">
+                    <input type="radio" name="end_{{ rk }}" value="{{ s.index }}"
+                           {% if c.end_season == s.index %}checked{% endif %}>
+                    <div class="poster season-poster">
+                      {% if s.thumb %}
+                        <img loading="lazy"
+                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=180&h=270"
+                             alt="Season {{ s.index }}">
+                      {% else %}
+                        <div class="poster-fallback">S{{ s.index }}</div>
+                      {% endif %}
+                    </div>
+                    <div class="season-meta">
+                      <div class="title">Season {{ s.index }}</div>
+                      <div class="sub">{{ s.episode_count }} ep{{ '' if s.episode_count == 1 else 's' }}</div>
+                    </div>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if movies %}
+            <div class="season-group movies-section" data-show="{{ rk }}">
+              <label class="toggle movies-toggle">
+                <input type="checkbox" name="include_movies_{{ rk }}" value="1"
+                       class="movies-toggle-input"
+                       {% if c.include_movies %}checked{% endif %}>
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">Include associated movies <span class="hint">({{ movies|length }} found)</span></span>
+              </label>
+              <div class="movies-picker" {% if not c.include_movies %}hidden{% endif %}>
+                <div class="movies-picker-head">
+                  <button type="button" class="btn btn-sm movies-all-btn">Select all</button>
+                  <span class="hint">{{ movies|length }} movie{{ '' if movies|length == 1 else 's' }} matched by title</span>
+                </div>
+                <div class="poster-grid movies-grid">
+                  {% for mv in movies %}
+                    <label class="show-tile">
+                      <input type="checkbox" name="movies_{{ rk }}" value="{{ mv.rating_key }}"
+                             {% if mv.rating_key in c.movie_rating_keys %}checked{% endif %}>
+                      <div class="poster">
+                        {% if mv.thumb %}
+                          <img loading="lazy"
+                               src="{{ url_for('thumb') }}?path={{ mv.thumb|urlencode }}&w=180&h=270"
+                               alt="{{ mv.title }}">
+                        {% else %}
+                          <div class="poster-fallback">{{ mv.title[:1] }}</div>
+                        {% endif %}
+                        <div class="check"></div>
+                      </div>
+                      <div class="show-meta">
+                        <div class="title">{{ mv.title }}</div>
+                        <div class="sub">
+                          {% if mv.year %}{{ mv.year }}{% endif %}
+                          {% if mv.air_date %} · {{ mv.air_date }}{% endif %}
+                        </div>
+                      </div>
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+
+    <section class="preview-section" id="previewSection">
+      <div id="previewContainer">
+        {% include "_preview_partial.html" %}
+      </div>
+    </section>
+
+    <div class="commit-bar">
+      <button type="submit" name="action" value="commit" class="btn btn-primary btn-large">
+        {% if mode == 'new' %}Create playlist{% else %}Add to playlist{% endif %}
+      </button>
+    </div>
+  </form>
+
+  <script>
+    // ---------- AJAX preview update (no full page reload) ----------
+    const STORE_KEY = 'plex-rotator.previewPageSize';
+
+    function initPreviewPagination() {
+      const list = document.getElementById('previewList');
+      const sizeSel = document.getElementById('previewPageSize');
+      const info = document.getElementById('previewPageInfo');
+      const prev = document.getElementById('previewPrev');
+      const next = document.getElementById('previewNext');
+      const total = document.getElementById('previewTotal');
+      if (!list || !sizeSel) return;
+
+      const saved = sessionStorage.getItem(STORE_KEY);
+      if (saved && Array.from(sizeSel.options).some((o) => o.value === saved)) {
+        sizeSel.value = saved;
+      }
+
+      const items = Array.from(list.children);
+      let page = 0;
+      let pageSize = sizeSel.value === 'all' ? items.length : (parseInt(sizeSel.value, 10) || 25);
+
+      function render() {
+        const size = pageSize === 'all' || pageSize >= items.length ? items.length : pageSize;
+        const totalPages = Math.max(1, Math.ceil(items.length / size));
+        if (page > totalPages - 1) page = totalPages - 1;
+        const start = page * size;
+        const end = start + size;
+        items.forEach((li, i) => { li.style.display = (i >= start && i < end) ? '' : 'none'; });
+        if (info) {
+          info.textContent = items.length === 0
+            ? 'No episodes'
+            : `Page ${page + 1} of ${totalPages} · ${items.length} total`;
+        }
+        if (total) {
+          total.textContent = `${items.length} episode${items.length === 1 ? '' : 's'}`;
+        }
+        if (prev) prev.disabled = page === 0;
+        if (next) next.disabled = page >= totalPages - 1;
+      }
+
+      sizeSel.addEventListener('change', () => {
+        sessionStorage.setItem(STORE_KEY, sizeSel.value);
+        pageSize = sizeSel.value === 'all' ? items.length : (parseInt(sizeSel.value, 10) || 25);
+        page = 0;
+        render();
+      });
+      prev?.addEventListener('click', (e) => { e.preventDefault(); if (page > 0) { page--; render(); }});
+      next?.addEventListener('click', (e) => { e.preventDefault(); page++; render(); });
+      render();
+    }
+
+    async function fetchAndRenderPreview() {
+      const form = document.getElementById('configForm');
+      const url = form.dataset.previewUrl;
+      if (!url) return;
+      const section = document.getElementById('previewSection');
+      section.classList.add('is-updating');
+      try {
+        const resp = await fetch(url, { method: 'POST', body: new FormData(form) });
+        if (!resp.ok) return;
+        const html = await resp.text();
+        document.getElementById('previewContainer').innerHTML = html;
+        initPreviewPagination();
+      } catch (e) {
+        // swallow — next change will retry
+      } finally {
+        section.classList.remove('is-updating');
+      }
+    }
+
+    // ---------- Auto-update on config change (debounced) ----------
+    (() => {
+      let debounceTimer;
+      function scheduleUpdate() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(fetchAndRenderPreview, 600);
+      }
+
+      // Sort mode pills: update visuals instantly, then submit
+      const pills = document.querySelectorAll('.sort-mode-bar .pill');
+      document.querySelectorAll('input[name="sort_mode"]').forEach((radio) => {
+        radio.addEventListener('change', () => {
+          pills.forEach((p) => {
+            const r = p.querySelector('input[name="sort_mode"]');
+            if (r) p.classList.toggle('is-active', r.checked);
+          });
+          scheduleUpdate();
+        });
+      });
+
+      // Unwatched-only checkbox
+      const uw = document.getElementById('unwatchedOnly');
+      if (uw) uw.addEventListener('change', scheduleUpdate);
+
+      // Season picks, end picks, specials toggle — anything affecting episode set
+      document.querySelectorAll(
+        'input[type=radio][name^="start_"], input[type=radio][name^="end_"], ' +
+        'input[type=checkbox][name^="specials_"]'
+      ).forEach((el) => el.addEventListener('change', scheduleUpdate));
+
+      // Movies sections: toggle visibility, Select-all button, individual checks
+      document.querySelectorAll('.movies-section').forEach((section) => {
+        const toggle = section.querySelector('.movies-toggle-input');
+        const picker = section.querySelector('.movies-picker');
+        const allBtn = section.querySelector('.movies-all-btn');
+        const items = Array.from(section.querySelectorAll('input[type="checkbox"][name^="movies_"]'));
+
+        function updateAllLabel() {
+          if (!allBtn) return;
+          const total = items.length;
+          const checked = items.filter((c) => c.checked).length;
+          if (total > 0 && checked === total) {
+            allBtn.textContent = 'Deselect all';
+            allBtn.classList.add('is-active');
+          } else {
+            allBtn.textContent = 'Select all';
+            allBtn.classList.remove('is-active');
+          }
+        }
+
+        toggle?.addEventListener('change', () => {
+          if (picker) picker.hidden = !toggle.checked;
+          scheduleUpdate();
+        });
+        allBtn?.addEventListener('click', (e) => {
+          e.preventDefault();
+          const everyChecked = items.length > 0 && items.every((c) => c.checked);
+          items.forEach((c) => { c.checked = !everyChecked; });
+          updateAllLabel();
+          scheduleUpdate();
+        });
+        items.forEach((c) => c.addEventListener('change', () => {
+          updateAllLabel();
+          scheduleUpdate();
+        }));
+        updateAllLabel();
+      });
+    })();
+
+    // Initial pagination wiring on first page render
+    initPreviewPagination();
+  </script>
+{% endblock %}

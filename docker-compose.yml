@@ -1,0 +1,29 @@
+# Plex Rotator — docker compose
+#
+# Two ways to run:
+#   A) Pull a pre-built image  (uncomment `image:`, leave `build:` commented)
+#   B) Build locally from this repo (default — `build: .` is active)
+#
+# Either way:
+#   1. cp .env.example .env  and fill in PLEX_URL + PLEX_TOKEN
+#   2. docker compose up -d
+#   3. open http://<host>:5005
+
+services:
+  plex-rotator:
+    # --- pick ONE of these two lines ---
+    build: .
+    # image: ghcr.io/gillberg1111/plex-rotator:latest
+    # -----------------------------------
+
+    container_name: plex-rotator
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${WEB_PORT:-5005}:5005"
+    volumes:
+      - ./data:/data
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 5005
+      DB_PATH: /data/rotator.db

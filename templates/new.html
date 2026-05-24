@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}New rotating playlist{% endblock %}
+{% block content %}
+  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+  <div class="page-head">
+    <h1>New rotating playlist</h1>
+    <p class="subtitle">
+      Pick the shows in the order you want them to play. You'll set seasons/specials/sort on the next step.
+    </p>
+  </div>
+
+  <form method="post" action="{{ url_for('new_configure') }}" class="builder" id="builderForm">
+    <div class="builder-toolbar">
+      <input type="text" name="name" required placeholder="Playlist name"
+             class="name-input" autofocus value="{{ prev_name or '' }}">
+      <input type="text" id="filterInput" placeholder="Filter shows…" class="filter-input">
+      <span class="counter"><span id="selectedCount">0</span> selected</span>
+      <button type="button" id="clearBtn" class="btn btn-sm">Clear selection</button>
+      <button type="submit" class="btn btn-primary">Next: configure →</button>
+    </div>
+
+    {% if not shows %}
+      <p class="empty-state">Couldn't load shows from Plex. Check PLEX_URL / PLEX_TOKEN.</p>
+    {% else %}
+      <section class="selected-tray" id="selectedWrapper" hidden>
+        <div class="selected-tray-head">
+          <span class="tray-title">Selected</span>
+          <span class="tray-count" id="trayCount">0</span>
+          <span class="hint">Click a tile to deselect. Order here = rotation order.</span>
+        </div>
+        <div class="poster-grid poster-grid-tray" id="selectedTray"></div>
+      </section>
+
+      <div class="poster-grid" id="showList">
+        {% for s in shows %}
+          <label class="show-tile" data-label="{{ (s.title + ' ' + s.library)|lower }}">
+            <input type="checkbox" name="shows" value="{{ s.rating_key }}"
+                   {% if selected and s.rating_key in selected %}checked{% endif %}>
+            <div class="poster">
+              {% if s.thumb %}
+                <img loading="lazy"
+                     src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=240&h=360"
+                     alt="{{ s.title }}">
+              {% else %}
+                <div class="poster-fallback">{{ s.title[:1] }}</div>
+              {% endif %}
+              <div class="check"></div>
+            </div>
+            <div class="show-meta">
+              <div class="title">{{ s.title }}</div>
+              <div class="sub">
+                {% if s.year %}{{ s.year }} · {% endif %}{{ s.library }}
+              </div>
+            </div>
+          </label>
+        {% endfor %}
+      </div>
+
+      <p class="empty-state" id="emptyResults" hidden>No shows match that filter.</p>
+    {% endif %}
+  </form>
+
+  <script src="{{ url_for('static', filename='picker.js') }}"></script>
+  <script>
+    setupPicker({
+      grid:            document.getElementById('showList'),
+      tray:            document.getElementById('selectedTray'),
+      trayWrapper:     document.getElementById('selectedWrapper'),
+      filterInput:     document.getElementById('filterInput'),
+      counter:         document.getElementById('selectedCount'),
+      trayCount:       document.getElementById('trayCount'),
+      clearBtn:        document.getElementById('clearBtn'),
+      emptyMsg:        document.getElementById('emptyResults'),
+      formRoot:        document.getElementById('builderForm'),
+    });
+  </script>
+{% endblock %}
