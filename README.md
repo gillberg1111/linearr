@@ -203,9 +203,10 @@ edit/restart it from the Docker tab just like a Community App.
 - **Networking**: Bridge mode is fine. No host network needed.
 - **Updates**: container icon → **Check for Updates** (or **Force Update**).
   Unraid will repull the image and restart.
-- **Community Applications**: not yet listed. Until then, the manual setup
-  above is the path. The `unraid-template.xml` in this repo is what would
-  ship to CA when/if submitted.
+- **Community Applications**: not yet listed (submission in progress).
+  Until then, the manual setup above is the path. The
+  `templates/linearr.xml` in this repo is the CA template, and
+  `ca_profile.xml` at the repo root describes the repository for CA.
 
 ---
 
@@ -557,9 +558,13 @@ templates/
                                 sort/filter pills, AJAX preview
   _preview_partial.html      — Just the preview list (rendered server-side
                                 on initial load and via /api/preview AJAX)
+  linearr.xml                — Unraid Community Applications template (XML),
+                                lives here per CA's required folder structure
 static/
   picker.js                  — Tray-based show picker (reusable)
   style.css                  — All styles
+images/                      — Logo, banner, favicons, Unraid icon (SVG + PNG)
+ca_profile.xml               — Repository-wide metadata for Unraid CA
 tests.py                     — Self-contained unit tests for rotation.py
 ```
 

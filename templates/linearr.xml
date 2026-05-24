@@ -33,8 +33,8 @@
   </Overview>
   <Category>MediaApp:Other Tools:</Category>
   <WebUI>http://[IP]:[PORT:5005]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/linearr/main/unraid-template.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/gillberg1111/linearr/main/images/icon-256.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/linearr/main/templates/linearr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gillberg1111/linearr/main/images/icon.svg</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

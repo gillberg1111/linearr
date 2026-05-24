@@ -5,6 +5,16 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-05-24
+
+### Changed
+- **Repository restructured for Unraid Community Applications submission:**
+  - `unraid-template.xml` moved to `templates/linearr.xml` (CA's required
+    folder layout).
+  - `ca_profile.xml` added at the repo root with repository-wide metadata
+    (description, support links, donation).
+  - CA Icon now points at the SVG variant in `images/`.
+
 ## [1.0.4] - 2026-05-24
 
 ### Added

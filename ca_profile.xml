@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>
+**Linearr — the missing show sequencer for Plex.**
+
+Linearr builds custom Plex playlists across multiple TV shows (and their movies)
+in two ways:
+
+- **Rotation:** round-robin across shows (Show A S01E01 → Show B S01E01 → Show A S01E02 → ...).
+- **Air Date:** chronological across every show, with multi-part crossovers (Part 1 / Pt. 2 / (N) in episode titles) kept aligned even when they span different shows.
+
+Per-show season range, optional specials, auto-detected associated movies (e.g. *Psych: The Movie*), an optional "Unwatched only" filter, and automatic syncing of newly-aired episodes/seasons (per-playlist toggle to lock if you want).
+
+**Safety:** never deletes media files or library items — only playlists. A runtime guard disables `delete()` on Episodes, Shows, Seasons, and Movies in the Plex API client.
+
+**Repository:** [github.com/gillberg1111/linearr](https://github.com/gillberg1111/linearr)
+**Support:** open an issue at [github.com/gillberg1111/linearr/issues](https://github.com/gillberg1111/linearr/issues)
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/gillberg1111/linearr/main/images/icon.svg</Icon>
+  <WebPage>https://github.com/gillberg1111/linearr</WebPage>
+  <DonateLink>https://buymeacoffee.com/gillberg1111</DonateLink>
+  <DonateText>Buy me a coffee</DonateText>
+</CommunityApplications>
