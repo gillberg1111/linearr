@@ -5,6 +5,13 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-05-24
+
+### Added
+- **Screenshots in README** — four UI screenshots (landing, show picker,
+  selected tray, configure page) with library posters blurred for privacy.
+  Linked from the table of contents.
+
 ## [1.0.3] - 2026-05-24
 
 ### Changed

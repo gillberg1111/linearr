@@ -44,8 +44,29 @@ fall-asleep buffer.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="images/01-landing.png" alt="Landing page" width="900">
+  <br><sub><em>Landing page — your playlists live here, with the support link in the footer.</em></sub>
+</p>
+
+<p align="center">
+  <img src="images/02-new-playlist.png" alt="Show picker" width="430">
+  <img src="images/03-selected.png" alt="Selected tray" width="430">
+  <br><sub><em>Show picker (left) — filter through your TV libraries. As you pick, shows jump into the pinned "Selected" tray (right) where the order = the rotation order.</em></sub>
+</p>
+
+<p align="center">
+  <img src="images/04-configure.png" alt="Configure page" width="700">
+  <br><sub><em>Per-show configure: season range, specials toggle (only when Season 0 exists), sort mode (Rotation / Air Date), unwatched-only filter, and Auto-update toggle. Every change updates the preview list below without reloading the page.</em></sub>
+</p>
+
+---
+
 ## Table of contents
 
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Install on Unraid](#install-on-unraid)
