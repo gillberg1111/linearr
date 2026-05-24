@@ -18,6 +18,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Opt the runner into Node.js 24 now (default starting June 2 2026). Without
+# this, every run prints a deprecation warning until the cutover.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
