@@ -197,13 +197,20 @@ def create_app() -> Flask:
         if sort_mode not in ("rotation", "air_date"):
             sort_mode = "rotation"
         unwatched_only = bool(request.form.get("unwatched_only"))
+        # auto_sync: default on for new playlists. The form sends "1" when
+        # checked; when omitted the user explicitly unchecked it. Detect that
+        # via the presence of any other field (we know the form was rendered).
+        auto_sync = bool(request.form.get("auto_sync")) if "shows" in request.form else True
         configs = _parse_configs_from_form(request.form, show_keys)
         meta = _gather_season_meta(show_keys)
 
         if action == "commit":
             try:
                 pid = service.create_managed_playlist(
-                    name, configs, sort_mode=sort_mode, unwatched_only=unwatched_only
+                    name, configs,
+                    sort_mode=sort_mode,
+                    unwatched_only=unwatched_only,
+                    auto_sync=auto_sync,
                 )
             except Exception as e:
                 log.exception("create failed")
@@ -220,6 +227,7 @@ def create_app() -> Flask:
                     name=name,
                     sort_mode=sort_mode,
                     unwatched_only=unwatched_only,
+                    auto_sync=auto_sync,
                     preview_api_url=url_for("api_preview"),
                 )
             flash(f"Created '{name}'.", "ok")
@@ -245,6 +253,7 @@ def create_app() -> Flask:
             name=name,
             sort_mode=sort_mode,
             unwatched_only=unwatched_only,
+            auto_sync=auto_sync,
             preview_api_url=url_for("api_preview"),
         )
 
@@ -325,6 +334,7 @@ def create_app() -> Flask:
             playlist_id=playlist_id,
             sort_mode=view.sort_mode,
             unwatched_only=view.unwatched_only,
+            auto_sync=view.auto_sync,
             preview_api_url=url_for("api_preview", playlist_id=playlist_id),
         )
 

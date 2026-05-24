@@ -1,4 +1,4 @@
-"""APScheduler background job that prunes managed playlists periodically."""
+"""APScheduler background jobs: prune watched, sync new episodes."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ def _interval_minutes() -> int:
         return 10
 
 
+def _auto_sync_enabled() -> bool:
+    val = os.environ.get("AUTO_SYNC", "true").strip().lower()
+    return val not in ("false", "0", "no", "off")
+
+
 def start() -> BackgroundScheduler:
     sched = BackgroundScheduler(timezone="UTC")
     minutes = _interval_minutes()
@@ -30,6 +35,20 @@ def start() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    sync_on = _auto_sync_enabled()
+    if sync_on:
+        sched.add_job(
+            service.sync_all,
+            "interval",
+            minutes=minutes,
+            id="sync_all",
+            max_instances=1,
+            coalesce=True,
+        )
     sched.start()
-    log.info("Background prune scheduled every %d minute(s)", minutes)
+    log.info(
+        "Background jobs scheduled every %d minute(s): prune%s",
+        minutes,
+        " + sync" if sync_on else " (auto-sync disabled)",
+    )
     return sched

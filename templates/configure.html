@@ -59,13 +59,28 @@
           When on, episodes you've already watched (anywhere in Plex) are excluded.
         </span>
       </div>
+
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Auto-update</span>
+        <label class="toggle">
+          <input type="checkbox" name="auto_sync" value="1" id="autoSync"
+                 {% if auto_sync %}checked{% endif %}>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">Add new episodes &amp; seasons automatically</span>
+        </label>
+        <span class="hint">
+          When on, the background sweep splices newly-aired episodes (and matching movies) into this playlist. Turn off to lock it at creation.
+        </span>
+      </div>
     {% else %}
       <input type="hidden" name="sort_mode" value="{{ sort_mode }}">
       <input type="hidden" name="unwatched_only" value="{{ '1' if unwatched_only else '' }}">
+      <input type="hidden" name="auto_sync" value="{{ '1' if auto_sync else '' }}">
       <p class="hint sort-mode-inherited">
         Inherits the playlist's settings:
         <strong>{{ 'Air Date' if sort_mode == 'air_date' else 'Rotation' }}</strong>
-        {% if unwatched_only %}· <strong>Unwatched only</strong>{% endif %}.
+        {% if unwatched_only %}· <strong>Unwatched only</strong>{% endif %}
+        {% if not auto_sync %}· <strong>Auto-update off</strong>{% endif %}.
         Change from the playlist page.
       </p>
     {% endif %}

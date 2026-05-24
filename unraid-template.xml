@@ -66,7 +66,9 @@
 
   <Config Name="WATCHED_KEEP" Target="WATCHED_KEEP" Default="2" Mode="" Description="How many recently-watched episodes to leave in each playlist as a fall-asleep buffer. Older watched episodes are pruned." Type="Variable" Display="always" Required="false" Mask="false">2</Config>
 
-  <Config Name="PRUNE_INTERVAL_MINUTES" Target="PRUNE_INTERVAL_MINUTES" Default="10" Mode="" Description="How often the background prune sweep runs, in minutes." Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
+  <Config Name="PRUNE_INTERVAL_MINUTES" Target="PRUNE_INTERVAL_MINUTES" Default="10" Mode="" Description="How often the background prune + auto-sync sweep runs, in minutes." Type="Variable" Display="advanced" Required="false" Mask="false">10</Config>
+
+  <Config Name="AUTO_SYNC" Target="AUTO_SYNC" Default="true" Mode="" Description="When true (default), the scheduler also splices newly-aired episodes and new seasons into managed playlists every PRUNE_INTERVAL_MINUTES. Set false to lock playlists until you edit them manually." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
 
   <Config Name="TV_LIBRARIES" Target="TV_LIBRARIES" Default="" Mode="" Description="Comma-separated library names to source shows from (e.g. 'TV Shows,Dropout TV'). Leave blank for all TV libraries." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
 

@@ -105,12 +105,23 @@ def init_db() -> None:
             conn.execute("ALTER TABLE managed_playlists ADD COLUMN auto_sync INTEGER NOT NULL DEFAULT 1")
 
 
-def create_playlist(name: str, sort_mode: str = "rotation", unwatched_only: bool = False) -> int:
+def create_playlist(
+    name: str,
+    sort_mode: str = "rotation",
+    unwatched_only: bool = False,
+    auto_sync: bool = True,
+) -> int:
     with connection() as conn:
         cur = conn.execute(
-            """INSERT INTO managed_playlists (name, created_at, sort_mode, unwatched_only)
-               VALUES (?, ?, ?, ?)""",
-            (name, datetime.now(timezone.utc).isoformat(), sort_mode, 1 if unwatched_only else 0),
+            """INSERT INTO managed_playlists (name, created_at, sort_mode, unwatched_only, auto_sync)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                name,
+                datetime.now(timezone.utc).isoformat(),
+                sort_mode,
+                1 if unwatched_only else 0,
+                1 if auto_sync else 0,
+            ),
         )
         return int(cur.lastrowid)
 

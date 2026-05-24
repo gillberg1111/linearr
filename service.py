@@ -194,6 +194,7 @@ def create_managed_playlist(
     configs: list[ShowConfig],
     sort_mode: str = "rotation",
     unwatched_only: bool = False,
+    auto_sync: bool = True,
 ) -> int:
     if not configs:
         raise ValueError("Need at least one show to create a playlist")
@@ -210,7 +211,12 @@ def create_managed_playlist(
     episode_items = plex.fetch_episode_items([e.rating_key for e in composed])
     plex_playlist = plex.create_playlist(name, episode_items)
 
-    playlist_id = db.create_playlist(name, sort_mode=sort_mode, unwatched_only=unwatched_only)
+    playlist_id = db.create_playlist(
+        name,
+        sort_mode=sort_mode,
+        unwatched_only=unwatched_only,
+        auto_sync=auto_sync,
+    )
     db.set_plex_rating_key(playlist_id, str(plex_playlist.ratingKey))
 
     db.add_shows(
