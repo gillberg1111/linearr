@@ -1,5 +1,10 @@
 # Linearr
 
+### The missing show sequencer for Plex.
+Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
+
+---
+
 A web app that builds and maintains custom Plex playlists across multiple TV
 shows (and their associated movies). Two ways to order episodes:
 

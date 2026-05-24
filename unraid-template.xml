@@ -10,7 +10,8 @@
   <Support>https://github.com/gillberg1111/linearr/issues</Support>
   <Project>https://github.com/gillberg1111/linearr</Project>
   <Overview>
-    Linearr builds custom Plex playlists across multiple TV shows (and their movies).
+    Linearr — the missing show sequencer for Plex.
+    Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
 
     Two sort modes per playlist:
     - Rotation: round-robin across shows (Show A S01E01, Show B S01E01, Show A S01E02, ...).
@@ -41,7 +42,8 @@
   <DonateText/>
   <DonateLink/>
   <Description>
-    Custom Plex playlists across multiple TV shows (and their movies).
+    The missing show sequencer for Plex. Automated round-robin rotation and
+    chronological crossover alignment for your episodes (and their movies).
     • Two sort modes per playlist: Rotation (round-robin) or Air Date (chronological)
     • Air Date mode aligns multi-part crossovers (Part 1 / Pt. 2 / (1)) across different shows
     • Per-show season range, optional specials, auto-detected associated movies (e.g. Psych: The Movie)
