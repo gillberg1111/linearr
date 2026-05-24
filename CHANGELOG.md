@@ -5,6 +5,10 @@ All notable changes to Plex Rotator. Format loosely follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-23
+
+First public release. Published to ghcr.io and tested on Unraid.
+
 ### Added
 - **Sort modes**: each playlist can switch between **Rotation** (round-robin) and
   **Air Date** (chronological across shows). Switch any time; the future portion

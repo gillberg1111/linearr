@@ -117,42 +117,39 @@ Open <http://localhost:5005>. That's it.
 
 ## Install on Unraid
 
-You have three options, easiest to most manual:
+The fastest reliable path is to add the container manually. Unraid saves
+your configuration as a local template after the first run, so you can
+edit/restart it from the Docker tab just like a Community App.
 
-### Option 1 — Add the template directly (recommended)
+### Add Container manually
 
-1. In Unraid, go to **Docker** → **Add Container**.
-2. In the **Template** dropdown, click the link icon and paste the template URL:
-   ```
-   https://raw.githubusercontent.com/gillberg1111/plex-rotator/main/unraid-template.xml
-   ```
-3. Unraid pre-fills everything. Edit the required fields:
-   - **PLEX_URL** — `http://<your-unraid-ip>:32400` (or wherever Plex lives)
-   - **PLEX_TOKEN** — see [Finding your Plex token](#finding-your-plex-token)
-4. Click **Apply**. Unraid pulls the image and starts the container.
-5. Click the container icon → **WebUI** to open the rotator.
+1. **Docker** tab → **Add Container**.
+2. Fill in:
 
-### Option 2 — Community Applications (once published)
+   | Field            | Value                                                            |
+   | ---------------- | ---------------------------------------------------------------- |
+   | **Name**         | `plex-rotator`                                                   |
+   | **Repository**   | `ghcr.io/gillberg1111/plex-rotator:latest`                       |
+   | **Network Type** | `Bridge`                                                         |
+   | **WebUI**        | `http://[IP]:[PORT:5005]`                                        |
 
-If/when this app is submitted to **Community Applications**, search "Plex
-Rotator" in the **Apps** tab and install it. Until then, use Option 1 or 3.
+3. Click **Add another Path, Port, Variable, Label or Device** at the
+   bottom and add the following one at a time:
 
-### Option 3 — Add Container manually
+   | Type     | Container Path / Key | Host Path / Value                  | Notes        |
+   | -------- | -------------------- | ---------------------------------- | ------------ |
+   | Port     | `5005` TCP           | `5005`                             |              |
+   | Path     | `/data`              | `/mnt/user/appdata/plex-rotator`   | Read/Write   |
+   | Variable | `PLEX_URL`           | `http://<unraid-ip>:32400`         | required     |
+   | Variable | `PLEX_TOKEN`         | *(your token)*                     | required     |
+   | Variable | `WATCHED_KEEP`       | `2`                                | optional     |
+   | Variable | `PRUNE_INTERVAL_MINUTES` | `10`                           | optional     |
+   | Variable | `TV_LIBRARIES`       | *(blank = all show libraries)*     | optional     |
 
-| Field           | Value                                                                  |
-| --------------- | ---------------------------------------------------------------------- |
-| **Repository**  | `ghcr.io/gillberg1111/plex-rotator:latest`                            |
-| **Network Type**| `Bridge`                                                               |
-| **WebUI**       | `http://[IP]:[PORT:5005]`                                              |
-| **Port**        | Container `5005` → Host `5005`                                         |
-| **Path**        | Container `/data` → Host `/mnt/user/appdata/plex-rotator` (RW)         |
-| **Variable**    | `PLEX_URL` = `http://<unraid-ip>:32400`                                |
-| **Variable**    | `PLEX_TOKEN` = *(your token)*                                          |
-| **Variable**    | `WATCHED_KEEP` = `2` (optional)                                        |
-| **Variable**    | `PRUNE_INTERVAL_MINUTES` = `10` (optional)                             |
-| **Variable**    | `TV_LIBRARIES` = *(blank = all show libraries; or comma-separated)*    |
-
-Click **Apply**, wait for the pull, then open the WebUI.
+4. **Apply** → Unraid pulls the image from `ghcr.io` and starts the
+   container.
+5. Container icon → **WebUI** to open the rotator at
+   `http://<unraid-ip>:5005`.
 
 ### Notes for Unraid
 
@@ -160,9 +157,14 @@ Click **Apply**, wait for the pull, then open the WebUI.
   `http://192.168.1.50:32400`), **not** `localhost` — the rotator container
   can't see Plex via `localhost`.
 - **Appdata path**: SQLite state lives in
-  `/mnt/user/appdata/plex-rotator/rotator.db`. Back this up if you care about
-  your playlist configs; episode/show state lives in Plex itself.
+  `/mnt/user/appdata/plex-rotator/rotator.db`. Back this up if you care
+  about your playlist configs; episode/show state lives in Plex itself.
 - **Networking**: Bridge mode is fine. No host network needed.
+- **Updates**: container icon → **Check for Updates** (or **Force Update**).
+  Unraid will repull the image and restart.
+- **Community Applications**: not yet listed. Until then, the manual setup
+  above is the path. The `unraid-template.xml` in this repo is what would
+  ship to CA when/if submitted.
 
 ---
 
