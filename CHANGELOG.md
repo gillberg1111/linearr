@@ -1,15 +1,17 @@
 # Changelog
 
-All notable changes to Plaitarr. Format loosely follows
+All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
 ## [0.1.0] - 2026-05-23
 
-First public release as **Plaitarr** (initially named *Plex Rotator*; renamed
+First public release as **Linearr** (initially named *Plex Rotator*; renamed
 to avoid trademark concerns with the Plex name and adopt the community
-`*arr` naming convention). Published to ghcr.io and tested on Unraid.
+`*arr` naming convention — "linearr" plays on "linear TV", the broadcast-era
+term for scheduled programming, which the app emulates). Published to
+ghcr.io and tested on Unraid.
 
 ### Added
 - **Sort modes**: each playlist can switch between **Rotation** (round-robin) and

@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>plaitarr</Name>
-  <Repository>ghcr.io/gillberg1111/plaitarr:latest</Repository>
-  <Registry>https://github.com/gillberg1111/plaitarr</Registry>
+  <Name>linearr</Name>
+  <Repository>ghcr.io/gillberg1111/linearr:latest</Repository>
+  <Registry>https://github.com/gillberg1111/linearr</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/gillberg1111/plaitarr/issues</Support>
-  <Project>https://github.com/gillberg1111/plaitarr</Project>
+  <Support>https://github.com/gillberg1111/linearr/issues</Support>
+  <Project>https://github.com/gillberg1111/linearr</Project>
   <Overview>
-    Plaitarr builds custom Plex playlists across multiple TV shows (and their movies).
+    Linearr builds custom Plex playlists across multiple TV shows (and their movies).
 
     Two sort modes per playlist:
     - Rotation: round-robin across shows (Show A S01E01, Show B S01E01, Show A S01E02, ...).
@@ -32,8 +32,8 @@
   </Overview>
   <Category>MediaApp:Other Tools:</Category>
   <WebUI>http://[IP]:[PORT:5005]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/plaitarr/main/unraid-template.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/gillberg1111/plaitarr/main/static/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/linearr/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gillberg1111/linearr/main/static/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
@@ -56,7 +56,7 @@
 
   <Config Name="WebUI Port" Target="5005" Default="5005" Mode="tcp" Description="Port for the rotator web UI." Type="Port" Display="always" Required="true" Mask="false">5005</Config>
 
-  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/plaitarr" Mode="rw" Description="Persistent state (SQLite DB)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/plaitarr</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/linearr" Mode="rw" Description="Persistent state (SQLite DB)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/linearr</Config>
 
   <Config Name="PLEX_URL" Target="PLEX_URL" Default="http://192.168.1.100:32400" Mode="" Description="Your Plex server URL (use the LAN IP, not plex.tv)." Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.100:32400</Config>
 

@@ -1,4 +1,4 @@
-# Plaitarr — docker compose
+# Linearr — docker compose
 #
 # Two ways to run:
 #   A) Pull a pre-built image  (uncomment `image:`, leave `build:` commented)
@@ -10,13 +10,13 @@
 #   3. open http://<host>:5005
 
 services:
-  plaitarr:
+  linearr:
     # --- pick ONE of these two lines ---
     build: .
-    # image: ghcr.io/gillberg1111/plaitarr:latest
+    # image: ghcr.io/gillberg1111/linearr:latest
     # -----------------------------------
 
-    container_name: plaitarr
+    container_name: linearr
     restart: unless-stopped
     env_file: .env
     ports:
