@@ -7,13 +7,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
       <a href="{{ url_for('index') }}" class="brand">
-        <span class="brand-mark"></span>
+        <img class="brand-mark" src="{{ url_for('static', filename='favicon.png') }}" alt="">
         <span class="brand-name">Linearr</span>
       </a>
       <nav>

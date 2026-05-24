@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/banner.png" alt="Linearr — The missing show sequencer for Plex" width="900">
+</p>
+
 # Linearr
 
 ### The missing show sequencer for Plex.
