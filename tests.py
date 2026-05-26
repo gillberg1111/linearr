@@ -883,6 +883,109 @@ def test_show_config_weight_default():
 
 
 # --------------------------------------------------------------------------- #
+# v1.5.0 — Manual crossover grouping (sort key + passthrough)
+# --------------------------------------------------------------------------- #
+
+
+def test_crossover_map_groups_sort_before_non_groups():
+    """On the same air_date, manually grouped episodes sort before non-grouped,
+    and within a group episodes sort by sort_index."""
+    A, B, C = "showA", "showB", "showC"
+    eps = [
+        mk(A, 1, 1, title="Standalone", date="2010-06-15"),
+        mk(B, 2, 5, title="Crossover B", date="2010-06-15"),
+        mk(C, 3, 2, title="Crossover C", date="2010-06-15"),
+    ]
+    # Group B and C together: C plays first (sort_idx=1), B second (sort_idx=2)
+    crossover_map = {
+        ("showB", 2, 5): (1, 2),   # group_id=1, sort_idx=2
+        ("showC", 3, 2): (1, 1),   # group_id=1, sort_idx=1
+    }
+    result = rotation.air_date_sequence([eps], show_order=["showA", "showB", "showC"],
+                                        crossover_map=crossover_map)
+    keys = [r.rating_key for r in result]
+    # C (group sort_idx=1) → B (group sort_idx=2) → A (non-grouped)
+    expected = ["showC-3-2", "showB-2-5", "showA-1-1"]
+    check("crossover_map: grouped sort before non-grouped, sort_idx order",
+          keys == expected, f"got {keys}")
+
+
+def test_crossover_map_different_groups_same_day():
+    """Two different groups on the same air_date sort by group_id."""
+    A = mk("showA", 1, 1, date="2010-06-15")
+    B = mk("showB", 1, 1, date="2010-06-15")
+    C = mk("showC", 1, 1, date="2010-06-15")
+    D = mk("showD", 1, 1, date="2010-06-15")
+    crossover_map = {
+        ("showA", 1, 1): (1, 1),   # group 1, sort_idx 1
+        ("showB", 1, 1): (1, 2),   # group 1, sort_idx 2
+        ("showC", 1, 1): (2, 1),   # group 2, sort_idx 1
+        ("showD", 1, 1): (2, 2),   # group 2, sort_idx 2
+    }
+    result = rotation.air_date_sequence(
+        [[A, B, C, D]], show_order=["showA", "showB", "showC", "showD"],
+        crossover_map=crossover_map,
+    )
+    keys = [r.rating_key for r in result]
+    # group 1 (A then B) then group 2 (C then D)
+    expected = ["showA-1-1", "showB-1-1", "showC-1-1", "showD-1-1"]
+    check("crossover_map: groups sort by group_id, then sort_idx within",
+          keys == expected, f"got {keys}")
+
+
+def test_crossover_map_part_number_still_works_for_non_grouped():
+    """Episodes not in any group still sort by part_number on the same day."""
+    A = mk("showA", 1, 1, title="Event, Part 2", date="2010-06-15")
+    B = mk("showB", 1, 1, title="Event, Part 1", date="2010-06-15")
+    # No crossover map — auto-detection should work as before.
+    result = rotation.air_date_sequence([[A, B]], show_order=["showA", "showB"])
+    keys = [r.rating_key for r in result]
+    # Part 1 before Part 2
+    expected = ["showB-1-1", "showA-1-1"]
+    check("crossover_map: part_number auto-detection still works without map",
+          keys == expected, f"got {keys}")
+
+
+def test_compose_passes_crossover_map_through():
+    """compose() in air_date mode with crossover_map delegates correctly."""
+    A = mk("showA", 1, 1, date="2010-06-15")
+    B = mk("showB", 1, 1, date="2010-06-15")
+    crossover_map = {
+        ("showB", 1, 1): (1, 1),
+        ("showA", 1, 1): (1, 2),
+    }
+    result = rotation.compose(
+        [[A, B]], mode="air_date", show_order=["showA", "showB"],
+        crossover_map=crossover_map,
+    )
+    keys = [r.rating_key for r in result]
+    # grouped episodes (B then A) sort before any non-grouped equivalents
+    check("compose: crossover_map reaches air_date_sequence",
+          keys == ["showB-1-1", "showA-1-1"], f"got {keys}")
+
+
+def test_rebuild_tail_crossover_map_passthrough():
+    """rebuild_tail in air_date mode passes crossover_map through to compose."""
+    A_full = [mk("showA", 1, 1, date="2010-06-15"),
+              mk("showA", 1, 2, date="2010-06-22")]
+    B_full = [mk("showB", 1, 1, date="2010-06-15")]
+    # Group them on the first date
+    crossover_map = {
+        ("showA", 1, 1): (1, 1),
+        ("showB", 1, 1): (1, 2),
+    }
+    # Keep is empty, so full tail = full compose
+    tail = rotation.rebuild_tail(
+        [], [A_full, B_full], mode="air_date",
+        show_order=["showA", "showB"],
+        crossover_map=crossover_map,
+    )
+    keys = [r.rating_key for r in tail]
+    check("rebuild_tail: crossover_map reaches compose",
+          keys == ["showA-1-1", "showB-1-1", "showA-1-2"], f"got {keys}")
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 

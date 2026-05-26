@@ -808,6 +808,104 @@ def create_app() -> Flask:
         flash("Show re-included.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
+    # -- v1.5.0 crossover groups ------------------------------------------ #
+
+    @app.route("/playlist/<int:playlist_id>/crossover/create", methods=["POST"])
+    def crossover_create(playlist_id: int):
+        label = (request.form.get("label") or "").strip()
+        if not label:
+            # Auto-name: count existing groups + 1
+            existing = db.list_crossover_groups(playlist_id)
+            label = f"Group {len(existing) + 1}"
+        try:
+            group_id = db.create_crossover_group(playlist_id, label)
+        except Exception as e:
+            log.exception("crossover group create failed")
+            flash(f"Failed to create crossover group: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        # Rebuild tails with new group (even though empty, keeps the path consistent)
+        try:
+            row = db.get_playlist(playlist_id)
+            if row and row["sort_mode"] == "air_date":
+                configs = [service._config_from_row(r) for r in db.list_shows(playlist_id)]
+                service._rebuild_playlist_tails(row, configs, op_label="crossover create")
+        except Exception:
+            log.exception("tail rebuild after crossover create failed")
+        flash(f"Crossover group '{label}' created.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/crossover/<int:group_id>/add", methods=["POST"])
+    def crossover_add_link(playlist_id: int, group_id: int):
+        show = (request.form.get("show") or "").strip()
+        if not show:
+            abort(400)
+        try:
+            season = int(request.form.get("season", "1"))
+            episode = int(request.form.get("episode", "1"))
+        except ValueError:
+            abort(400)
+        # Auto-assign sort_index = max existing + 1
+        groups = db.list_crossover_groups(playlist_id)
+        max_idx = 0
+        for g in groups:
+            if g["id"] == group_id:
+                for li in g["links"]:
+                    if li["sort_index"] > max_idx:
+                        max_idx = li["sort_index"]
+                break
+        try:
+            db.add_crossover_link(group_id, show, season, episode, max_idx + 1)
+        except Exception as e:
+            log.exception("crossover link add failed")
+            flash(f"Failed to add episode to group: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        # Rebuild tails
+        try:
+            row = db.get_playlist(playlist_id)
+            if row and row["sort_mode"] == "air_date":
+                configs = [service._config_from_row(r) for r in db.list_shows(playlist_id)]
+                service._rebuild_playlist_tails(row, configs, op_label="crossover add link")
+        except Exception:
+            log.exception("tail rebuild after crossover add failed")
+        flash("Episode added to crossover group.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/crossover/<int:group_id>/delete", methods=["POST"])
+    def crossover_delete_group(playlist_id: int, group_id: int):
+        try:
+            db.delete_crossover_group(group_id)
+        except Exception as e:
+            log.exception("crossover group delete failed")
+            flash(f"Failed to delete crossover group: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        try:
+            row = db.get_playlist(playlist_id)
+            if row and row["sort_mode"] == "air_date":
+                configs = [service._config_from_row(r) for r in db.list_shows(playlist_id)]
+                service._rebuild_playlist_tails(row, configs, op_label="crossover delete group")
+        except Exception:
+            log.exception("tail rebuild after crossover delete failed")
+        flash("Crossover group deleted.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/crossover/link/<int:link_id>/remove", methods=["POST"])
+    def crossover_remove_link(playlist_id: int, link_id: int):
+        try:
+            db.remove_crossover_link(link_id)
+        except Exception as e:
+            log.exception("crossover link remove failed")
+            flash(f"Failed to remove episode from group: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        try:
+            row = db.get_playlist(playlist_id)
+            if row and row["sort_mode"] == "air_date":
+                configs = [service._config_from_row(r) for r in db.list_shows(playlist_id)]
+                service._rebuild_playlist_tails(row, configs, op_label="crossover remove link")
+        except Exception:
+            log.exception("tail rebuild after crossover remove failed")
+        flash("Episode removed from crossover group.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
     @app.route("/playlist/<int:playlist_id>/weight", methods=["POST"])
     def change_weight(playlist_id: int):
         show = (request.form.get("show") or "").strip()

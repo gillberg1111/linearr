@@ -3,6 +3,63 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] - 2026-05-26
+
+Manual crossover grouping for air_date mode. When title-based Part N detection
+misses a crossover (e.g. "Buffy — Fool for Love" / "Angel — Darla"), users can
+explicitly link specific episodes across shows and set their play order.
+
+### Added
+
+- **Crossover groups** — two new tables (`crossover_groups` + `crossover_links`)
+  let users manually link specific episodes across different shows. Within the
+  same air date, grouped episodes sort before non-grouped ones and play in
+  the user-defined `sort_index` order.
+- **Sort key integration.** `rotation.air_date_sequence()` gains an optional
+  `crossover_map` parameter. The sort key inserts `(0, group_id, sort_idx)`
+  between `air_date` and `part_number`, so manually grouped episodes take
+  priority over title-based Part N detection on the same day.
+- **Crossover groups UI section** on the playlist detail page (air_date mode
+  only). Create groups, add episodes by show + season + episode number, remove
+  episodes, and delete groups. Each action rebuilds the playlist tail on every
+  enabled backend.
+- **New routes:** `POST /playlist/<id>/crossover/create`,
+  `/crossover/<group_id>/add`, `/crossover/<group_id>/delete`,
+  `/crossover/link/<link_id>/remove`.
+- **`PlaylistView.crossover_groups`** field populated from
+  `db.list_crossover_groups()` — available in the playlist template as
+  `playlist.crossover_groups`.
+
+### Changed
+
+- **`rotation.compose()`** and **`rotation.rebuild_tail()`** gain a
+  `crossover_map` kwarg (only used by air_date mode, ignored by others).
+- **`service._rebuild_tail_on()`** and **`service._rebuild_playlist_tails()`**
+  build and pass `crossover_map` when the sort mode is `air_date`.
+- **`service.get_playlist_view()`** populates the new `crossover_groups`
+  field.
+
+### Database (additive only)
+
+- New table `crossover_groups` (id, playlist_id FK, label, sort_index)
+- New table `crossover_links` (id, group_id FK, show_rating_key, season,
+  episode, sort_index)
+- New helpers: `db.list_crossover_groups`, `db.create_crossover_group`,
+  `db.delete_crossover_group`, `db.add_crossover_link`,
+  `db.remove_crossover_link`
+
+### Tests
+
+- 136 passing (up from 131). New: 5 covering crossover_map sort key
+  (grouped-before-non-grouped, group_id ordering, part_number fallback),
+  compose passthrough, and rebuild_tail passthrough.
+
+### Files touched
+
+`rotation.py` · `service.py` · `db.py` · `app.py` ·
+`templates/playlist.html` · `static/style.css` · `tests.py` ·
+`CHANGELOG.md`.
+
 ## [1.4.0] - 2026-05-26
 
 Dynamic genre playlists. Instead of picking shows one-by-one, you now choose

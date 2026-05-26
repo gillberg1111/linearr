@@ -103,6 +103,24 @@ def init_db() -> None:
                 auto_sync            INTEGER NOT NULL DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS crossover_groups (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id  INTEGER NOT NULL,
+                label        TEXT    NOT NULL DEFAULT '',
+                sort_index   INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS crossover_links (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id        INTEGER NOT NULL,
+                show_rating_key TEXT    NOT NULL,
+                season          INTEGER NOT NULL,
+                episode         INTEGER NOT NULL,
+                sort_index      INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (group_id) REFERENCES crossover_groups(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS playlist_shows (
                 playlist_id              INTEGER NOT NULL,
                 show_rating_key          TEXT    NOT NULL,
@@ -195,6 +213,34 @@ def init_db() -> None:
             )
         if "genre_filter" not in pl_cols:
             conn.execute("ALTER TABLE managed_playlists ADD COLUMN genre_filter TEXT")
+
+        # v1.5.0 — crossover groups (migration for pre-existing DBs)
+        existing_tables = {
+            r["name"]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "crossover_groups" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE crossover_groups (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    playlist_id  INTEGER NOT NULL,
+                    label        TEXT    NOT NULL DEFAULT '',
+                    sort_index   INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
+                )"""
+            )
+        if "crossover_links" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE crossover_links (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id        INTEGER NOT NULL,
+                    show_rating_key TEXT    NOT NULL,
+                    season          INTEGER NOT NULL,
+                    episode         INTEGER NOT NULL,
+                    sort_index      INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (group_id) REFERENCES crossover_groups(id) ON DELETE CASCADE
+                )"""
+            )
 
 
 def create_playlist(
@@ -512,3 +558,62 @@ def set_positions(playlist_id: int, ordered_keys: list[str]) -> None:
                 "UPDATE playlist_shows SET position = ? WHERE playlist_id = ? AND show_rating_key = ?",
                 (i, playlist_id, key),
             )
+
+
+# --------------------------------------------------------------------------- #
+# v1.5.0 — Crossover groups
+# --------------------------------------------------------------------------- #
+
+
+def list_crossover_groups(playlist_id: int) -> list[dict]:
+    """Return crossover groups with nested links for a playlist."""
+    with connection() as conn:
+        groups = conn.execute(
+            "SELECT * FROM crossover_groups WHERE playlist_id = ? ORDER BY sort_index, id",
+            (playlist_id,),
+        ).fetchall()
+        out: list[dict] = []
+        for g in groups:
+            links = conn.execute(
+                "SELECT * FROM crossover_links WHERE group_id = ? ORDER BY sort_index, id",
+                (g["id"],),
+            ).fetchall()
+            out.append({
+                "id": g["id"],
+                "playlist_id": g["playlist_id"],
+                "label": g["label"],
+                "sort_index": g["sort_index"],
+                "links": [dict(li) for li in links],
+            })
+        return out
+
+
+def create_crossover_group(playlist_id: int, label: str = "") -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO crossover_groups (playlist_id, label) VALUES (?, ?)",
+            (playlist_id, label),
+        )
+        return int(cur.lastrowid)
+
+
+def delete_crossover_group(group_id: int) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM crossover_groups WHERE id = ?", (group_id,))
+
+
+def add_crossover_link(
+    group_id: int, show_rating_key: str, season: int, episode: int, sort_index: int = 0
+) -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO crossover_links (group_id, show_rating_key, season, episode, sort_index)
+               VALUES (?, ?, ?, ?, ?)""",
+            (group_id, show_rating_key, season, episode, sort_index),
+        )
+        return int(cur.lastrowid)
+
+
+def remove_crossover_link(link_id: int) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM crossover_links WHERE id = ?", (link_id,))

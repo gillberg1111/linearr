@@ -273,6 +273,71 @@
     </section>
   {% endif %}
 
+  {% if playlist.sort_mode == 'air_date' %}
+  <section class="crossover-section">
+    <div class="section-head">
+      <h2>Crossover groups</h2>
+      <span class="hint">
+        Link specific episodes across shows so they play in order on the same
+        air date — for crossovers that don't have "Part 1" / "Part 2" in their titles.
+      </span>
+    </div>
+
+    {% for group in playlist.crossover_groups %}
+      <div class="crossover-group">
+        <div class="crossover-group-head">
+          <span class="crossover-group-label">{{ group.label }}</span>
+          <form method="post" action="{{ url_for('crossover_delete_group', playlist_id=playlist.id, group_id=group.id) }}"
+                onsubmit="return confirm('Delete crossover group “{{ group.label }}”?');"
+                class="inline-form">
+            <button type="submit" class="btn btn-sm btn-danger">Delete group</button>
+          </form>
+        </div>
+        {% if group.links %}
+          <ol class="crossover-links">
+            {% for link in group.links %}
+              <li class="crossover-link-item">
+                <span class="crossover-link-num">{{ link.sort_index }}.</span>
+                <span class="crossover-link-text">
+                  {{ link.show_rating_key }} S{{ '%02d' % link.season }}E{{ '%02d' % link.episode }}
+                </span>
+                <form method="post"
+                      action="{{ url_for('crossover_remove_link', playlist_id=playlist.id, link_id=link.id) }}"
+                      class="inline-form">
+                  <button type="submit" class="btn btn-sm btn-ghost-danger">Remove</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="empty-state">No episodes in this group yet.</p>
+        {% endif %}
+        <form method="post"
+              action="{{ url_for('crossover_add_link', playlist_id=playlist.id, group_id=group.id) }}"
+              class="crossover-add-form">
+          <select name="show" class="crossover-show-select">
+            {% for s in playlist.shows %}
+              <option value="{{ s.show_rating_key }}">{{ s.show_title }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="season" min="1" max="99" value="1"
+                 class="number-input number-input-sm" title="Season">
+          <input type="number" name="episode" min="1" max="99" value="1"
+                 class="number-input number-input-sm" title="Episode">
+          <button type="submit" class="btn btn-sm">Add episode</button>
+        </form>
+      </div>
+    {% endfor %}
+
+    <form method="post" action="{{ url_for('crossover_create', playlist_id=playlist.id) }}"
+          class="crossover-create-form">
+      <input type="text" name="label" placeholder="Group label (optional)"
+             class="filter-input" style="max-width:300px">
+      <button type="submit" class="btn">New crossover group</button>
+    </form>
+  </section>
+  {% endif %}
+
   <section>
     <h2>Add another show</h2>
     {% if not available %}

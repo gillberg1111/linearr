@@ -209,23 +209,32 @@ def shuffle_chronological(
 def air_date_sequence(
     shows_episodes: list[list[_Ep]],
     show_order: list[str] | None = None,
+    crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
 ) -> list[_Ep]:
     """Combine episodes across shows and sort by air date.
 
-    Sort key: (air_date, part_number, show_order_index, season, episode).
-    - Same-day episodes naturally end up adjacent
-    - Within the same day, lower Part N (or 'no Part') comes first, so a
-      multi-part crossover plays in order across whatever shows it spans
-    - Then user-defined show order as a tie-break, so a "headliner" show
-      can still dominate when episodes truly tied
+    Sort key: (air_date, crossover_info, part_number, show_order_index,
+    season, episode).
+
+    - Same-day episodes naturally end up adjacent.
+    - Manually defined crossover groups sort before auto-detected Part N on
+      the same day, with group members in user-defined sort_index order.
+    - Then part_number captures Part 1/Part 2/etc. for non-grouped episodes.
+    - Then user-defined show order as a tie-break.
     """
     if not shows_episodes:
         return []
     pos = {key: i for i, key in enumerate(show_order or [])}
 
     def key(ep: _Ep):
+        g = (
+            crossover_map.get((ep.show_rating_key, ep.season, ep.episode))
+            if crossover_map
+            else None
+        )
         return (
             ep.air_date or "0000-00-00",
+            (0, g[0], g[1]) if g else (1, 0, 0),
             part_number(ep.title),
             pos.get(ep.show_rating_key, 1 << 30),
             ep.season,
@@ -247,6 +256,7 @@ def compose(
     weights: list[int] | None = None,
     block_size: int = 1,
     shuffle_seed: int | None = None,
+    crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
 ) -> list[_Ep]:
     """Pick a compose strategy by mode name.
 
@@ -258,7 +268,7 @@ def compose(
       - 'shuffle_chronological' → shuffle_chronological(seed=shuffle_seed)
     """
     if mode == "air_date":
-        return air_date_sequence(shows_episodes, show_order)
+        return air_date_sequence(shows_episodes, show_order, crossover_map)
     if mode == "rotation_weighted":
         return interleave_weighted(shows_episodes, weights)
     if mode == "rotation_blocks":
@@ -301,6 +311,7 @@ def rebuild_tail(
     weights: list[int] | None = None,
     block_size: int = 1,
     shuffle_seed: int | None = None,
+    crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
 ) -> list[_Ep]:
     """Compute the new "future" portion of a playlist.
 
@@ -343,6 +354,7 @@ def rebuild_tail(
     full = compose(
         shows_episodes_in_order, mode=mode, show_order=show_order,
         weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+        crossover_map=crossover_map,
     )
     return [e for e in full if not _is_kept(e)]
 

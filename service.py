@@ -321,6 +321,19 @@ def _year_hint(cfg: ShowConfig) -> int | None:
 # --------------------------------------------------------------------------- #
 
 
+def _build_crossover_map(playlist_id: int) -> dict[tuple[str, int, int], tuple[int, int]]:
+    """Build a lookup map for crossover group membership.
+    Returns dict[(show_rating_key, season, episode), (group_id, sort_index)].
+    """
+    cmap: dict[tuple[str, int, int], tuple[int, int]] = {}
+    for g in db.list_crossover_groups(playlist_id):
+        for link in g["links"]:
+            cmap[(link["show_rating_key"], link["season"], link["episode"])] = (
+                g["id"], link["sort_index"],
+            )
+    return cmap
+
+
 def _rebuild_tail_on(
     backend: str,
     client: MediaClient,
@@ -331,6 +344,7 @@ def _rebuild_tail_on(
     *,
     block_size: int = 1,
     shuffle_seed: int | None = None,
+    crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
 ) -> tuple[int, int]:
     """Recompute the future portion of a playlist on a single backend.
 
@@ -340,6 +354,7 @@ def _rebuild_tail_on(
     `block_size` and `shuffle_seed` are only consulted when `sort_mode` is
     'rotation_blocks' or 'shuffle_chronological' respectively. Per-show
     weights for 'rotation_weighted' come from each ShowConfig.weight.
+    `crossover_map` is only used in 'air_date' mode.
     """
     relevant_configs = [c for c in configs if c.id_for(backend)]
     if not relevant_configs:
@@ -358,6 +373,7 @@ def _rebuild_tail_on(
     new_tail = rotation.rebuild_tail(
         kept, shows_episodes, mode=sort_mode, show_order=show_order,
         weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+        crossover_map=crossover_map,
     )
 
     current_tail = items[splice:]
@@ -410,6 +426,7 @@ def _rebuild_playlist_tails(
     bs = block_size if block_size is not None else int(_row_get(row, "block_size", 1) or 1)
     ss = _row_get(row, "shuffle_seed", None) if shuffle_seed is ... else shuffle_seed
     active_configs = [c for c in full_configs if not c.is_excluded]
+    crossover_map = _build_crossover_map(row["id"]) if sm == "air_date" else None
     total_added = total_removed = 0
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
@@ -417,7 +434,7 @@ def _rebuild_playlist_tails(
         try:
             added, removed = _rebuild_tail_on(
                 tb, client, pl_id, active_configs, sm, uw,
-                block_size=bs, shuffle_seed=ss,
+                block_size=bs, shuffle_seed=ss, crossover_map=crossover_map,
             )
             total_added += added
             total_removed += removed
@@ -493,6 +510,8 @@ class PlaylistView:
     playlist_type: str = "manual"  # 'manual' | 'genre'
     genre_filter: str | None = None
     excluded_shows: list[dict] = field(default_factory=list)  # soft-deleted rows
+    # v1.5.0 — manual crossover groups
+    crossover_groups: list[dict] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -1154,6 +1173,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         playlist_type=_row_get(row, "playlist_type", "manual") or "manual",
         genre_filter=_row_get(row, "genre_filter", None),
         excluded_shows=excluded_shows,
+        crossover_groups=db.list_crossover_groups(playlist_id),
     )
 
 
