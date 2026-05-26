@@ -17,6 +17,10 @@
     if (!grid || !tray) return;
 
     const allTiles = Array.from(grid.querySelectorAll('.show-tile'));
+    // Remember each tile's original DOM position so unchecked tiles go back
+    // to the right spot instead of landing at the end of the grid.
+    const _originalIndex = new Map();
+    allTiles.forEach((t, i) => _originalIndex.set(t, i));
 
     let filter = '';
     let page = 0;
@@ -56,13 +60,22 @@
       const start = pageSize === 'all' ? 0 : page * pageSize;
       const end = pageSize === 'all' ? total : start + pageSize;
 
-      // Hide everything not in tray, then re-show the current page
+      // Return unchecked tiles to their original grid positions
       for (const tile of allTiles) {
         const cb = tile.querySelector('input[type=checkbox]');
         if (cb && cb.checked) continue;
-        if (tile.parentElement !== grid) grid.appendChild(tile);
+        if (tile.parentElement !== grid) {
+          const idx = _originalIndex.get(tile);
+          let before = null;
+          for (const child of grid.children) {
+            const childIdx = _originalIndex.get(child);
+            if (childIdx !== undefined && childIdx > idx) { before = child; break; }
+          }
+          grid.insertBefore(tile, before);
+        }
         tile.style.display = 'none';
       }
+      // Show current page in original-index order
       for (let i = start; i < end && i < total; i++) {
         filteredAvailable[i].style.display = '';
       }

@@ -66,20 +66,20 @@
                    {% if sort_mode == 'rotation' %}checked{% endif %}>
             <span>Rotation</span>
           </label>
-          <label class="pill {% if sort_mode == 'rotation_weighted' %}is-active{% endif %}">
-            <input type="radio" name="sort_mode" value="rotation_weighted"
-                   {% if sort_mode == 'rotation_weighted' %}checked{% endif %}>
-            <span>Weighted</span>
+          <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="air_date"
+                   {% if sort_mode == 'air_date' %}checked{% endif %}>
+            <span>Air Date</span>
           </label>
           <label class="pill {% if sort_mode == 'rotation_blocks' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="rotation_blocks"
                    {% if sort_mode == 'rotation_blocks' %}checked{% endif %}>
             <span>Blocks</span>
           </label>
-          <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
-            <input type="radio" name="sort_mode" value="air_date"
-                   {% if sort_mode == 'air_date' %}checked{% endif %}>
-            <span>Air Date</span>
+          <label class="pill {% if sort_mode == 'rotation_weighted' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="rotation_weighted"
+                   {% if sort_mode == 'rotation_weighted' %}checked{% endif %}>
+            <span>Weighted</span>
           </label>
           <label class="pill {% if sort_mode == 'shuffle_chronological' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="shuffle_chronological"
@@ -95,7 +95,7 @@
           {% elif sort_mode == 'rotation_blocks' %}
             Block scheduling: N episodes of Show A, then N of Show B, then back to A.
           {% elif sort_mode == 'shuffle_chronological' %}
-            Random sequence, but each show's episodes stay in chronological order and same-show consecutive plays are avoided. A stable seed is generated at create time so syncs preserve the order.
+            Random sequence, but each show's episodes stay in chronological order and same-show consecutive plays are avoided. The shuffle order is fixed until you hit Reshuffle on the playlist page.
           {% else %}
             Round-robin: Show A → Show B → Show A → … Air date is ignored.
           {% endif %}
@@ -461,7 +461,7 @@
         rotation_weighted: 'Per-show ratios: take Show A\'s weight items, then Show B\'s weight items, then back to A. Set weights below.',
         rotation_blocks: 'Block scheduling: N episodes of Show A, then N of Show B, then back to A.',
         air_date: 'Chronological across every show. Multi-part crossovers stay aligned via Part 1/2/3 detection. Show order is the tiebreaker.',
-        shuffle_chronological: 'Random sequence, but each show\'s episodes stay in chronological order and same-show consecutive plays are avoided. A stable seed is generated at create time so syncs preserve the order.',
+        shuffle_chronological: 'Random sequence, but each show\'s episodes stay in chronological order and same-show consecutive plays are avoided. The shuffle order is fixed until you hit Reshuffle on the playlist page.',
       };
       function applySortModeUI() {
         const sel = document.querySelector('input[name="sort_mode"]:checked');

@@ -51,9 +51,9 @@
       <div class="pill-toggle pill-toggle-5">
         {% for value, label in [
           ('rotation', 'Rotation'),
-          ('rotation_weighted', 'Weighted'),
-          ('rotation_blocks', 'Blocks'),
           ('air_date', 'Air Date'),
+          ('rotation_blocks', 'Blocks'),
+          ('rotation_weighted', 'Weighted'),
           ('shuffle_chronological', 'Shuffle'),
         ] %}
           <label class="pill {% if prev_sort_mode == value %}is-active{% endif %}">

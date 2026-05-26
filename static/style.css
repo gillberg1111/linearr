@@ -846,9 +846,25 @@ a { color: var(--accent); }
   font-family: inherit;
   font-size: 0.95rem;
   text-align: center;
+  -moz-appearance: textfield;
+}
+.number-input::-webkit-inner-spin-button,
+.number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .number-input:focus { border-color: var(--accent); outline: none; }
-.number-input-sm { width: 3.6rem; padding: 0.25rem 0.4rem; font-size: 0.85rem; }
+.number-input-sm {
+  width: 3.6rem;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  -moz-appearance: textfield;
+}
+.number-input-sm::-webkit-inner-spin-button,
+.number-input-sm::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 
 /* Per-show weight control inside the configure card. */
 .weight-control {
@@ -973,13 +989,13 @@ a { color: var(--accent); }
 }
 .backend-badge.is-plex {
   color: var(--accent);
-  background: rgba(77, 150, 255, 0.13);
-  border-color: rgba(77, 150, 255, 0.35);
+  background: rgba(77, 150, 255, 0.18);
+  border-color: rgba(77, 150, 255, 0.45);
 }
 .backend-badge.is-jellyfin {
   color: var(--accent-jellyfin-2);
-  background: rgba(170, 92, 195, 0.13);
-  border-color: rgba(170, 92, 195, 0.35);
+  background: rgba(170, 92, 195, 0.18);
+  border-color: rgba(170, 92, 195, 0.45);
 }
 .backend-badge.is-both {
   color: #d9c2ff;
@@ -1002,6 +1018,8 @@ a { color: var(--accent); }
   font-size: 0.6rem;
   padding: 0.12rem 0.42rem;
   backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .show-tile .poster { position: relative; }
 

@@ -28,6 +28,7 @@ from media_client import (
     MediaClient,
     MovieSummary,
     get_client,
+    normalize_title,
     titles_match,
 )
 from rotation import PlaylistItem
@@ -849,22 +850,34 @@ def _resolve_genre_shows(
             log.exception("genre resolve failed on %s", tb)
             per_backend[tb] = []
 
-    # Aggregate, deduplicate via title+year.
+    # Aggregate, deduplicate via title+year (same logic as _aggregated_shows).
     out: list[ShowConfig] = []
-    seen_keys: dict[tuple[str, int], int] = {}
+    seen_keys: dict[str, list[int]] = {}
+    _years: dict[int, int | None] = {}  # year per output index (ShowConfig has no year field)
     for tb in target_backends:
         for s in per_backend[tb]:
-            key = (s.title.lower().strip(), s.year or 0)
-            if key in seen_keys:
-                # Already added by a previous backend — annotate.
-                idx = seen_keys[key]
+            nk = normalize_title(s.title)
+            candidates = seen_keys.get(nk, [])
+            merged = False
+            for idx in candidates:
+                existing_year = _years.get(idx)
+                if (
+                    existing_year is not None
+                    and s.year is not None
+                    and existing_year != s.year
+                ):
+                    continue
                 if tb == "plex" and out[idx].plex_rating_key is None:
                     out[idx].plex_rating_key = s.rating_key
                 if tb == "jellyfin" and out[idx].jellyfin_rating_key is None:
                     out[idx].jellyfin_rating_key = s.rating_key
-                # Prefer the first thumb that was set.
+                if _years.get(idx) is None and s.year is not None:
+                    _years[idx] = s.year
                 if not out[idx].thumb and s.thumb:
                     out[idx].thumb = s.thumb
+                merged = True
+                break
+            if merged:
                 continue
             cfg = ShowConfig(
                 rating_key=s.rating_key,
@@ -873,7 +886,9 @@ def _resolve_genre_shows(
                 plex_rating_key=s.rating_key if tb == "plex" else None,
                 jellyfin_rating_key=s.rating_key if tb == "jellyfin" else None,
             )
-            seen_keys[key] = len(out)
+            idx = len(out)
+            seen_keys.setdefault(nk, []).append(idx)
+            _years[idx] = s.year
             out.append(cfg)
     # Cross-backend completion: for 'both' setups, fill in missing IDs.
     if "plex" in target_backends and "jellyfin" in target_backends:

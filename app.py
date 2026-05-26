@@ -54,7 +54,10 @@ def _aggregated_shows() -> list[dict]:
     """
     backends = available_backends()
     out: list[dict] = []
-    seen: dict[tuple[str, int], int] = {}
+    # Key on normalized title; year only disambiguates when both sides have
+    # non-None years that differ (e.g. reboots). If one backend omits the
+    # year, we merge — same logic as titles_match().
+    seen: dict[str, list[int]] = {}  # normalized title -> indices in out
 
     for backend in backends:
         try:
@@ -63,31 +66,44 @@ def _aggregated_shows() -> list[dict]:
             log.exception("Failed to list shows on %s", backend)
             continue
         for s in shows:
-            mk = (normalize_title(s.title), s.year or 0)
-            if mk in seen:
-                # Already added from a previous backend — annotate the existing row.
-                existing = out[seen[mk]]
+            nk = normalize_title(s.title)
+            candidates = seen.get(nk, [])
+            merged = False
+            for idx in candidates:
+                existing = out[idx]
+                # Only split into separate entries when both sides carry a
+                # non-None year and they differ.
+                if (
+                    existing["year"] is not None
+                    and s.year is not None
+                    and existing["year"] != s.year
+                ):
+                    continue
+                # Compatible — merge into this row.
                 existing[f"{backend}_rating_key"] = s.rating_key
                 existing["backends"].add(backend)
-                # Prefer Plex thumb if both backends have one (renders without
-                # the extra auth round-trip Jellyfin needs).
+                if not existing["year"] and s.year:
+                    existing["year"] = s.year
                 if not existing["thumb"] and s.thumb:
                     existing["thumb"] = s.thumb
                     existing["thumb_backend"] = backend
-            else:
-                row = {
-                    "rating_key": s.rating_key,  # source-backend ID, used as form key
-                    "title": s.title,
-                    "year": s.year,
-                    "library": s.library,
-                    "thumb": s.thumb,
-                    "thumb_backend": backend if s.thumb else None,
-                    "plex_rating_key": s.rating_key if backend == "plex" else None,
-                    "jellyfin_rating_key": s.rating_key if backend == "jellyfin" else None,
-                    "backends": {backend},
-                }
-                seen[mk] = len(out)
-                out.append(row)
+                merged = True
+                break
+            if merged:
+                continue
+            row = {
+                "rating_key": s.rating_key,
+                "title": s.title,
+                "year": s.year,
+                "library": s.library,
+                "thumb": s.thumb,
+                "thumb_backend": backend if s.thumb else None,
+                "plex_rating_key": s.rating_key if backend == "plex" else None,
+                "jellyfin_rating_key": s.rating_key if backend == "jellyfin" else None,
+                "backends": {backend},
+            }
+            seen.setdefault(nk, []).append(len(out))
+            out.append(row)
 
     out.sort(key=lambda r: r["title"].lower())
     return out
