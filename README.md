@@ -16,25 +16,31 @@ Jellyfin, or "Both" (mirrored to each server in lockstep). Single-backend
 installs see no UI change — the picker only appears when both backends are
 configured.
 
-Two ways to order episodes:
+Five ways to order episodes:
 
-**Round-robin (Rotation mode)** — pick a stack of shows, and episodes
-interleave in the order you picked them. Never sorted by air date across
-shows.
+**Rotation** — round-robin across shows in the order you picked them.
 
 ```
 Show A S01E01
 Show B S01E01
 Show A S01E02
 Show B S01E02
-...
 ```
 
-**Chronological (Air Date mode)** — combine many shows and play them in the
-order they originally aired, like Tuesday-night TV from 2008. **Multi-part
-crossovers stay aligned** across different shows — when episodes share an air
-date, the app reads `Part 1` / `Pt. 2` / `(1)` from titles and orders them
-correctly.
+**Weighted Rotation** — give heavy shows more slots per cycle ("The Simpsons
+gets 3 episodes for every 1 of Firefly").
+
+**Block Scheduling** — N consecutive episodes per show before rotating
+("3 Simpsons, then 3 Futuramas, then 3 South Parks...").
+
+**Air Date** — chronological across every show, like Tuesday-night TV from
+2008. **Multi-part crossovers stay aligned** across different shows via
+title parsing (`Part 1` / `Pt. 2` / `(1)`), with **manual crossover grouping**
+for edge cases the title heuristic misses.
+
+**Intelligent Shuffle** — random sequence, but each show's episodes stay in
+chronological order and same-show consecutive plays are avoided when possible.
+Seed-based (deterministic); reshuffle any time.
 
 Switch any playlist between modes at any time. Add a series' movies (e.g.
 *Psych: The Movie*, *Mr. Monk's Last Case*) without leaving the configure
@@ -125,10 +131,19 @@ fall-asleep buffer.
     any shows that aren't on every targeted backend. Add the show to the
     missing library and the next sync heals it; or remove it from the
     playlist; or switch the playlist to a single backend.
-- **Two sort modes per playlist:**
+- **Five sort modes per playlist:**
   - **Rotation** — round-robin in the order you picked shows.
+  - **Weighted Rotation** — per-show weight (1–20); heavier shows get more
+    episodes per cycle. Edit weights inline on the playlist page.
+  - **Block Scheduling** — N consecutive episodes from each show before
+    rotating. Single playlist-wide block size.
   - **Air Date** — chronological across every show; multi-part crossovers
-    stay in order via `Part 1` / `Pt. 2` / `(N)` title parsing.
+    stay in order via `Part 1` / `Pt. 2` / `(N)` title parsing, with
+    **manual crossover grouping** for linking specific episodes across shows
+    when the title heuristic misses.
+  - **Intelligent Shuffle** — random sequence with per-show chronological
+    order preserved and no same-show consecutive plays when avoidable.
+    Seed-based; hit **Reshuffle** for a new order.
   - Toggle a playlist between modes any time — already-watched portion is
     untouched; the future portion regenerates instantly.
 - **Per-show season range** — start from any season, end at any season; skip
@@ -163,10 +178,25 @@ fall-asleep buffer.
   configurable).
 - **Auto-sync new episodes** — same 10-minute sweep also splices
   newly-aired episodes and new seasons into your playlists automatically.
-  Episodes removed from your Plex library drop out. Toggle off **globally**
-  with `AUTO_SYNC=false`, or **per playlist** with the **Auto-update**
-  pill on the playlist's detail page (defaults to Enabled). Disabled
-  playlists are skipped on every sweep and stay locked until you edit them.
+  Episodes removed from your Plex/Jellyfin library drop out. Toggle off
+  **globally** with `AUTO_SYNC=false`, or **per playlist** with the
+  **Auto-update** pill on the playlist's detail page (defaults to Enabled).
+  Disabled playlists are skipped on every sweep and stay locked until you
+  edit them.
+- **Dynamic genre playlists** — hit **+ Genre** instead of **+ New playlist**
+  to create a playlist that auto-populates from your library by genre
+  (e.g. "Sci-Fi, Drama"). Background sync re-queries your library every
+  sweep and auto-adds new shows matching the chosen genres. Exclude
+  individual shows and they stay excluded across syncs.
+- **Manual "Sync Now" button** — force an immediate sync on any playlist,
+  bypassing the auto-update toggle. Reports added/removed counts.
+- **Per-episode exclusions** — exclude specific episodes from a show within
+  a playlist (season-grouped accordion picker, lazy-loaded on expand).
+  Applies uniformly across both backends.
+- **Manual crossover grouping** (air_date mode) — when the title-based
+  Part N heuristic misses a crossover (e.g. "Buffy — Fool for Love" /
+  "Angel — Darla"), link specific episodes across shows into an explicit
+  group with a user-defined play order.
 - **Cover art everywhere** — poster grids, season cards, playlist tiles; the
   thumbnail proxy keeps every Plex token / Jellyfin access token server-side.
 - **Never destructive** — two-layer safety guard refuses any backend API
@@ -498,13 +528,12 @@ From the playlist's detail page:
 - **Prune sweep**: every `PRUNE_INTERVAL_MINUTES`, watched episodes older
   than the most recent `WATCHED_KEEP` are removed.
 - **Auto-sync** (`AUTO_SYNC=true`, default): on the same interval, each
-  managed playlist is re-checked against current Plex metadata. Newly-aired
+  managed playlist is re-checked against current backend metadata. Newly-aired
   episodes and new seasons (if within the show's configured range) splice
-  into the future portion of the playlist; episodes deleted from your Plex
-  library drop out. Already-played portion is never disturbed. Each
-  playlist also has its own **Auto-update: Enabled / Disabled** pill — set
-  to Disabled, the scheduler skips that one playlist regardless of the
-  global env var.
+  into the future portion of the playlist; episodes deleted from your library
+  drop out. Already-played portion is never disturbed. Each playlist also has
+  its own **Auto-update: Enabled / Disabled** pill — set to Disabled, the
+  scheduler skips that one playlist regardless of the global env var.
 
 ### Crossover alignment (Air Date mode)
 
@@ -520,6 +549,11 @@ When sorting by Air Date, two things happen automatically:
 Throw **Law & Order**, **L&O: SVU**, and **L&O: Criminal Intent** into one
 Air Date playlist and you'll get a chronological mix with their crossover
 two-parters intact.
+
+For crossovers the title heuristic misses (episodes that aired same-night as a
+two-parter but don't have "Part N" in their titles), the **Crossover groups**
+section on the playlist page lets you manually link specific episodes across
+shows and set their play order.
 
 ### Movie placement
 
@@ -583,16 +617,15 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 87 passed, 0 failed, 87 total
+# 136 passed, 0 failed, 136 total
 ```
 
 Covers:
-- **Rotation logic** (31 tests, original): round-robin interleaving,
-  splice-from-current-position, watched pruning with last-N retention,
-  Part N detection, air-date sequence with crossover Part 1/2 alignment,
-  show-order tie-breaks, rebuild-tail in both rotation and air-date modes,
-  movie identity preservation across rebuilds. Run these if you modify
-  `rotation.py`.
+- **Rotation logic** (36 tests): round-robin interleaving, weighted rotation,
+  block scheduling, intelligent shuffle, splice-from-current-position,
+  watched pruning with last-N retention, Part N detection, air-date sequence
+  with crossover Part 1/2 alignment, show-order tie-breaks, rebuild-tail in
+  all five modes, movie identity preservation, crossover_map sort key.
 - **Safety guards** (22 tests): every Plex item class confirmed monkey-patched,
   every dangerous Jellyfin DELETE endpoint refused by the HTTP-layer guard,
   the one allow-listed Jellyfin DELETE pattern accepted, lookalike paths
@@ -603,6 +636,15 @@ Covers:
 - **Service-layer dispatch** (8 tests): `ShowConfig` back-compat,
   `id_for(backend)` routing, `movie_ids_for(backend)`, `_backends_for`
   expansion, `_find_match` with year tiebreak.
+- **Per-episode exclusions** (7 tests): CSV parse/serialize round-trips,
+  malformed-input tolerance, default-empty, sorted output.
+- **Advanced sequencing** (19 tests): weighted depletion-fallback, block
+  patterns, shuffle determinism + chronological preservation + no-consecutive
+  avoidance, compose dispatch, rebuild_tail in weighted/shuffle modes.
+- **Genre playlists** (14 tests): genre CSV parsing, `is_excluded` field,
+  `PlaylistView` genre defaults, `VALID_PLAYLIST_TYPES`.
+- **Crossover grouping** (5 tests): crossover_map sort key behavior, compose
+  and rebuild_tail passthrough.
 
 ---
 
@@ -711,12 +753,15 @@ db.py                        — SQLite schema, migrations, helpers.
                                 playlists.
 scheduler.py                 — APScheduler background prune + sync sweeps
 templates/
-  base.html                  — Layout + top bar
+  base.html                  — Layout + top bar (+ New playlist / + Genre buttons)
   index.html                 — Playlist landing page (+ backend badges)
   new.html                   — Show picker (with tray + clear + per-show
                                 "Plex only" / "Jellyfin only" overlays)
+  new_genre.html             — Genre playlist creator (name + genres +
+                                preview matches)
   playlist.html              — Per-playlist detail page (+ backend badge,
-                                missing-side warning banner)
+                                missing-side warning banner, crossover
+                                groups section in air_date mode)
   configure.html             — Per-show season range, specials, movies,
                                 sort/filter pills, AJAX preview, and the
                                 triple-pill "Push to" backend picker
