@@ -3,6 +3,38 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] - 2026-05-26
+
+Bug-fix release addressing issues found during post-v1.3.0 testing.
+
+### Fixed
+
+- **False "Plex Only" / "Jellyfin Only" badges in the show picker.** The
+  cross-backend dedup key in `_aggregated_shows()` and `_resolve_genre_shows()`
+  used `year or 0`, turning `None` into `0`. When one backend carried a year and
+  the other didn't, the show appeared as two separate entries with one-backend
+  badges. Both functions now match `titles_match()` semantics: year only
+  disambiguates when both sides carry a non-None year that differs.
+- **Unselecting a show in the picker sent it to the bottom of the grid.** The
+  picker now records each tile's original DOM position at init and inserts
+  unchecked tiles back at their correct spot instead of appending.
+- **Shuffle hint text reworded** from "A stable seed is generated at create
+  time" to "The shuffle order is fixed until you hit Reshuffle on the playlist
+  page."
+- **Pill order normalized** across all three templates: Rotation, Air Date,
+  Blocks, Weighted, Shuffle (was: Rotation, Blocks, Weighted, Air Date, Shuffle
+  on two pages).
+- **Number input browser spinners removed** via CSS for weight and block-size
+  fields.
+- **Backend badge background opacity increased** for better readability on
+  poster thumbnails.
+
+### Files touched
+
+`app.py` · `service.py` · `static/picker.js` · `static/style.css` ·
+`templates/configure.html` · `templates/new_genre.html` ·
+`templates/playlist.html` · `CHANGELOG.md`.
+
 ## [1.5.0] - 2026-05-26
 
 Manual crossover grouping for air_date mode. When title-based Part N detection
