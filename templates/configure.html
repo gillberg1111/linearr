@@ -143,7 +143,7 @@
       <input type="hidden" name="auto_sync" value="{{ '1' if auto_sync else '' }}">
       <p class="hint sort-mode-inherited">
         Inherits the playlist's settings:
-        <strong>{{ 'Air Date' if sort_mode == 'air_date' else 'Rotation' }}</strong>
+        <strong>{{ {'air_date': 'Air Date', 'rotation_blocks': 'Blocks', 'rotation_weighted': 'Weighted', 'shuffle_chronological': 'Shuffle'}.get(sort_mode, 'Rotation') }}</strong>
         {% if unwatched_only %}· <strong>Unwatched only</strong>{% endif %}
         {% if not auto_sync %}· <strong>Auto-update off</strong>{% endif %}.
         Change from the playlist page.

@@ -3,6 +3,47 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.2] - 2026-05-26
+
+Bug-fix release from a post-v1.5.1 code review.
+
+### Fixed
+
+- **Drag-to-reorder permanently broken on genre playlists with excluded
+  shows.** `reorder_shows` validated the submitted key set against *all* rows
+  including soft-deleted (`is_excluded=1`) ones, so any excluded show caused
+  a key-mismatch error. Filter now targets active shows only.
+- **Block-size and weight fields always visible regardless of sort mode.**
+  `.weight-control { display: flex }` in `style.css` overrode the HTML
+  `hidden` attribute, making both fields visible on every configure-page load.
+  Fixed with `[hidden] { display: none !important }` global reset rule.
+- **Add-show preview wrong for rotation_blocks / shuffle_chronological
+  playlists.** The add-configure preview call omitted `block_size` and
+  `shuffle_seed`, so blocks-mode playlists always previewed as round-robin
+  (block_size=1) and shuffle playlists used a non-deterministic seed. Now
+  passes both from `view.block_size` / `view.shuffle_seed`.
+- **Crossover group/link routes lacked playlist-ownership checks.** The
+  `crossover_add_link`, `crossover_delete_group`, and `crossover_remove_link`
+  routes operated on raw IDs without verifying they belonged to the playlist
+  in the URL, allowing accidental or crafted requests to corrupt groups on
+  other playlists. All three now 404 on a mismatch.
+- **Crossover link items displayed raw Plex/Jellyfin internal IDs** instead
+  of the show title, making the crossover groups UI unreadable. `get_playlist_view`
+  now annotates each link dict with `show_title` (with fallback to the raw key
+  for shows removed from the playlist since the group was created).
+- **Add-show mode label in configure page incorrectly showed "Rotation"** for
+  rotation_blocks, rotation_weighted, and shuffle_chronological playlists. Now
+  maps all five sort modes correctly.
+- **Dead code in `preview_playlist`:** `or not configs` inside the
+  per-element list comprehension was always `False` when `configs` is
+  non-empty. Removed; the real empty-result fallback two lines below was
+  already correct.
+
+### Files touched
+
+`app.py` · `service.py` · `static/style.css` · `templates/configure.html` ·
+`templates/playlist.html` · `CHANGELOG.md`.
+
 ## [1.5.1] - 2026-05-26
 
 Bug-fix release addressing issues found during post-v1.3.0 testing.

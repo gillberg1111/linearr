@@ -464,7 +464,7 @@ def preview_playlist(
     the UI typically previews on whichever backend the user picked shows
     from. Default 'plex' for back-compat with existing UI."""
     _hydrate_configs(configs, backend)
-    relevant = [c for c in configs if c.id_for(backend) or not configs]  # keep all for first-render
+    relevant = [c for c in configs if c.id_for(backend)]
     if not relevant:
         relevant = configs
     shows_eps = [_episodes_for_config(c, backend, unwatched_only=unwatched_only) for c in relevant]
@@ -707,7 +707,11 @@ def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
     if not row:
         raise ValueError(f"No managed playlist with id={playlist_id}")
 
-    existing = {s["show_rating_key"]: s for s in db.list_shows(playlist_id)}
+    existing = {
+        s["show_rating_key"]: s
+        for s in db.list_shows(playlist_id)
+        if not s["is_excluded"]
+    }
     if set(ordered_keys) != set(existing.keys()):
         raise ValueError("Reorder keys don't match the current show set")
 
@@ -1153,6 +1157,17 @@ def prune_all() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _annotate_crossover_titles(groups: list[dict], show_rows: list[dict]) -> list[dict]:
+    """Add show_title to each crossover link dict, falling back to the raw key."""
+    title_by_key = {s["show_rating_key"]: s["show_title"] for s in show_rows}
+    for group in groups:
+        for link in group["links"]:
+            link["show_title"] = title_by_key.get(
+                link["show_rating_key"], link["show_rating_key"]
+            )
+    return groups
+
+
 def get_playlist_view(playlist_id: int) -> PlaylistView | None:
     row = db.get_playlist(playlist_id)
     if not row:
@@ -1188,7 +1203,9 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         playlist_type=_row_get(row, "playlist_type", "manual") or "manual",
         genre_filter=_row_get(row, "genre_filter", None),
         excluded_shows=excluded_shows,
-        crossover_groups=db.list_crossover_groups(playlist_id),
+        crossover_groups=_annotate_crossover_titles(
+            db.list_crossover_groups(playlist_id), all_rows
+        ),
     )
 
 

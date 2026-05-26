@@ -21,6 +21,9 @@
 
 * { box-sizing: border-box; }
 
+/* Ensure the HTML `hidden` attribute always wins over display:flex/block rules. */
+[hidden] { display: none !important; }
+
 html, body { background: var(--bg); }
 
 body {

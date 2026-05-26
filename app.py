@@ -610,6 +610,8 @@ def create_app() -> Flask:
                 sort_mode=view.sort_mode,
                 unwatched_only=view.unwatched_only,
                 backend=primary_backend,
+                block_size=view.block_size,
+                shuffle_seed=view.shuffle_seed,
             )
         except Exception:
             log.exception("preview failed")
@@ -860,8 +862,11 @@ def create_app() -> Flask:
             episode = int(request.form.get("episode", "1"))
         except ValueError:
             abort(400)
-        # Auto-assign sort_index = max existing + 1
+        # Verify ownership and compute sort_index = max existing + 1
         groups = db.list_crossover_groups(playlist_id)
+        group_ids = {g["id"] for g in groups}
+        if group_id not in group_ids:
+            abort(404)
         max_idx = 0
         for g in groups:
             if g["id"] == group_id:
@@ -888,6 +893,9 @@ def create_app() -> Flask:
 
     @app.route("/playlist/<int:playlist_id>/crossover/<int:group_id>/delete", methods=["POST"])
     def crossover_delete_group(playlist_id: int, group_id: int):
+        # Verify the group belongs to this playlist before deleting
+        if not any(g["id"] == group_id for g in db.list_crossover_groups(playlist_id)):
+            abort(404)
         try:
             db.delete_crossover_group(group_id)
         except Exception as e:
@@ -906,6 +914,10 @@ def create_app() -> Flask:
 
     @app.route("/playlist/<int:playlist_id>/crossover/link/<int:link_id>/remove", methods=["POST"])
     def crossover_remove_link(playlist_id: int, link_id: int):
+        # Verify the link belongs to a group owned by this playlist before deleting
+        groups = db.list_crossover_groups(playlist_id)
+        if not any(li["id"] == link_id for g in groups for li in g["links"]):
+            abort(404)
         try:
             db.remove_crossover_link(link_id)
         except Exception as e:

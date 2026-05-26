@@ -299,7 +299,7 @@
               <li class="crossover-link-item">
                 <span class="crossover-link-num">{{ link.sort_index }}.</span>
                 <span class="crossover-link-text">
-                  {{ link.show_rating_key }} S{{ '%02d' % link.season }}E{{ '%02d' % link.episode }}
+                  {{ link.show_title }} S{{ '%02d' % link.season }}E{{ '%02d' % link.episode }}
                 </span>
                 <form method="post"
                       action="{{ url_for('crossover_remove_link', playlist_id=playlist.id, link_id=link.id) }}"
