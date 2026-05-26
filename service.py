@@ -58,6 +58,8 @@ class ShowConfig:
     include_specials: bool = False
     include_movies: bool = False
     movie_rating_keys: list[str] = field(default_factory=list)  # Plex movie ratingKeys
+    # v1.3.0 — per-show weight for rotation_weighted (clamped to >=1).
+    weight: int = 1
     # v1.1.0 dual-backend identifiers
     plex_rating_key: str | None = None
     jellyfin_rating_key: str | None = None
@@ -227,6 +229,7 @@ def _config_from_row(row) -> ShowConfig:
     if plex_id is None and str(row["show_rating_key"]).isdigit():
         plex_id = str(row["show_rating_key"])
     excluded_raw = row["excluded_episode_keys"] if "excluded_episode_keys" in row.keys() else ""
+    weight_val = max(1, int(_row_get(row, "weight", 1) or 1))
     return ShowConfig(
         rating_key=row["show_rating_key"],
         title=row["show_title"],
@@ -240,6 +243,7 @@ def _config_from_row(row) -> ShowConfig:
         jellyfin_rating_key=jf_id,
         jellyfin_movie_rating_keys=jf_movies,
         excluded_episodes=_parse_excluded_episodes(excluded_raw),
+        weight=weight_val,
     )
 
 
@@ -318,11 +322,18 @@ def _rebuild_tail_on(
     configs: list[ShowConfig],
     sort_mode: str,
     unwatched_only: bool,
+    *,
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
 ) -> tuple[int, int]:
     """Recompute the future portion of a playlist on a single backend.
 
     Returns (added_count, removed_count). Configs without an id on this
     backend are silently filtered out (they don't contribute on this side).
+
+    `block_size` and `shuffle_seed` are only consulted when `sort_mode` is
+    'rotation_blocks' or 'shuffle_chronological' respectively. Per-show
+    weights for 'rotation_weighted' come from each ShowConfig.weight.
     """
     relevant_configs = [c for c in configs if c.id_for(backend)]
     if not relevant_configs:
@@ -337,7 +348,11 @@ def _rebuild_tail_on(
         for c in relevant_configs
     ]
     show_order = [c.id_for(backend) for c in relevant_configs]
-    new_tail = rotation.rebuild_tail(kept, shows_episodes, mode=sort_mode, show_order=show_order)
+    weights = [c.weight for c in relevant_configs]
+    new_tail = rotation.rebuild_tail(
+        kept, shows_episodes, mode=sort_mode, show_order=show_order,
+        weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+    )
 
     current_tail = items[splice:]
     current_tail_keys = [it.rating_key for it in current_tail]
@@ -358,30 +373,42 @@ def _rebuild_tail_on(
     return (len(to_add), len(to_remove))
 
 
+def _row_get(row, key, default=None):
+    """Safe accessor for sqlite3.Row that returns default if column absent."""
+    return row[key] if key in row.keys() else default
+
+
 def _rebuild_playlist_tails(
     row,
     full_configs: list[ShowConfig],
     *,
     sort_mode: str | None = None,
     unwatched_only: bool | None = None,
+    block_size: int | None = None,
+    shuffle_seed: int | None = ...,  # sentinel — None is a valid value
     op_label: str = "tail rebuild",
 ) -> tuple[int, int]:
     """Iterate every enabled backend for a playlist and rebuild its tail.
 
-    Defaults `sort_mode` and `unwatched_only` from the row; callers that have
-    JUST written a new value to the DB (but haven't refetched the row) pass
-    the new value via the corresponding kwarg.
+    Defaults all params from the row; callers that have JUST written a new
+    value to the DB (but haven't refetched the row) pass the new value via
+    the corresponding kwarg.
     Returns (total_added, total_removed) across backends. Individual backend
     failures are logged but don't block the other backend.
     """
     sm = sort_mode if sort_mode is not None else row["sort_mode"]
     uw = unwatched_only if unwatched_only is not None else bool(row["unwatched_only"])
+    bs = block_size if block_size is not None else int(_row_get(row, "block_size", 1) or 1)
+    ss = _row_get(row, "shuffle_seed", None) if shuffle_seed is ... else shuffle_seed
     total_added = total_removed = 0
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue
         try:
-            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sm, uw)
+            added, removed = _rebuild_tail_on(
+                tb, client, pl_id, full_configs, sm, uw,
+                block_size=bs, shuffle_seed=ss,
+            )
             total_added += added
             total_removed += removed
         except Exception:
@@ -400,15 +427,25 @@ def preview_playlist(
     sort_mode: str = "rotation",
     unwatched_only: bool = False,
     backend: str = "plex",
+    *,
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
 ) -> list[dict]:
     """Compute the first `limit` episodes of the resulting playlist on a
     single backend without touching its write APIs. For 'both' playlists,
     the UI typically previews on whichever backend the user picked shows
     from. Default 'plex' for back-compat with existing UI."""
     _hydrate_configs(configs, backend)
-    shows_eps = [_episodes_for_config(c, backend, unwatched_only=unwatched_only) for c in configs]
-    show_order = [c.id_for(backend) for c in configs if c.id_for(backend)]
-    composed = rotation.compose(shows_eps, mode=sort_mode, show_order=show_order)
+    relevant = [c for c in configs if c.id_for(backend) or not configs]  # keep all for first-render
+    if not relevant:
+        relevant = configs
+    shows_eps = [_episodes_for_config(c, backend, unwatched_only=unwatched_only) for c in relevant]
+    show_order = [c.id_for(backend) for c in relevant if c.id_for(backend)]
+    weights = [c.weight for c in relevant]
+    composed = rotation.compose(
+        shows_eps, mode=sort_mode, show_order=show_order,
+        weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+    )
     out: list[dict] = []
     for ep in composed[:limit]:
         out.append({
@@ -439,6 +476,9 @@ class PlaylistView:
     sort_mode: str = "rotation"
     unwatched_only: bool = False
     auto_sync: bool = True
+    # v1.3.0 — advanced sequencing
+    block_size: int = 1
+    shuffle_seed: int | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -453,13 +493,24 @@ def create_managed_playlist(
     unwatched_only: bool = False,
     auto_sync: bool = True,
     backend: str = "plex",
+    *,
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
 ) -> int:
     if not configs:
         raise ValueError("Need at least one show to create a playlist")
-    if sort_mode not in ("rotation", "air_date"):
+    if sort_mode not in rotation.VALID_SORT_MODES:
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
     if backend not in ("plex", "jellyfin", "both"):
         raise ValueError(f"Invalid backend: {backend!r}")
+
+    # Auto-generate a seed if creating in shuffle mode without one — gives
+    # this playlist a stable shuffle that persists across syncs.
+    if sort_mode == "shuffle_chronological" and shuffle_seed is None:
+        import random as _random
+        shuffle_seed = _random.randint(1, 2**31 - 1)
+
+    block_size = max(1, int(block_size))
 
     target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
 
@@ -482,7 +533,11 @@ def create_managed_playlist(
                 continue
             shows_eps = [_episodes_for_config(c, tb, unwatched_only=unwatched_only) for c in relevant]
             show_order = [c.id_for(tb) for c in relevant]
-            composed = rotation.compose(shows_eps, mode=sort_mode, show_order=show_order)
+            weights = [c.weight for c in relevant]
+            composed = rotation.compose(
+                shows_eps, mode=sort_mode, show_order=show_order,
+                weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+            )
             if not composed:
                 continue
             new_id = _client_for(tb).create_playlist(name, [e.rating_key for e in composed])
@@ -512,6 +567,10 @@ def create_managed_playlist(
         db.set_plex_rating_key(playlist_id, created_ids["plex"])
     if "jellyfin" in created_ids:
         db.set_jellyfin_playlist_id(playlist_id, created_ids["jellyfin"])
+    if block_size != 1:
+        db.set_block_size(playlist_id, block_size)
+    if shuffle_seed is not None:
+        db.set_shuffle_seed(playlist_id, shuffle_seed)
 
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in configs])
     log.info(
@@ -535,6 +594,7 @@ def _config_to_db_dict(c: ShowConfig) -> dict:
         "movie_rating_keys": c.movie_rating_keys,
         "jellyfin_movie_item_ids": c.jellyfin_movie_rating_keys,
         "excluded_episodes": c.excluded_episodes,
+        "weight": c.weight,
     }
 
 
@@ -630,7 +690,7 @@ def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
 
 
 def set_playlist_sort_mode(playlist_id: int, sort_mode: str) -> None:
-    if sort_mode not in ("rotation", "air_date"):
+    if sort_mode not in rotation.VALID_SORT_MODES:
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
     row = db.get_playlist(playlist_id)
     if not row:
@@ -679,6 +739,52 @@ def set_playlist_auto_sync(playlist_id: int, enabled: bool) -> None:
         raise ValueError(f"No managed playlist with id={playlist_id}")
     db.set_auto_sync(playlist_id, enabled)
     log.info("Playlist '%s' auto_sync=%s", row["name"], enabled)
+
+
+# --------------------------------------------------------------------------- #
+# v1.3.0 — block size, shuffle seed, per-show weight
+# --------------------------------------------------------------------------- #
+
+
+def set_playlist_block_size(playlist_id: int, block_size: int) -> None:
+    """Update block_size and rebuild tails on every enabled backend."""
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No managed playlist with id={playlist_id}")
+    new_size = max(1, int(block_size))
+    db.set_block_size(playlist_id, new_size)
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    _rebuild_playlist_tails(
+        row, full_configs, block_size=new_size, op_label="block_size change"
+    )
+    log.info("Playlist '%s' block_size=%d", row["name"], new_size)
+
+
+def reshuffle_playlist(playlist_id: int) -> None:
+    """Regenerate the shuffle seed and rebuild tails. Only meaningful for
+    playlists in shuffle_chronological mode, but callable in any mode."""
+    import random as _random
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No managed playlist with id={playlist_id}")
+    new_seed = _random.randint(1, 2**31 - 1)
+    db.set_shuffle_seed(playlist_id, new_seed)
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    _rebuild_playlist_tails(
+        row, full_configs, shuffle_seed=new_seed, op_label="reshuffle"
+    )
+    log.info("Playlist '%s' reshuffled (seed=%d)", row["name"], new_seed)
+
+
+def set_show_weight(playlist_id: int, show_rating_key: str, weight: int) -> None:
+    """Update a single show's weight and rebuild tails."""
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No managed playlist with id={playlist_id}")
+    db.set_show_weight(playlist_id, show_rating_key, max(1, int(weight)))
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    _rebuild_playlist_tails(row, full_configs, op_label="weight change")
+    log.info("Playlist '%s' show %s weight=%d", row["name"], show_rating_key, weight)
 
 
 # --------------------------------------------------------------------------- #
@@ -848,6 +954,8 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         sort_mode=row["sort_mode"] or "rotation",
         unwatched_only=bool(row["unwatched_only"]),
         auto_sync=bool(row["auto_sync"]) if "auto_sync" in row.keys() else True,
+        block_size=int(_row_get(row, "block_size", 1) or 1),
+        shuffle_seed=_row_get(row, "shuffle_seed", None),
     )
 
 

@@ -60,25 +60,56 @@
 
       <div class="sort-mode-bar">
         <span class="sort-mode-label">Episode order</span>
-        <div class="pill-toggle">
+        <div class="pill-toggle pill-toggle-5">
           <label class="pill {% if sort_mode == 'rotation' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="rotation"
                    {% if sort_mode == 'rotation' %}checked{% endif %}>
             <span>Rotation</span>
+          </label>
+          <label class="pill {% if sort_mode == 'rotation_weighted' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="rotation_weighted"
+                   {% if sort_mode == 'rotation_weighted' %}checked{% endif %}>
+            <span>Weighted</span>
+          </label>
+          <label class="pill {% if sort_mode == 'rotation_blocks' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="rotation_blocks"
+                   {% if sort_mode == 'rotation_blocks' %}checked{% endif %}>
+            <span>Blocks</span>
           </label>
           <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="air_date"
                    {% if sort_mode == 'air_date' %}checked{% endif %}>
             <span>Air Date</span>
           </label>
+          <label class="pill {% if sort_mode == 'shuffle_chronological' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="shuffle_chronological"
+                   {% if sort_mode == 'shuffle_chronological' %}checked{% endif %}>
+            <span>Shuffle</span>
+          </label>
         </div>
-        <span class="hint">
+        <span class="hint" id="sortModeHint">
           {% if sort_mode == 'air_date' %}
-            Episodes sorted by original air date. Multi-part crossovers stay aligned via Part 1/2/3 detection. Show order is used as a tiebreaker.
+            Chronological across every show. Multi-part crossovers stay aligned via Part 1/2/3 detection. Show order is the tiebreaker.
+          {% elif sort_mode == 'rotation_weighted' %}
+            Per-show ratios: take Show A's weight items, then Show B's weight items, then back to A. Set weights below.
+          {% elif sort_mode == 'rotation_blocks' %}
+            Block scheduling: N episodes of Show A, then N of Show B, then back to A.
+          {% elif sort_mode == 'shuffle_chronological' %}
+            Random sequence, but each show's episodes stay in chronological order and same-show consecutive plays are avoided. A stable seed is generated at create time so syncs preserve the order.
           {% else %}
             Round-robin: Show A → Show B → Show A → … Air date is ignored.
           {% endif %}
         </span>
+      </div>
+
+      {# Block size input — only meaningful in rotation_blocks mode. #}
+      <div class="sort-mode-bar mode-block-size"
+           {% if sort_mode != 'rotation_blocks' %}hidden{% endif %}>
+        <span class="sort-mode-label">Block size</span>
+        <input type="number" name="block_size" id="blockSizeInput"
+               min="1" max="20" step="1"
+               value="{{ block_size or 1 }}" class="number-input">
+        <span class="hint">Episodes per block before rotating to the next show.</span>
       </div>
 
       <div class="sort-mode-bar">
@@ -169,6 +200,18 @@
                   <span class="toggle-label">Include specials</span>
                 </label>
               {% endif %}
+
+              {# Per-show weight (rotation_weighted only). Hidden via JS in
+                 other modes; the input still posts so weights persist when
+                 the user flips back. #}
+              <div class="weight-control"
+                   {% if sort_mode != 'rotation_weighted' %}hidden{% endif %}>
+                <label class="weight-label" for="weight_{{ rk }}">Weight</label>
+                <input type="number" id="weight_{{ rk }}" name="weight_{{ rk }}"
+                       min="1" max="20" step="1"
+                       value="{{ c.weight or 1 }}" class="number-input number-input-sm">
+                <span class="hint">episodes per cycle</span>
+              </div>
             </div>
           </div>
 
@@ -412,11 +455,38 @@
           if (r) p.classList.toggle('is-active', r.checked);
         });
       }
+      // ---- v1.3.0: sort-mode-dependent UI ----
+      const SORT_HINTS = {
+        rotation: 'Round-robin: Show A → Show B → Show A → … Air date is ignored.',
+        rotation_weighted: 'Per-show ratios: take Show A\'s weight items, then Show B\'s weight items, then back to A. Set weights below.',
+        rotation_blocks: 'Block scheduling: N episodes of Show A, then N of Show B, then back to A.',
+        air_date: 'Chronological across every show. Multi-part crossovers stay aligned via Part 1/2/3 detection. Show order is the tiebreaker.',
+        shuffle_chronological: 'Random sequence, but each show\'s episodes stay in chronological order and same-show consecutive plays are avoided. A stable seed is generated at create time so syncs preserve the order.',
+      };
+      function applySortModeUI() {
+        const sel = document.querySelector('input[name="sort_mode"]:checked');
+        if (!sel) return;
+        const mode = sel.value;
+        const hint = document.getElementById('sortModeHint');
+        if (hint && SORT_HINTS[mode]) hint.textContent = SORT_HINTS[mode];
+        const blockBar = document.querySelector('.mode-block-size');
+        if (blockBar) blockBar.hidden = (mode !== 'rotation_blocks');
+        document.querySelectorAll('.weight-control').forEach((el) => {
+          el.hidden = (mode !== 'rotation_weighted');
+        });
+      }
       document.querySelectorAll('input[name="sort_mode"]').forEach((radio) => {
         radio.addEventListener('change', () => {
           refreshPillActive('sort_mode');
+          applySortModeUI();
           scheduleUpdate();
         });
+      });
+      applySortModeUI();
+      const blockInput = document.getElementById('blockSizeInput');
+      if (blockInput) blockInput.addEventListener('change', scheduleUpdate);
+      document.querySelectorAll('input[name^="weight_"]').forEach((el) => {
+        el.addEventListener('change', scheduleUpdate);
       });
       document.querySelectorAll('input[name="backend"]').forEach((radio) => {
         radio.addEventListener('change', () => {

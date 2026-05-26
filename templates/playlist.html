@@ -14,10 +14,18 @@
         </span>
       {% endif %}
     </h1>
+    {% set mode_labels = {
+      'rotation': 'Rotation',
+      'rotation_weighted': 'Weighted Rotation',
+      'rotation_blocks': 'Block Scheduling',
+      'air_date': 'Air Date',
+      'shuffle_chronological': 'Shuffle',
+    } %}
     <p class="subtitle">
       {{ playlist.shows|length }} show{{ '' if playlist.shows|length == 1 else 's' }}
       · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }}
-      · sorted by <strong>{{ 'Air Date' if playlist.sort_mode == 'air_date' else 'Rotation' }}</strong>
+      · sorted by <strong>{{ mode_labels.get(playlist.sort_mode, playlist.sort_mode) }}</strong>
+      {% if playlist.sort_mode == 'rotation_blocks' %}(blocks of {{ playlist.block_size }}){% endif %}
       {% if playlist.unwatched_only %}· <strong>unwatched only</strong>{% endif %}
       {% if not playlist.auto_sync %}· <strong>auto-update off</strong>{% endif %}
     </p>
@@ -44,24 +52,62 @@
 
   <form method="post" action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Sort</span>
-    <div class="pill-toggle">
+    <div class="pill-toggle pill-toggle-5">
       <button type="submit" name="sort_mode" value="rotation"
               class="pill {% if playlist.sort_mode == 'rotation' %}is-active{% endif %}">
         Rotation
+      </button>
+      <button type="submit" name="sort_mode" value="rotation_weighted"
+              class="pill {% if playlist.sort_mode == 'rotation_weighted' %}is-active{% endif %}">
+        Weighted
+      </button>
+      <button type="submit" name="sort_mode" value="rotation_blocks"
+              class="pill {% if playlist.sort_mode == 'rotation_blocks' %}is-active{% endif %}">
+        Blocks
       </button>
       <button type="submit" name="sort_mode" value="air_date"
               class="pill {% if playlist.sort_mode == 'air_date' %}is-active{% endif %}">
         Air Date
       </button>
+      <button type="submit" name="sort_mode" value="shuffle_chronological"
+              class="pill {% if playlist.sort_mode == 'shuffle_chronological' %}is-active{% endif %}">
+        Shuffle
+      </button>
     </div>
     <span class="hint">
       {% if playlist.sort_mode == 'air_date' %}
         Episodes sorted by original air date — multi-part crossovers stay aligned.
+      {% elif playlist.sort_mode == 'rotation_weighted' %}
+        Per-show weights: edit each show's weight in the rotation list below.
+      {% elif playlist.sort_mode == 'rotation_blocks' %}
+        N consecutive episodes per show before rotating. Set block size below.
+      {% elif playlist.sort_mode == 'shuffle_chronological' %}
+        Random sequence, but each show's episodes stay in chronological order.
       {% else %}
         Round-robin across shows. Show order matters; air dates are ignored.
       {% endif %}
     </span>
   </form>
+
+  {% if playlist.sort_mode == 'rotation_blocks' %}
+    <form method="post" action="{{ url_for('change_block_size', playlist_id=playlist.id) }}"
+          class="sort-mode-bar sort-mode-bar-inline">
+      <span class="sort-mode-label">Block size</span>
+      <input type="number" name="block_size" min="1" max="20" step="1"
+             value="{{ playlist.block_size }}" class="number-input" required>
+      <button type="submit" class="btn btn-sm">Update</button>
+      <span class="hint">Episodes per block before rotating to the next show.</span>
+    </form>
+  {% endif %}
+
+  {% if playlist.sort_mode == 'shuffle_chronological' %}
+    <form method="post" action="{{ url_for('reshuffle', playlist_id=playlist.id) }}"
+          class="sort-mode-bar sort-mode-bar-inline">
+      <span class="sort-mode-label">Shuffle</span>
+      <button type="submit" class="btn">Reshuffle</button>
+      <span class="hint">Generates a new random seed and rebuilds the future portion of the playlist. Already-watched episodes stay put.</span>
+    </form>
+  {% endif %}
 
   <form method="post" action="{{ url_for('change_unwatched_only', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Filter</span>
@@ -142,9 +188,22 @@
                   All seasons
                 {% endif %}
                 {% if s.include_specials %} · specials on{% endif %}
+                {% if playlist.sort_mode == 'rotation_weighted' %} · weight {{ s.weight or 1 }}{% endif %}
               </div>
             </div>
             <div class="rotation-controls">
+              {% if playlist.sort_mode == 'rotation_weighted' %}
+                <form method="post" action="{{ url_for('change_weight', playlist_id=playlist.id) }}"
+                      class="inline-form weight-inline-form"
+                      onsubmit="event.stopPropagation();">
+                  <input type="hidden" name="show" value="{{ s.show_rating_key }}">
+                  <label class="hint" for="row_weight_{{ s.show_rating_key }}">Weight</label>
+                  <input type="number" id="row_weight_{{ s.show_rating_key }}" name="weight"
+                         min="1" max="20" step="1" value="{{ s.weight or 1 }}"
+                         class="number-input number-input-sm">
+                  <button type="submit" class="btn btn-sm">Set</button>
+                </form>
+              {% endif %}
               <button type="button" class="btn btn-icon" data-move="up" title="Move up">▲</button>
               <button type="button" class="btn btn-icon" data-move="down" title="Move down">▼</button>
               <form method="post" action="{{ url_for('remove_show', playlist_id=playlist.id) }}"

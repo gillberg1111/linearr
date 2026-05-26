@@ -109,6 +109,103 @@ def interleave(shows_episodes: list[list[_Ep]]) -> list[_Ep]:
             return out
 
 
+def interleave_weighted(
+    shows_episodes: list[list[_Ep]],
+    weights: list[int] | None = None,
+) -> list[_Ep]:
+    """Weighted round-robin: take `weights[i]` episodes from show i per cycle.
+
+    `weights` defaults to all-1 (equivalent to `interleave`). Weight values
+    < 1 are clamped to 1 — a 0-weight show would never be taken from, which
+    is what removing the show entirely is for.
+
+    When a show has fewer episodes left than its weight asks for, we take
+    what's available and advance — no carry-over to the next cycle. This
+    keeps the algorithm O(n) and matches the user's expectation that a
+    weight is a maximum-per-cycle, not a strict ratio.
+    """
+    if not shows_episodes:
+        return []
+    n = len(shows_episodes)
+    if weights is None:
+        weights = [1] * n
+    else:
+        weights = [max(1, int(w)) for w in weights]
+        # Pad / trim to match n so callers can be a bit sloppy.
+        if len(weights) < n:
+            weights = weights + [1] * (n - len(weights))
+        elif len(weights) > n:
+            weights = weights[:n]
+
+    indices = [0] * n
+    out: list[_Ep] = []
+    while True:
+        progressed = False
+        for i, eps in enumerate(shows_episodes):
+            taken = 0
+            while indices[i] < len(eps) and taken < weights[i]:
+                out.append(eps[indices[i]])
+                indices[i] += 1
+                taken += 1
+                progressed = True
+        if not progressed:
+            return out
+
+
+def interleave_blocks(
+    shows_episodes: list[list[_Ep]],
+    block_size: int = 1,
+) -> list[_Ep]:
+    """Block scheduling: take `block_size` from show 0, then `block_size`
+    from show 1, etc., then back to show 0. Equivalent to
+    `interleave_weighted(shows_episodes, [block_size] * n)`."""
+    bs = max(1, int(block_size))
+    return interleave_weighted(shows_episodes, [bs] * len(shows_episodes))
+
+
+def shuffle_chronological(
+    shows_episodes: list[list[_Ep]],
+    seed: int | None = None,
+) -> list[_Ep]:
+    """Random sequence with two constraints:
+
+    1. Each show's own episodes stay in their input (chronological) order.
+       We never reorder within a show.
+    2. No two episodes from the same show play back-to-back, when avoidable.
+
+    The algorithm: at each step, pick uniformly at random among the shows
+    whose head episode is allowed (i.e. not the show we just took from). If
+    that filter leaves no candidates, fall back to any show with episodes
+    remaining — i.e. when one show has many more episodes than the rest,
+    eventually we have no choice but to take consecutive episodes from it.
+
+    `seed` makes the output deterministic for the same input + seed. None
+    seeds from system time (effectively random per call). Callers that
+    want a stable result across syncs (e.g. for a "shuffle once and lock
+    it" UX) should persist the seed and pass it back.
+    """
+    import random as _random
+    rng = _random.Random(seed)
+
+    indices = [0] * len(shows_episodes)
+    remaining_lengths = [len(eps) for eps in shows_episodes]
+    out: list[_Ep] = []
+    last_show = -1
+
+    while True:
+        candidates = [i for i, rem in enumerate(remaining_lengths) if rem > 0 and i != last_show]
+        if not candidates:
+            # Forced fall-back: any show still has episodes? Take from it.
+            candidates = [i for i, rem in enumerate(remaining_lengths) if rem > 0]
+            if not candidates:
+                return out
+        pick = rng.choice(candidates)
+        out.append(shows_episodes[pick][indices[pick]])
+        indices[pick] += 1
+        remaining_lengths[pick] -= 1
+        last_show = pick
+
+
 def air_date_sequence(
     shows_episodes: list[list[_Ep]],
     show_order: list[str] | None = None,
@@ -146,10 +243,39 @@ def compose(
     shows_episodes: list[list[_Ep]],
     mode: str = "rotation",
     show_order: list[str] | None = None,
+    *,
+    weights: list[int] | None = None,
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
 ) -> list[_Ep]:
+    """Pick a compose strategy by mode name.
+
+    Modes:
+      - 'rotation'              → interleave (round-robin)
+      - 'rotation_weighted'     → interleave_weighted(weights=...)
+      - 'rotation_blocks'       → interleave_blocks(block_size=...)
+      - 'air_date'              → air_date_sequence(show_order=...)
+      - 'shuffle_chronological' → shuffle_chronological(seed=shuffle_seed)
+    """
     if mode == "air_date":
         return air_date_sequence(shows_episodes, show_order)
+    if mode == "rotation_weighted":
+        return interleave_weighted(shows_episodes, weights)
+    if mode == "rotation_blocks":
+        return interleave_blocks(shows_episodes, block_size)
+    if mode == "shuffle_chronological":
+        return shuffle_chronological(shows_episodes, shuffle_seed)
     return interleave(shows_episodes)
+
+
+# Tuple of every accepted sort_mode value. Single source of truth.
+VALID_SORT_MODES = (
+    "rotation",
+    "rotation_weighted",
+    "rotation_blocks",
+    "air_date",
+    "shuffle_chronological",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -171,15 +297,21 @@ def rebuild_tail(
     shows_episodes_in_order: list[list[_Ep]],
     mode: str = "rotation",
     show_order: list[str] | None = None,
+    *,
+    weights: list[int] | None = None,
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
 ) -> list[_Ep]:
     """Compute the new "future" portion of a playlist.
 
-    Mode differences:
-      - rotation: for each show, skip episodes already in kept_items, then
-        round-robin the remainders. This preserves the show's position in the
-        rotation when an episode of it has already played.
-      - air_date: compose the full canonical air-date sequence (with crossover
-        Part N alignment), then drop kept episodes.
+    Modes:
+      - rotation / rotation_weighted / rotation_blocks: drop kept episodes
+        from each show's remainder list, then interleave the remainders with
+        the appropriate algorithm. Preserves each show's position in the
+        rotation when one of its episodes has already played.
+      - air_date / shuffle_chronological: compose the FULL canonical sequence
+        using all input episodes, then drop kept ones. Preserves the
+        sequence's original ordering for the unplayed tail.
     """
     kept_by_show: dict[str, set[tuple[int, int]]] = {}
     kept_movie_keys: set[str] = set()
@@ -194,17 +326,24 @@ def rebuild_tail(
             return e.rating_key in kept_movie_keys
         return (e.season, e.episode) in kept_by_show.get(e.show_rating_key, set())
 
-    if mode == "rotation":
+    if mode in ("rotation", "rotation_weighted", "rotation_blocks"):
         remainders: list[list[_Ep]] = []
         for eps in shows_episodes_in_order:
             if not eps:
                 remainders.append([])
                 continue
             remainders.append([e for e in eps if not _is_kept(e)])
+        if mode == "rotation_weighted":
+            return interleave_weighted(remainders, weights)
+        if mode == "rotation_blocks":
+            return interleave_blocks(remainders, block_size)
         return interleave(remainders)
 
-    # air_date mode
-    full = compose(shows_episodes_in_order, mode=mode, show_order=show_order)
+    # air_date and shuffle_chronological: compose full, then drop kept.
+    full = compose(
+        shows_episodes_in_order, mode=mode, show_order=show_order,
+        weights=weights, block_size=block_size, shuffle_seed=shuffle_seed,
+    )
     return [e for e in full if not _is_kept(e)]
 
 

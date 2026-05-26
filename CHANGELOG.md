@@ -5,6 +5,82 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-26
+
+Three new sequencing modes alongside Rotation and Air Date. Existing
+playlists keep their current mode and behave identically — the new modes
+are opt-in per playlist.
+
+### Added
+
+- **Weighted Rotation** (`sort_mode = 'rotation_weighted'`). Per-show
+  weight on `playlist_shows.weight` (default 1). New
+  `rotation.interleave_weighted(shows_episodes, weights)` takes
+  `weights[i]` episodes from show *i* per cycle, falling back to
+  partial-take when a show is short. Solves the "The Simpsons drowns out
+  Firefly" problem. Edit weights inline on the playlist detail page when
+  the playlist is in this mode.
+- **Block Scheduling** (`sort_mode = 'rotation_blocks'`). A single
+  playlist-wide `block_size` integer on `managed_playlists` (default 1 =
+  current rotation behavior). New `rotation.interleave_blocks(...)`. Pill
+  toggle on the playlist detail page reveals a block-size adjuster when
+  this mode is active.
+- **Intelligent Shuffle** (`sort_mode = 'shuffle_chronological'`). New
+  `rotation.shuffle_chronological(shows_episodes, seed)` produces a
+  random sequence where each show's episodes stay in chronological order
+  and same-show consecutive plays are avoided when possible (with a
+  forced-fallback when one show vastly outnumbers the rest). A seed is
+  auto-generated at creation; users can hit **Reshuffle** on the playlist
+  detail page to regenerate it.
+- **`rotation.VALID_SORT_MODES`** constant — a tuple of every supported
+  value, used as the single source of truth for validation in
+  `db.set_sort_mode`, `service.create_managed_playlist`,
+  `service.set_playlist_sort_mode`, and `app.change_sort_mode`.
+- **New service helpers**: `set_playlist_block_size`,
+  `reshuffle_playlist` (regenerates seed + rebuilds tails),
+  `set_show_weight`. Each rebuilds tails on every enabled backend after
+  updating the relevant value.
+- **New routes**: `POST /playlist/<id>/block_size`,
+  `POST /playlist/<id>/reshuffle`, `POST /playlist/<id>/weight`.
+
+### Changed
+
+- **`rotation.compose()` and `rotation.rebuild_tail()`** gained keyword-
+  only args `weights`, `block_size`, `shuffle_seed`. Backward compat:
+  unused args are ignored on old modes. For rotation_* modes the
+  remainder-per-show approach is preserved; for air_date and shuffle the
+  full canonical sequence is composed once, then kept items are dropped
+  (preserves the original randomized/dated order).
+- **`service._rebuild_tail_on` and `_rebuild_playlist_tails`** thread the
+  new params through. Both default values from the row when callers
+  don't override.
+- **Configure page sort-mode pill** expanded from 2 options to 5 (with
+  `.pill-toggle-5` modifier that wraps on narrow screens). Reactive
+  hint text and conditional visibility for the block-size input and
+  per-show weight steppers.
+- **Playlist detail subtitle** shows the new mode label and block size
+  when relevant.
+
+### Database (additive only)
+
+- `playlist_shows.weight INTEGER NOT NULL DEFAULT 1`
+- `managed_playlists.block_size INTEGER NOT NULL DEFAULT 1`
+- `managed_playlists.shuffle_seed INTEGER` (nullable)
+
+### Tests
+
+- 117 passing (up from 98). New: 18 covering the three sequencing modes
+  — depletion-fallback for weighted, exact block patterns for blocks,
+  per-show chronological order preservation + no-consecutive-when-
+  possible + forced-fallback for shuffle, dispatch table, `rebuild_tail`
+  in each new mode, and `VALID_SORT_MODES` shape.
+
+### Files touched
+
+`rotation.py` · `service.py` · `db.py` · `app.py` ·
+`templates/configure.html` · `templates/playlist.html` · `static/style.css` ·
+`tests.py`.
+
 ## [1.2.0] - 2026-05-26
 
 Quick-wins release based on a code review. No backend semantics change; new

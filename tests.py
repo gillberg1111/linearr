@@ -552,6 +552,210 @@ def test_find_match_uses_titles_match():
 
 
 # --------------------------------------------------------------------------- #
+# v1.3.0 — Weighted Rotation
+# --------------------------------------------------------------------------- #
+
+
+def test_interleave_weighted_default_equals_rotation():
+    A = [mk("A", 1, i) for i in range(1, 4)]
+    B = [mk("B", 1, i) for i in range(1, 4)]
+    plain = [r.rating_key for r in rotation.interleave([A, B])]
+    weighted = [r.rating_key for r in rotation.interleave_weighted([A, B])]
+    check("weighted: default weights match rotation", plain == weighted, f"got {weighted}")
+
+
+def test_interleave_weighted_2_to_1_ratio():
+    A = [mk("A", 1, i) for i in range(1, 6)]  # 5 eps
+    B = [mk("B", 1, i) for i in range(1, 4)]  # 3 eps
+    out = [r.rating_key for r in rotation.interleave_weighted([A, B], [2, 1])]
+    # 2 from A, 1 from B, 2 from A, 1 from B, 1 from A (only 1 left), 1 from B (last)
+    expected = ["A-1-1", "A-1-2", "B-1-1", "A-1-3", "A-1-4", "B-1-2", "A-1-5", "B-1-3"]
+    check("weighted: 2:1 ratio", out == expected, f"got {out}")
+
+
+def test_interleave_weighted_partial_take_when_depleted():
+    """If a show has fewer episodes left than its weight, take what's there
+    and move on — no carry-over."""
+    A = [mk("A", 1, 1)]
+    B = [mk("B", 1, i) for i in range(1, 4)]  # 3 eps
+    out = [r.rating_key for r in rotation.interleave_weighted([A, B], [3, 1])]
+    # A: only 1 left (asked for 3), take A1, B1, then A has nothing → B2, B3
+    expected = ["A-1-1", "B-1-1", "B-1-2", "B-1-3"]
+    check("weighted: partial take when depleted", out == expected, f"got {out}")
+
+
+def test_interleave_weighted_weights_clamped_to_one():
+    """Weights < 1 are clamped to 1 (0-weight = remove the show entirely)."""
+    A = [mk("A", 1, 1), mk("A", 1, 2)]
+    B = [mk("B", 1, 1), mk("B", 1, 2)]
+    out = [r.rating_key for r in rotation.interleave_weighted([A, B], [0, 1])]
+    check("weighted: weight 0 clamps to 1", out == ["A-1-1", "B-1-1", "A-1-2", "B-1-2"], f"got {out}")
+
+
+def test_interleave_weighted_pads_short_weights():
+    """If caller passes fewer weights than shows, pad with 1s."""
+    A = [mk("A", 1, 1)]
+    B = [mk("B", 1, 1)]
+    C = [mk("C", 1, 1)]
+    out = [r.rating_key for r in rotation.interleave_weighted([A, B, C], [2])]
+    check("weighted: short weights are padded",
+          out == ["A-1-1", "B-1-1", "C-1-1"], f"got {out}")
+
+
+# --------------------------------------------------------------------------- #
+# v1.3.0 — Block Scheduling
+# --------------------------------------------------------------------------- #
+
+
+def test_interleave_blocks_default_equals_rotation():
+    A = [mk("A", 1, i) for i in range(1, 3)]
+    B = [mk("B", 1, i) for i in range(1, 3)]
+    plain = [r.rating_key for r in rotation.interleave([A, B])]
+    blocks = [r.rating_key for r in rotation.interleave_blocks([A, B], block_size=1)]
+    check("blocks: block_size=1 matches rotation", plain == blocks, f"got {blocks}")
+
+
+def test_interleave_blocks_size_three():
+    """3 from A, 3 from B, 3 from A, ... pattern."""
+    A = [mk("A", 1, i) for i in range(1, 8)]
+    B = [mk("B", 1, i) for i in range(1, 8)]
+    out = [r.rating_key for r in rotation.interleave_blocks([A, B], block_size=3)]
+    # A1 A2 A3 B1 B2 B3 A4 A5 A6 B4 B5 B6 A7 B7
+    expected = [
+        "A-1-1", "A-1-2", "A-1-3",
+        "B-1-1", "B-1-2", "B-1-3",
+        "A-1-4", "A-1-5", "A-1-6",
+        "B-1-4", "B-1-5", "B-1-6",
+        "A-1-7", "B-1-7",
+    ]
+    check("blocks: size 3 pattern", out == expected, f"got {out}")
+
+
+# --------------------------------------------------------------------------- #
+# v1.3.0 — Intelligent Shuffle
+# --------------------------------------------------------------------------- #
+
+
+def test_shuffle_chronological_deterministic_with_seed():
+    A = [mk("A", 1, i) for i in range(1, 4)]
+    B = [mk("B", 1, i) for i in range(1, 4)]
+    a = [r.rating_key for r in rotation.shuffle_chronological([A, B], seed=42)]
+    b = [r.rating_key for r in rotation.shuffle_chronological([A, B], seed=42)]
+    check("shuffle: same seed = same output", a == b, f"got {a} vs {b}")
+
+
+def test_shuffle_chronological_uses_all_episodes():
+    A = [mk("A", 1, i) for i in range(1, 4)]
+    B = [mk("B", 1, i) for i in range(1, 4)]
+    C = [mk("C", 1, 1)]
+    out = rotation.shuffle_chronological([A, B, C], seed=1)
+    keys = sorted(r.rating_key for r in out)
+    expected = sorted(["A-1-1", "A-1-2", "A-1-3", "B-1-1", "B-1-2", "B-1-3", "C-1-1"])
+    check("shuffle: every episode appears exactly once", keys == expected, f"got {keys}")
+
+
+def test_shuffle_chronological_preserves_within_show_order():
+    """Show A's episodes must stay in order A1<A2<A3<A4<A5 in the output."""
+    A = [mk("A", 1, i) for i in range(1, 6)]
+    B = [mk("B", 1, i) for i in range(1, 6)]
+    out = rotation.shuffle_chronological([A, B], seed=7)
+    a_positions = [i for i, r in enumerate(out) if r.show_rating_key == "A"]
+    a_keys = [out[i].rating_key for i in a_positions]
+    check("shuffle: A episodes stay in chronological order",
+          a_keys == ["A-1-1", "A-1-2", "A-1-3", "A-1-4", "A-1-5"], f"got {a_keys}")
+    b_positions = [i for i, r in enumerate(out) if r.show_rating_key == "B"]
+    b_keys = [out[i].rating_key for i in b_positions]
+    check("shuffle: B episodes stay in chronological order",
+          b_keys == ["B-1-1", "B-1-2", "B-1-3", "B-1-4", "B-1-5"], f"got {b_keys}")
+
+
+def test_shuffle_chronological_avoids_consecutive_same_show_when_possible():
+    """With balanced episode counts, no same-show consecutive pairs."""
+    A = [mk("A", 1, i) for i in range(1, 6)]
+    B = [mk("B", 1, i) for i in range(1, 6)]
+    out = rotation.shuffle_chronological([A, B], seed=3)
+    consecutive_pairs = [
+        (out[i].show_rating_key, out[i + 1].show_rating_key)
+        for i in range(len(out) - 1)
+    ]
+    same_show = [p for p in consecutive_pairs if p[0] == p[1]]
+    check("shuffle: no same-show consecutive when avoidable",
+          len(same_show) == 0, f"found same-show pairs: {same_show}")
+
+
+def test_shuffle_chronological_falls_back_when_one_show_dominates():
+    """If show A has way more episodes than B, the tail must be all-A and
+    the algorithm cannot avoid consecutive A-A pairs — it MUST fall back
+    rather than infinite-loop."""
+    A = [mk("A", 1, i) for i in range(1, 8)]
+    B = [mk("B", 1, 1)]
+    out = rotation.shuffle_chronological([A, B], seed=5)
+    keys = [r.rating_key for r in out]
+    expected_count = len(A) + len(B)
+    check("shuffle: produces full output when forced to repeat",
+          len(keys) == expected_count, f"got {len(keys)} of {expected_count}")
+
+
+# --------------------------------------------------------------------------- #
+# v1.3.0 — compose() dispatch
+# --------------------------------------------------------------------------- #
+
+
+def test_compose_dispatches_to_new_modes():
+    A = [mk("A", 1, i) for i in range(1, 4)]
+    B = [mk("B", 1, i) for i in range(1, 4)]
+    w = [r.rating_key for r in rotation.compose([A, B], mode="rotation_weighted", weights=[2, 1])]
+    b = [r.rating_key for r in rotation.compose([A, B], mode="rotation_blocks", block_size=2)]
+    s = [r.rating_key for r in rotation.compose([A, B], mode="shuffle_chronological", shuffle_seed=42)]
+    check("compose: rotation_weighted dispatches", w[:3] == ["A-1-1", "A-1-2", "B-1-1"], f"got {w}")
+    check("compose: rotation_blocks dispatches", b[:4] == ["A-1-1", "A-1-2", "B-1-1", "B-1-2"], f"got {b}")
+    check("compose: shuffle_chronological dispatches", len(s) == 6, f"got {s}")
+
+
+def test_rebuild_tail_weighted_drops_kept():
+    """rebuild_tail in weighted mode skips kept items per show."""
+    A_full = [mk("A", 1, i) for i in range(1, 5)]
+    B_full = [mk("B", 1, i) for i in range(1, 5)]
+    kept = [
+        PlaylistItem("A-1-1", "A", 1, 1, view_count=1),
+        PlaylistItem("A-1-2", "A", 1, 2, view_count=1),
+    ]
+    tail = rotation.rebuild_tail(
+        kept, [A_full, B_full], mode="rotation_weighted", weights=[2, 1]
+    )
+    keys = [r.rating_key for r in tail]
+    expected = ["A-1-3", "A-1-4", "B-1-1", "B-1-2", "B-1-3", "B-1-4"]
+    check("rebuild_tail weighted: kept items dropped, weighted interleave",
+          keys == expected, f"got {keys}")
+
+
+def test_rebuild_tail_shuffle_drops_kept():
+    """Shuffle rebuild_tail must drop kept items but preserve seed-determined order."""
+    A_full = [mk("A", 1, i) for i in range(1, 4)]
+    B_full = [mk("B", 1, i) for i in range(1, 4)]
+    full = rotation.shuffle_chronological([A_full, B_full], seed=42)
+    full_keys = [r.rating_key for r in full]
+    # Mark the first item as kept; rebuild_tail should return the rest in order.
+    first = full[0]
+    kept = [PlaylistItem(first.rating_key, first.show_rating_key,
+                         first.season, first.episode, view_count=1)]
+    tail = rotation.rebuild_tail(
+        kept, [A_full, B_full], mode="shuffle_chronological", shuffle_seed=42
+    )
+    tail_keys = [r.rating_key for r in tail]
+    check("rebuild_tail shuffle: drops kept, preserves seed order",
+          tail_keys == full_keys[1:], f"got {tail_keys} vs {full_keys[1:]}")
+
+
+def test_valid_sort_modes_constant():
+    """VALID_SORT_MODES is the source of truth other modules import."""
+    expected = {"rotation", "rotation_weighted", "rotation_blocks",
+                "air_date", "shuffle_chronological"}
+    check("rotation.VALID_SORT_MODES has all 5 modes",
+          set(rotation.VALID_SORT_MODES) == expected, f"got {rotation.VALID_SORT_MODES}")
+
+
+# --------------------------------------------------------------------------- #
 # v1.2.0 — per-episode exclusions (parse/serialize round-trips)
 # --------------------------------------------------------------------------- #
 

@@ -1,5 +1,7 @@
 """SQLite persistence for managed rotating playlists.
 
+For sort_mode validation, the source of truth is `rotation.VALID_SORT_MODES`.
+
 Schema:
   managed_playlists
     id                   INTEGER PK
@@ -8,7 +10,9 @@ Schema:
     jellyfin_playlist_id TEXT     — Id of the Jellyfin playlist (nullable; NULL when backend=plex)
     backend              TEXT     — 'plex' | 'jellyfin' | 'both' (default 'plex' for legacy rows)
     created_at           TEXT
-    sort_mode            TEXT     — 'rotation' | 'air_date'
+    sort_mode            TEXT     — see rotation.VALID_SORT_MODES
+    block_size           INTEGER  — episodes per block in rotation_blocks (default 1)
+    shuffle_seed         INTEGER  — seed for shuffle_chronological (nullable)
     unwatched_only       INTEGER  — 0/1
     auto_sync            INTEGER  — 0/1, per-playlist sync opt-out
   playlist_shows
@@ -20,6 +24,7 @@ Schema:
     show_title               TEXT     — cached for UI when the backend is unreachable
     show_thumb               TEXT     — cached thumb reference
     position                 INTEGER  — user-defined order in the rotation
+    weight                   INTEGER  — per-show weight for rotation_weighted (default 1)
     start_season             INTEGER  — lowest season to include (default 1)
     end_season               INTEGER  — highest season to include (NULL = no cap)
     include_specials         INTEGER  — 0/1: include Season 0 in the rotation
@@ -41,6 +46,8 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator
+
+from rotation import VALID_SORT_MODES
 
 DB_PATH = os.environ.get("DB_PATH", "rotator.db")
 
@@ -83,6 +90,8 @@ def init_db() -> None:
                     CHECK(backend IN ('plex','jellyfin','both')),
                 created_at           TEXT NOT NULL,
                 sort_mode            TEXT NOT NULL DEFAULT 'rotation',
+                block_size           INTEGER NOT NULL DEFAULT 1,
+                shuffle_seed         INTEGER,
                 unwatched_only       INTEGER NOT NULL DEFAULT 0,
                 auto_sync            INTEGER NOT NULL DEFAULT 1
             );
@@ -95,6 +104,7 @@ def init_db() -> None:
                 show_title               TEXT    NOT NULL,
                 show_thumb               TEXT,
                 position                 INTEGER NOT NULL,
+                weight                   INTEGER NOT NULL DEFAULT 1,
                 start_season             INTEGER NOT NULL DEFAULT 1,
                 end_season               INTEGER,
                 include_specials         INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +148,9 @@ def init_db() -> None:
         # v1.2.0 — per-episode exclusions
         if "excluded_episode_keys" not in cols:
             conn.execute("ALTER TABLE playlist_shows ADD COLUMN excluded_episode_keys TEXT NOT NULL DEFAULT ''")
+        # v1.3.0 — weighted rotation
+        if "weight" not in cols:
+            conn.execute("ALTER TABLE playlist_shows ADD COLUMN weight INTEGER NOT NULL DEFAULT 1")
 
         pl_cols = _columns(conn, "managed_playlists")
         if "sort_mode" not in pl_cols:
@@ -154,6 +167,15 @@ def init_db() -> None:
             # validate writes. Existing rows default to 'plex' as intended.
             conn.execute(
                 "ALTER TABLE managed_playlists ADD COLUMN backend TEXT NOT NULL DEFAULT 'plex'"
+            )
+        # v1.3.0 — block scheduling + shuffle
+        if "block_size" not in pl_cols:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN block_size INTEGER NOT NULL DEFAULT 1"
+            )
+        if "shuffle_seed" not in pl_cols:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN shuffle_seed INTEGER"
             )
 
 
@@ -184,12 +206,37 @@ def create_playlist(
 
 
 def set_sort_mode(playlist_id: int, sort_mode: str) -> None:
-    if sort_mode not in ("rotation", "air_date"):
+    if sort_mode not in VALID_SORT_MODES:
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
     with connection() as conn:
         conn.execute(
             "UPDATE managed_playlists SET sort_mode = ? WHERE id = ?",
             (sort_mode, playlist_id),
+        )
+
+
+def set_block_size(playlist_id: int, block_size: int) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET block_size = ? WHERE id = ?",
+            (max(1, int(block_size)), playlist_id),
+        )
+
+
+def set_shuffle_seed(playlist_id: int, seed: int | None) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET shuffle_seed = ? WHERE id = ?",
+            (seed, playlist_id),
+        )
+
+
+def set_show_weight(playlist_id: int, show_rating_key: str, weight: int) -> None:
+    with connection() as conn:
+        conn.execute(
+            """UPDATE playlist_shows SET weight = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (max(1, int(weight)), playlist_id, show_rating_key),
         )
 
 
@@ -375,14 +422,15 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
                 excl_str = excl_raw
             else:
                 excl_str = ",".join(f"{int(s):d}:{int(e):d}" for s, e in sorted(excl_raw))
+            weight_val = max(1, int(cfg.get("weight", 1) or 1))
             conn.execute(
                 """INSERT OR IGNORE INTO playlist_shows
                    (playlist_id, show_rating_key, plex_show_item_id, jellyfin_show_item_id,
-                    show_title, show_thumb, position,
+                    show_title, show_thumb, position, weight,
                     start_season, end_season, include_specials,
                     include_movies, movie_rating_keys, jellyfin_movie_item_ids,
                     excluded_episode_keys)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     playlist_id,
                     cfg["rating_key"],
@@ -391,6 +439,7 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
                     cfg["title"],
                     cfg.get("thumb"),
                     next_pos,
+                    weight_val,
                     int(cfg.get("start_season", 1)),
                     cfg.get("end_season"),
                     1 if cfg.get("include_specials") else 0,

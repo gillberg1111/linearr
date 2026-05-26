@@ -29,6 +29,7 @@ from media_client import (  # noqa: E402
     normalize_title,
     titles_match,
 )
+from rotation import VALID_SORT_MODES  # noqa: E402
 from service import ShowConfig  # noqa: E402
 
 logging.basicConfig(
@@ -169,6 +170,10 @@ def _parse_configs_from_form(
                 thumb = rec.get("thumb")
 
         excluded = _parse_excluded_form_value(form.get(f"exclude_{rk}", ""))
+        try:
+            weight_i = max(1, int(form.get(f"weight_{rk}", "1") or "1"))
+        except ValueError:
+            weight_i = 1
         configs.append(
             ShowConfig(
                 rating_key=rk,
@@ -183,6 +188,7 @@ def _parse_configs_from_form(
                 jellyfin_rating_key=jf_id,
                 jellyfin_movie_rating_keys=[k for k in selected_jf_movies if k],
                 excluded_episodes=excluded,
+                weight=weight_i,
             )
         )
     return configs
@@ -338,16 +344,25 @@ def create_app() -> Flask:
             sort_mode = view.sort_mode
             unwatched_only = view.unwatched_only
             preview_backend = "jellyfin" if view.backend == "jellyfin" else "plex"
+            block_size = view.block_size
+            shuffle_seed = view.shuffle_seed
             existing_rows = db.list_shows(playlist_id)
             existing_configs = [service._config_from_row(r) for r in existing_rows]
             all_configs = existing_configs + configs
         else:
             sort_mode = request.form.get("sort_mode", "rotation")
-            if sort_mode not in ("rotation", "air_date"):
+            if sort_mode not in VALID_SORT_MODES:
                 sort_mode = "rotation"
             unwatched_only = bool(request.form.get("unwatched_only"))
             target_backend = request.form.get("backend") or available_backends()[0]
             preview_backend = "jellyfin" if target_backend == "jellyfin" else "plex"
+            try:
+                block_size = max(1, int(request.form.get("block_size", "1") or "1"))
+            except ValueError:
+                block_size = 1
+            # Preview uses a stable seed during a single editing session so
+            # the user doesn't see a fresh random order on every keystroke.
+            shuffle_seed = 12345 if sort_mode == "shuffle_chronological" else None
             all_configs = configs
 
         try:
@@ -357,6 +372,8 @@ def create_app() -> Flask:
                 sort_mode=sort_mode,
                 unwatched_only=unwatched_only,
                 backend=preview_backend,
+                block_size=block_size,
+                shuffle_seed=shuffle_seed,
             )
         except Exception:
             log.exception("api_preview failed")
@@ -411,8 +428,12 @@ def create_app() -> Flask:
 
         action = request.form.get("action", "preview")
         sort_mode = request.form.get("sort_mode", "rotation")
-        if sort_mode not in ("rotation", "air_date"):
+        if sort_mode not in VALID_SORT_MODES:
             sort_mode = "rotation"
+        try:
+            block_size = max(1, int(request.form.get("block_size", "1") or "1"))
+        except ValueError:
+            block_size = 1
         unwatched_only = bool(request.form.get("unwatched_only"))
         auto_sync = bool(request.form.get("auto_sync")) if "shows" in request.form else True
 
@@ -435,6 +456,7 @@ def create_app() -> Flask:
                     unwatched_only=unwatched_only,
                     auto_sync=auto_sync,
                     backend=backend_choice,
+                    block_size=block_size,
                 )
             except Exception as e:
                 log.exception("create failed")
@@ -450,6 +472,7 @@ def create_app() -> Flask:
                     preview=[],
                     name=name,
                     sort_mode=sort_mode,
+                    block_size=block_size,
                     unwatched_only=unwatched_only,
                     auto_sync=auto_sync,
                     backend=backend_choice,
@@ -462,7 +485,8 @@ def create_app() -> Flask:
         try:
             preview = service.preview_playlist(
                 configs, limit=2000, sort_mode=sort_mode, unwatched_only=unwatched_only,
-                backend=primary_backend,
+                backend=primary_backend, block_size=block_size,
+                shuffle_seed=12345 if sort_mode == "shuffle_chronological" else None,
             )
         except Exception:
             log.exception("preview failed")
@@ -478,6 +502,7 @@ def create_app() -> Flask:
             preview=preview,
             name=name,
             sort_mode=sort_mode,
+            block_size=block_size,
             unwatched_only=unwatched_only,
             auto_sync=auto_sync,
             backend=backend_choice,
@@ -586,6 +611,7 @@ def create_app() -> Flask:
             name=view.name,
             playlist_id=playlist_id,
             sort_mode=view.sort_mode,
+            block_size=view.block_size,
             unwatched_only=view.unwatched_only,
             auto_sync=view.auto_sync,
             backend=view.backend,
@@ -607,10 +633,18 @@ def create_app() -> Flask:
         flash("Show removed.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
+    _MODE_LABELS = {
+        "rotation": "Rotation",
+        "rotation_weighted": "Weighted Rotation",
+        "rotation_blocks": "Block Scheduling",
+        "air_date": "Air Date",
+        "shuffle_chronological": "Shuffle",
+    }
+
     @app.route("/playlist/<int:playlist_id>/sort_mode", methods=["POST"])
     def change_sort_mode(playlist_id: int):
         mode = (request.form.get("sort_mode") or "").strip()
-        if mode not in ("rotation", "air_date"):
+        if mode not in VALID_SORT_MODES:
             abort(400)
         try:
             service.set_playlist_sort_mode(playlist_id, mode)
@@ -618,7 +652,51 @@ def create_app() -> Flask:
             log.exception("sort_mode change failed")
             flash(f"Failed to change sort: {e}", "error")
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Sort mode set to {'Air Date' if mode == 'air_date' else 'Rotation'}.", "ok")
+        flash(f"Sort mode set to {_MODE_LABELS.get(mode, mode)}.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/block_size", methods=["POST"])
+    def change_block_size(playlist_id: int):
+        try:
+            size = max(1, int(request.form.get("block_size", "1")))
+        except ValueError:
+            abort(400)
+        try:
+            service.set_playlist_block_size(playlist_id, size)
+        except Exception as e:
+            log.exception("block_size change failed")
+            flash(f"Failed to set block size: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash(f"Block size set to {size}.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/reshuffle", methods=["POST"])
+    def reshuffle(playlist_id: int):
+        try:
+            service.reshuffle_playlist(playlist_id)
+        except Exception as e:
+            log.exception("reshuffle failed")
+            flash(f"Reshuffle failed: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash("Playlist reshuffled.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/weight", methods=["POST"])
+    def change_weight(playlist_id: int):
+        show = (request.form.get("show") or "").strip()
+        if not show:
+            abort(400)
+        try:
+            weight = max(1, int(request.form.get("weight", "1")))
+        except ValueError:
+            abort(400)
+        try:
+            service.set_show_weight(playlist_id, show, weight)
+        except Exception as e:
+            log.exception("weight change failed")
+            flash(f"Failed to update weight: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash(f"Weight updated to {weight}.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
     @app.route("/playlist/<int:playlist_id>/auto_sync", methods=["POST"])

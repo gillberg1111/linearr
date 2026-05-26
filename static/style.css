@@ -825,6 +825,52 @@ a { color: var(--accent); }
    three pills share width gracefully on narrow screens. */
 .pill-toggle.pill-toggle-3 .pill { padding-left: 0.7rem; padding-right: 0.7rem; }
 
+/* Five-pill picker (v1.3.0 — sort modes). Allow wrapping on narrow viewports. */
+.pill-toggle.pill-toggle-5 {
+  flex-wrap: wrap;
+}
+.pill-toggle.pill-toggle-5 .pill {
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+  font-size: 0.9rem;
+}
+
+/* Numeric input (v1.3.0 — block size, weights). */
+.number-input {
+  width: 5rem;
+  padding: 0.35rem 0.55rem;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.95rem;
+  text-align: center;
+}
+.number-input:focus { border-color: var(--accent); outline: none; }
+.number-input-sm { width: 3.6rem; padding: 0.25rem 0.4rem; font-size: 0.85rem; }
+
+/* Per-show weight control inside the configure card. */
+.weight-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.weight-label {
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+  font-weight: 500;
+}
+
+/* Inline weight form on the playlist detail's rotation list. */
+.weight-inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.6rem;
+}
+
 /* Backend badge — appears on playlist cards, header titles, and per-show
    "not on X" annotations. Three colour variants. */
 .backend-badge {
