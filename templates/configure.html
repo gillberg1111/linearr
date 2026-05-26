@@ -288,6 +288,25 @@
               </div>
             </div>
           {% endif %}
+
+          {# Per-episode exclusions (v1.2.0). Lazy-loaded on expand to keep
+             the configure page snappy for shows with hundreds of episodes. #}
+          <details class="exclude-section"
+                   data-show="{{ rk }}"
+                   data-backend="{{ (m.source_backend if m else 'plex') }}">
+            <summary class="exclude-summary">
+              <span class="exclude-summary-label">Exclude individual episodes</span>
+              <span class="hint exclude-summary-count">
+                {% if c.excluded_episodes %}{{ c.excluded_episodes|length }} excluded{% else %}None excluded{% endif %}
+              </span>
+            </summary>
+            <input type="hidden" name="exclude_{{ rk }}" value="{{ c.excluded_csv }}" class="exclude-state">
+            <div class="exclude-content"
+                 data-loaded="0"
+                 data-initial="{{ c.excluded_csv }}">
+              <p class="hint exclude-placeholder">Loading episode list…</p>
+            </div>
+          </details>
         </article>
       {% endfor %}
     </div>
@@ -493,6 +512,145 @@
           scheduleUpdate();
         }));
         updateAllLabel();
+      });
+    })();
+
+    // ---------- Per-episode exclusion picker (v1.2.0) ----------
+    // Lazy-loaded on <details> expand. State lives in a per-show Set; the
+    // hidden input is the source of truth on form submit.
+    (() => {
+      const sections = document.querySelectorAll('.exclude-section');
+      if (!sections.length) return;
+
+      function parseInitial(csv) {
+        const out = new Set();
+        (csv || '').split(',').forEach((tok) => {
+          const t = tok.trim();
+          if (!t) return;
+          const [s, e] = t.split(':');
+          if (s !== undefined && e !== undefined) out.add(`${s}:${e}`);
+        });
+        return out;
+      }
+
+      function setSummary(section, count) {
+        const span = section.querySelector('.exclude-summary-count');
+        if (!span) return;
+        span.textContent = count === 0 ? 'None excluded' : `${count} excluded`;
+      }
+
+      function persist(section, excluded) {
+        const hidden = section.querySelector('.exclude-state');
+        hidden.value = Array.from(excluded).sort().join(',');
+        setSummary(section, excluded.size);
+        scheduleUpdate();
+      }
+
+      async function loadAndRender(section) {
+        const content = section.querySelector('.exclude-content');
+        if (content.dataset.loaded === '1') return;
+        const rk = section.dataset.show;
+        const backend = section.dataset.backend || 'plex';
+        const excluded = parseInitial(content.dataset.initial);
+
+        try {
+          const resp = await fetch(`/api/episodes/${encodeURIComponent(rk)}?b=${backend}`);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const episodes = await resp.json();
+
+          // Group by season number, preserving order.
+          const bySeason = new Map();
+          episodes.forEach((ep) => {
+            if (!bySeason.has(ep.season)) bySeason.set(ep.season, []);
+            bySeason.get(ep.season).push(ep);
+          });
+
+          const wrap = document.createElement('div');
+          wrap.className = 'exclude-list';
+
+          // Header with bulk action.
+          const head = document.createElement('div');
+          head.className = 'exclude-list-head';
+          const bulk = document.createElement('button');
+          bulk.type = 'button';
+          bulk.className = 'btn btn-sm';
+          bulk.textContent = 'Clear exclusions';
+          bulk.addEventListener('click', () => {
+            excluded.clear();
+            wrap.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = true; });
+            persist(section, excluded);
+          });
+          head.appendChild(bulk);
+          const hint = document.createElement('span');
+          hint.className = 'hint';
+          hint.textContent = 'Uncheck an episode to exclude it from this playlist.';
+          head.appendChild(hint);
+          wrap.appendChild(head);
+
+          // One <details> per season so heavy shows stay scannable.
+          const sortedSeasons = Array.from(bySeason.keys()).sort((a, b) => a - b);
+          sortedSeasons.forEach((seasonNum) => {
+            const seasonEps = bySeason.get(seasonNum);
+            const det = document.createElement('details');
+            det.className = 'exclude-season';
+            if (seasonNum === sortedSeasons[0]) det.open = true;
+            const sum = document.createElement('summary');
+            const label = seasonNum === 0 ? 'Specials' : `Season ${seasonNum}`;
+            const excludedInSeason = () =>
+              seasonEps.filter((e) => excluded.has(`${e.season}:${e.episode}`)).length;
+            sum.innerHTML = `<strong>${label}</strong> <span class="hint">(${seasonEps.length} episode${seasonEps.length === 1 ? '' : 's'}<span class="exclude-season-count"></span>)</span>`;
+            det.appendChild(sum);
+
+            const refreshSeasonCount = () => {
+              const span = sum.querySelector('.exclude-season-count');
+              const n = excludedInSeason();
+              span.textContent = n > 0 ? `, ${n} excluded` : '';
+            };
+
+            const grid = document.createElement('div');
+            grid.className = 'exclude-episode-grid';
+            seasonEps.forEach((ep) => {
+              const key = `${ep.season}:${ep.episode}`;
+              const lab = document.createElement('label');
+              lab.className = 'exclude-episode';
+              const cb = document.createElement('input');
+              cb.type = 'checkbox';
+              cb.checked = !excluded.has(key);
+              cb.addEventListener('change', () => {
+                if (cb.checked) excluded.delete(key);
+                else excluded.add(key);
+                refreshSeasonCount();
+                persist(section, excluded);
+              });
+              lab.appendChild(cb);
+              const meta = document.createElement('span');
+              meta.className = 'exclude-episode-meta';
+              const code = ep.season === 0
+                ? `Special ${ep.episode}`
+                : `S${String(ep.season).padStart(2,'0')}E${String(ep.episode).padStart(2,'0')}`;
+              meta.innerHTML = `<span class="exclude-episode-code">${code}</span> <span class="exclude-episode-title">${(ep.title || '').replace(/[<>&]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+              lab.appendChild(meta);
+              grid.appendChild(lab);
+            });
+            det.appendChild(grid);
+            wrap.appendChild(det);
+            refreshSeasonCount();
+          });
+
+          content.innerHTML = '';
+          content.appendChild(wrap);
+          content.dataset.loaded = '1';
+          // Re-sync hidden input in case the initial parse normalized something.
+          persist(section, excluded);
+        } catch (e) {
+          content.innerHTML = '<p class="hint" style="color:var(--accent-warn)">Couldn\'t load episodes from the backend.</p>';
+        }
+      }
+
+      sections.forEach((section) => {
+        section.addEventListener('toggle', () => {
+          if (section.open) loadAndRender(section);
+        });
       });
     })();
 

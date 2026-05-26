@@ -552,6 +552,54 @@ def test_find_match_uses_titles_match():
 
 
 # --------------------------------------------------------------------------- #
+# v1.2.0 — per-episode exclusions (parse/serialize round-trips)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_excluded_episodes_basic():
+    from service import _parse_excluded_episodes
+    check("parse: empty -> empty set", _parse_excluded_episodes("") == set())
+    check("parse: None -> empty set", _parse_excluded_episodes(None) == set())
+    check("parse: single 'S:E'",
+          _parse_excluded_episodes("1:1") == {(1, 1)})
+    check("parse: multiple comma-separated",
+          _parse_excluded_episodes("1:1,3:14,5:6") == {(1, 1), (3, 14), (5, 6)})
+
+
+def test_parse_excluded_episodes_tolerant():
+    from service import _parse_excluded_episodes
+    check("parse: handles whitespace",
+          _parse_excluded_episodes(" 1:1 , 2:3 ") == {(1, 1), (2, 3)})
+    check("parse: handles trailing comma",
+          _parse_excluded_episodes("1:1,") == {(1, 1)})
+    check("parse: skips malformed tokens",
+          _parse_excluded_episodes("1:1,bogus,2:3") == {(1, 1), (2, 3)})
+
+
+def test_show_config_excluded_csv_roundtrip():
+    """ShowConfig.excluded_csv -> _parse_excluded_episodes round-trip."""
+    import service
+    cfg = service.ShowConfig(
+        rating_key="12345", title="Test",
+        excluded_episodes={(1, 1), (1, 2), (3, 14)},
+    )
+    csv = cfg.excluded_csv
+    # Sorted output keeps the CSV stable for diff/version control friendliness.
+    check("excluded_csv: sorted", csv == "1:1,1:2,3:14", f"got {csv!r}")
+    check("excluded_csv: round-trips through parser",
+          service._parse_excluded_episodes(csv) == cfg.excluded_episodes)
+
+
+def test_show_config_excluded_default_empty():
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test")
+    check("ShowConfig: excluded_episodes defaults to empty set",
+          cfg.excluded_episodes == set())
+    check("ShowConfig: excluded_csv on empty is ''",
+          cfg.excluded_csv == "")
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 

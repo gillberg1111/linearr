@@ -62,6 +62,10 @@ class ShowConfig:
     plex_rating_key: str | None = None
     jellyfin_rating_key: str | None = None
     jellyfin_movie_rating_keys: list[str] = field(default_factory=list)
+    # v1.2.0 per-episode exclusions: set of (season, episode) pairs.
+    # Backend-agnostic — works on both Plex and Jellyfin since episodes use
+    # the same (season, episode) shape on both sides.
+    excluded_episodes: set[tuple[int, int]] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         # Legacy callers (Phase 1 / single-backend Plex) pass only rating_key
@@ -75,6 +79,11 @@ class ShowConfig:
 
     def movie_ids_for(self, backend: str) -> list[str]:
         return self.movie_rating_keys if backend == "plex" else self.jellyfin_movie_rating_keys
+
+    @property
+    def excluded_csv(self) -> str:
+        """Serialize excluded_episodes as 'S:E,S:E,...' for the configure form."""
+        return ",".join(f"{s}:{e}" for s, e in sorted(self.excluded_episodes))
 
 
 # --------------------------------------------------------------------------- #
@@ -161,6 +170,11 @@ def _episodes_for_config(
     if unwatched_only:
         eps = [e for e in eps if e.view_count == 0]
 
+    # v1.2.0: drop any explicitly-excluded (season, episode) pairs. Works
+    # uniformly across backends since EpisodeRef uses the same shape on both.
+    if cfg.excluded_episodes:
+        eps = [e for e in eps if (e.season, e.episode) not in cfg.excluded_episodes]
+
     if cfg.include_movies:
         movie_refs: list[EpisodeRef] = []
         for mrk in cfg.movie_ids_for(backend):
@@ -185,6 +199,23 @@ def _episodes_for_config(
 # --------------------------------------------------------------------------- #
 
 
+def _parse_excluded_episodes(raw: str | None) -> set[tuple[int, int]]:
+    """Parse a 'S:E,S:E,...' string into a set of (season, episode) tuples."""
+    out: set[tuple[int, int]] = set()
+    if not raw:
+        return out
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            s_str, e_str = token.split(":", 1)
+            out.add((int(s_str), int(e_str)))
+        except (ValueError, AttributeError):
+            log.warning("Skipping malformed excluded_episode entry: %r", token)
+    return out
+
+
 def _config_from_row(row) -> ShowConfig:
     raw_plex_keys = row["movie_rating_keys"] if "movie_rating_keys" in row.keys() else ""
     plex_movies = [k for k in (raw_plex_keys or "").split(",") if k]
@@ -195,6 +226,7 @@ def _config_from_row(row) -> ShowConfig:
     # Legacy rows pre-migration don't have plex_show_item_id; fall back to the PK.
     if plex_id is None and str(row["show_rating_key"]).isdigit():
         plex_id = str(row["show_rating_key"])
+    excluded_raw = row["excluded_episode_keys"] if "excluded_episode_keys" in row.keys() else ""
     return ShowConfig(
         rating_key=row["show_rating_key"],
         title=row["show_title"],
@@ -207,6 +239,7 @@ def _config_from_row(row) -> ShowConfig:
         plex_rating_key=plex_id,
         jellyfin_rating_key=jf_id,
         jellyfin_movie_rating_keys=jf_movies,
+        excluded_episodes=_parse_excluded_episodes(excluded_raw),
     )
 
 
@@ -323,6 +356,37 @@ def _rebuild_tail_on(
         client.add_items_to_playlist(playlist_id_on_backend, to_add)
 
     return (len(to_add), len(to_remove))
+
+
+def _rebuild_playlist_tails(
+    row,
+    full_configs: list[ShowConfig],
+    *,
+    sort_mode: str | None = None,
+    unwatched_only: bool | None = None,
+    op_label: str = "tail rebuild",
+) -> tuple[int, int]:
+    """Iterate every enabled backend for a playlist and rebuild its tail.
+
+    Defaults `sort_mode` and `unwatched_only` from the row; callers that have
+    JUST written a new value to the DB (but haven't refetched the row) pass
+    the new value via the corresponding kwarg.
+    Returns (total_added, total_removed) across backends. Individual backend
+    failures are logged but don't block the other backend.
+    """
+    sm = sort_mode if sort_mode is not None else row["sort_mode"]
+    uw = unwatched_only if unwatched_only is not None else bool(row["unwatched_only"])
+    total_added = total_removed = 0
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sm, uw)
+            total_added += added
+            total_removed += removed
+        except Exception:
+            log.exception("%s failed on %s for '%s'", op_label, tb, row["name"])
+    return (total_added, total_removed)
 
 
 # --------------------------------------------------------------------------- #
@@ -470,6 +534,7 @@ def _config_to_db_dict(c: ShowConfig) -> dict:
         "include_movies": c.include_movies,
         "movie_rating_keys": c.movie_rating_keys,
         "jellyfin_movie_item_ids": c.jellyfin_movie_rating_keys,
+        "excluded_episodes": c.excluded_episodes,
     }
 
 
@@ -497,19 +562,9 @@ def add_shows_to_playlist(playlist_id: int, new_configs: list[ShowConfig]) -> No
 
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
 
-    # Rebuild the tail on each enabled backend independently.
     full_configs: list[ShowConfig] = [_config_from_row(r) for r in db.list_shows(playlist_id)]
-    uw = bool(row["unwatched_only"])
-    sort_mode = row["sort_mode"]
-    for tb, client, pl_id in _clients_for_playlist(row):
-        if not pl_id:
-            log.info("Skipping %s tail rebuild for '%s': no playlist id on that backend", tb, row["name"])
-            continue
-        try:
-            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
-            log.info("Added shows to '%s' on %s: +%d -%d tail items", row["name"], tb, added, removed)
-        except Exception:
-            log.exception("add_shows tail rebuild failed on %s for '%s'", tb, row["name"])
+    added, removed = _rebuild_playlist_tails(row, full_configs, op_label="add_shows tail rebuild")
+    log.info("Added shows to '%s': +%d -%d tail items", row["name"], added, removed)
 
 
 # --------------------------------------------------------------------------- #
@@ -565,15 +620,7 @@ def reorder_shows(playlist_id: int, ordered_keys: list[str]) -> None:
     db.set_positions(playlist_id, ordered_keys)
 
     full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
-    uw = bool(row["unwatched_only"])
-    sort_mode = row["sort_mode"]
-    for tb, client, pl_id in _clients_for_playlist(row):
-        if not pl_id:
-            continue
-        try:
-            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
-        except Exception:
-            log.exception("reorder failed on %s for '%s'", tb, row["name"])
+    _rebuild_playlist_tails(row, full_configs, op_label="reorder")
     log.info("Reordered '%s'", row["name"])
 
 
@@ -594,14 +641,9 @@ def set_playlist_sort_mode(playlist_id: int, sort_mode: str) -> None:
     db.set_sort_mode(playlist_id, sort_mode)
 
     full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
-    uw = bool(row["unwatched_only"])
-    for tb, client, pl_id in _clients_for_playlist(row):
-        if not pl_id:
-            continue
-        try:
-            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
-        except Exception:
-            log.exception("sort_mode change failed on %s for '%s'", tb, row["name"])
+    _rebuild_playlist_tails(
+        row, full_configs, sort_mode=sort_mode, op_label="sort_mode change"
+    )
     log.info("Switched '%s' to sort_mode=%s", row["name"], sort_mode)
 
 
@@ -620,14 +662,9 @@ def set_playlist_unwatched_only(playlist_id: int, unwatched_only: bool) -> None:
     db.set_unwatched_only(playlist_id, unwatched_only)
 
     full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
-    sort_mode = row["sort_mode"]
-    for tb, client, pl_id in _clients_for_playlist(row):
-        if not pl_id:
-            continue
-        try:
-            _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, unwatched_only)
-        except Exception:
-            log.exception("unwatched-toggle failed on %s for '%s'", tb, row["name"])
+    _rebuild_playlist_tails(
+        row, full_configs, unwatched_only=unwatched_only, op_label="unwatched-toggle"
+    )
     log.info("Switched '%s' unwatched_only=%s", row["name"], unwatched_only)
 
 
@@ -683,15 +720,18 @@ def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> 
                      cfg.title, playlist_id, matched)
 
 
-def sync_playlist(playlist_id: int) -> tuple[int, int]:
+def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
     """Re-evaluate canonical episode lists against current backend metadata
     on every enabled backend. Returns (added, removed) — totals across
     backends.
+
+    `force=True` overrides the per-playlist auto_sync opt-out. Use it for
+    user-initiated "Sync Now" actions; the scheduler always uses force=False.
     """
     row = db.get_playlist(playlist_id)
     if not row:
         return (0, 0)
-    if not bool(row["auto_sync"]):
+    if not force and not bool(row["auto_sync"]):
         return (0, 0)
 
     show_rows = db.list_shows(playlist_id)
@@ -701,22 +741,10 @@ def sync_playlist(playlist_id: int) -> tuple[int, int]:
     full_configs = [_config_from_row(r) for r in show_rows]
     _heal_missing_ids(playlist_id, row, full_configs)
 
-    total_added = 0
-    total_removed = 0
-    uw = bool(row["unwatched_only"])
-    sort_mode = row["sort_mode"]
-    for tb, client, pl_id in _clients_for_playlist(row):
-        if not pl_id:
-            continue
-        try:
-            added, removed = _rebuild_tail_on(tb, client, pl_id, full_configs, sort_mode, uw)
-            if added or removed:
-                log.info("Synced '%s' on %s: +%d, -%d", row["name"], tb, added, removed)
-            total_added += added
-            total_removed += removed
-        except Exception:
-            log.exception("sync failed on %s for '%s'", tb, row["name"])
-    return (total_added, total_removed)
+    added, removed = _rebuild_playlist_tails(row, full_configs, op_label="sync")
+    if added or removed:
+        log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
+    return (added, removed)
 
 
 def sync_all() -> None:

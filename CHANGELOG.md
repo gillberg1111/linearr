@@ -5,6 +5,52 @@ All notable changes to Linearr. Format loosely follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-26
+
+Quick-wins release based on a code review. No backend semantics change; new
+features are additive and opt-in.
+
+### Added
+
+- **Manual "Sync Now" button** on the playlist detail page. Hits a new
+  `POST /playlist/<id>/sync` route that calls `service.sync_playlist(id,
+  force=True)`, bypassing the per-playlist `auto_sync` opt-out so a manual
+  click always works. Flash reports `(added, removed)` counts.
+- **Per-episode exclusions.** Each show's configure card now has an
+  *Exclude individual episodes* expander. Lazy-loaded on open via a new
+  `GET /api/episodes/<rk>?b=<backend>` endpoint, grouped by season into
+  collapsible sections. Uncheck an episode to skip it everywhere this show
+  appears in this playlist. Excluded set is filtered out of
+  `_episodes_for_config()` before rotation/air-date composition, so it
+  applies uniformly across both backends.
+- **`service.sync_playlist(playlist_id, force=False)`** signature gained
+  the optional `force` kwarg. Scheduler always uses `force=False`;
+  user-initiated Sync Now uses `force=True`.
+
+### Changed
+
+- **`_rebuild_playlist_tails` helper** consolidates the 5 near-identical
+  per-backend loops in `service.py` (`add_shows_to_playlist`,
+  `reorder_shows`, `set_playlist_sort_mode`, `set_playlist_unwatched_only`,
+  `sync_playlist`). Pure refactor — zero behavior change. `sort_mode` and
+  `unwatched_only` can be passed as kwargs by callers that have just
+  written a new value to the DB but haven't refetched the row.
+
+### Database (additive only)
+
+- `playlist_shows.excluded_episode_keys TEXT NOT NULL DEFAULT ''` — CSV of
+  `S:E` pairs (e.g. `"1:1,3:14"`). New helper `db.set_excluded_episodes()`.
+
+### Tests
+
+- 87 → 98 passing. New: CSV parse/serialize round-trips, malformed-input
+  tolerance, default-empty behavior, sorted output stability.
+
+### Files touched
+
+`service.py` · `db.py` · `app.py` · `templates/playlist.html` ·
+`templates/configure.html` · `static/style.css` · `tests.py`.
+
 ## [1.1.0] - 2026-05-24
 
 **Linearr is now for Plex *and* Jellyfin.** Each managed playlist can target

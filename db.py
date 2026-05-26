@@ -26,6 +26,7 @@ Schema:
     include_movies           INTEGER  — 0/1
     movie_rating_keys        TEXT     — comma-separated Plex movie ratingKeys
     jellyfin_movie_item_ids  TEXT     — comma-separated Jellyfin movie Ids (parallel to movie_rating_keys)
+    excluded_episode_keys    TEXT     — comma-separated "S:E" pairs to skip (e.g. "1:1,3:14")
     PRIMARY KEY (playlist_id, show_rating_key)
 
 The Plex columns and the Jellyfin columns are each nullable — a playlist with
@@ -100,6 +101,7 @@ def init_db() -> None:
                 include_movies           INTEGER NOT NULL DEFAULT 0,
                 movie_rating_keys        TEXT    NOT NULL DEFAULT '',
                 jellyfin_movie_item_ids  TEXT    NOT NULL DEFAULT '',
+                excluded_episode_keys    TEXT    NOT NULL DEFAULT '',
                 PRIMARY KEY (playlist_id, show_rating_key),
                 FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
             );
@@ -133,6 +135,9 @@ def init_db() -> None:
             conn.execute("ALTER TABLE playlist_shows ADD COLUMN jellyfin_show_item_id TEXT")
         if "jellyfin_movie_item_ids" not in cols:
             conn.execute("ALTER TABLE playlist_shows ADD COLUMN jellyfin_movie_item_ids TEXT NOT NULL DEFAULT ''")
+        # v1.2.0 — per-episode exclusions
+        if "excluded_episode_keys" not in cols:
+            conn.execute("ALTER TABLE playlist_shows ADD COLUMN excluded_episode_keys TEXT NOT NULL DEFAULT ''")
 
         pl_cols = _columns(conn, "managed_playlists")
         if "sort_mode" not in pl_cols:
@@ -259,6 +264,24 @@ def set_jellyfin_show_item_id(
         )
 
 
+def set_excluded_episodes(
+    playlist_id: int,
+    show_rating_key: str,
+    excluded_episodes: set[tuple[int, int]] | list[tuple[int, int]] | str,
+) -> None:
+    """Persist the set of (season, episode) pairs to skip for one show."""
+    if isinstance(excluded_episodes, str):
+        s = excluded_episodes
+    else:
+        s = ",".join(f"{int(se):d}:{int(ep):d}" for se, ep in sorted(excluded_episodes))
+    with connection() as conn:
+        conn.execute(
+            """UPDATE playlist_shows SET excluded_episode_keys = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (s, playlist_id, show_rating_key),
+        )
+
+
 def set_jellyfin_movie_item_ids(
     playlist_id: int, show_rating_key: str, jellyfin_movie_item_ids: list[str] | str
 ) -> None:
@@ -346,13 +369,20 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
             plex_show_id = cfg.get("plex_show_item_id")
             if plex_show_id is None and str(cfg["rating_key"]).isdigit():
                 plex_show_id = str(cfg["rating_key"])
+            # Serialize excluded-episode set into "S:E,S:E,..." form.
+            excl_raw = cfg.get("excluded_episodes") or cfg.get("excluded_episode_keys") or ""
+            if isinstance(excl_raw, str):
+                excl_str = excl_raw
+            else:
+                excl_str = ",".join(f"{int(s):d}:{int(e):d}" for s, e in sorted(excl_raw))
             conn.execute(
                 """INSERT OR IGNORE INTO playlist_shows
                    (playlist_id, show_rating_key, plex_show_item_id, jellyfin_show_item_id,
                     show_title, show_thumb, position,
                     start_season, end_season, include_specials,
-                    include_movies, movie_rating_keys, jellyfin_movie_item_ids)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    include_movies, movie_rating_keys, jellyfin_movie_item_ids,
+                    excluded_episode_keys)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     playlist_id,
                     cfg["rating_key"],
@@ -367,6 +397,7 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
                     1 if cfg.get("include_movies") else 0,
                     movie_keys_str,
                     jf_movie_keys_str,
+                    excl_str,
                 ),
             )
             next_pos += 1

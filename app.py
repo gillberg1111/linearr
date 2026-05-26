@@ -11,6 +11,7 @@ from flask import (
     Response,
     abort,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -107,6 +108,21 @@ def _lookup_show_record(aggregated: list[dict], rating_key: str) -> dict | None:
 # --------------------------------------------------------------------------- #
 
 
+def _parse_excluded_form_value(raw: str) -> set[tuple[int, int]]:
+    """Parse the hidden `exclude_<rk>` form field ('S:E,S:E,...') into a set."""
+    out: set[tuple[int, int]] = set()
+    for token in (raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            s_str, e_str = token.split(":", 1)
+            out.add((int(s_str), int(e_str)))
+        except ValueError:
+            continue
+    return out
+
+
 def _parse_configs_from_form(
     form,
     show_keys: list[str],
@@ -152,6 +168,7 @@ def _parse_configs_from_form(
                 title = rec.get("title") or ""
                 thumb = rec.get("thumb")
 
+        excluded = _parse_excluded_form_value(form.get(f"exclude_{rk}", ""))
         configs.append(
             ShowConfig(
                 rating_key=rk,
@@ -165,6 +182,7 @@ def _parse_configs_from_form(
                 plex_rating_key=plex_id,
                 jellyfin_rating_key=jf_id,
                 jellyfin_movie_rating_keys=[k for k in selected_jf_movies if k],
+                excluded_episodes=excluded,
             )
         )
     return configs
@@ -280,6 +298,27 @@ def create_app() -> Flask:
         resp = Response(data, mimetype=ctype)
         resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
+
+    # ------------------------------------------------------------------ #
+    # Episodes list (JSON) — used by the per-episode exclusion picker
+    # ------------------------------------------------------------------ #
+    @app.route("/api/episodes/<rk>")
+    def api_episodes(rk: str):
+        backend = request.args.get("b") or (available_backends() or ["plex"])[0]
+        if backend not in available_backends():
+            abort(400)
+        try:
+            eps = get_client(backend).episodes_for_show(
+                rk, start_season=1, end_season=None, include_specials=True
+            )
+        except Exception:
+            log.exception("api_episodes failed for %s on %s", rk, backend)
+            abort(502)
+        return jsonify([
+            {"season": e.season, "episode": e.episode, "title": e.title,
+             "air_date": e.air_date}
+            for e in eps
+        ])
 
     # ------------------------------------------------------------------ #
     # AJAX preview (returns rendered HTML partial)
@@ -630,6 +669,20 @@ def create_app() -> Flask:
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
         flash("Playlist deleted.", "ok")
         return redirect(url_for("index"))
+
+    @app.route("/playlist/<int:playlist_id>/sync", methods=["POST"])
+    def sync_now(playlist_id: int):
+        try:
+            added, removed = service.sync_playlist(playlist_id, force=True)
+        except Exception as e:
+            log.exception("manual sync failed")
+            flash(f"Sync failed: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        if added == 0 and removed == 0:
+            flash("Already up to date.", "ok")
+        else:
+            flash(f"Synced: +{added} added, -{removed} removed.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
     @app.route("/playlist/<int:playlist_id>/prune", methods=["POST"])
     def prune_now(playlist_id: int):

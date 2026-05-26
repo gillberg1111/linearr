@@ -232,12 +232,16 @@
   <section class="maintenance">
     <h2>Maintenance</h2>
     <div class="maintenance-row">
+      <form method="post" action="{{ url_for('sync_now', playlist_id=playlist.id) }}">
+        <button type="submit" class="btn btn-primary">Sync now</button>
+        <span class="hint">Re-checks every backend for new episodes / seasons and updates the playlist immediately (otherwise this runs on the background sweep).</span>
+      </form>
       <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
         <span class="hint">Keeps the most recent watched episodes (WATCHED_KEEP); removes older watched ones.</span>
       </form>
       <form method="post" action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}"
-            onsubmit="return confirm('Delete this rotating playlist (and its Plex playlist)?');">
+            onsubmit="return confirm('Delete this rotating playlist (and its server-side playlists)?');">
         <button type="submit" class="btn btn-danger">Delete playlist</button>
       </form>
     </div>
