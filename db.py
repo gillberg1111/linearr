@@ -9,6 +9,8 @@ Schema:
     plex_rating_key      TEXT     — ratingKey of the Plex playlist (nullable; NULL when backend=jellyfin)
     jellyfin_playlist_id TEXT     — Id of the Jellyfin playlist (nullable; NULL when backend=plex)
     backend              TEXT     — 'plex' | 'jellyfin' | 'both' (default 'plex' for legacy rows)
+    playlist_type        TEXT     — 'manual' | 'genre' (default 'manual')
+    genre_filter         TEXT     — CSV of genre names for genre playlists (nullable)
     created_at           TEXT
     sort_mode            TEXT     — see rotation.VALID_SORT_MODES
     block_size           INTEGER  — episodes per block in rotation_blocks (default 1)
@@ -32,6 +34,7 @@ Schema:
     movie_rating_keys        TEXT     — comma-separated Plex movie ratingKeys
     jellyfin_movie_item_ids  TEXT     — comma-separated Jellyfin movie Ids (parallel to movie_rating_keys)
     excluded_episode_keys    TEXT     — comma-separated "S:E" pairs to skip (e.g. "1:1,3:14")
+    is_excluded              INTEGER  — 0/1, soft-delete for genre playlists (default 0)
     PRIMARY KEY (playlist_id, show_rating_key)
 
 The Plex columns and the Jellyfin columns are each nullable — a playlist with
@@ -74,6 +77,7 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 VALID_BACKENDS = ("plex", "jellyfin", "both")
+VALID_PLAYLIST_TYPES = ("manual", "genre")
 
 
 def init_db() -> None:
@@ -88,6 +92,9 @@ def init_db() -> None:
                 jellyfin_playlist_id TEXT,
                 backend              TEXT NOT NULL DEFAULT 'plex'
                     CHECK(backend IN ('plex','jellyfin','both')),
+                playlist_type        TEXT NOT NULL DEFAULT 'manual'
+                    CHECK(playlist_type IN ('manual','genre')),
+                genre_filter         TEXT,
                 created_at           TEXT NOT NULL,
                 sort_mode            TEXT NOT NULL DEFAULT 'rotation',
                 block_size           INTEGER NOT NULL DEFAULT 1,
@@ -112,6 +119,7 @@ def init_db() -> None:
                 movie_rating_keys        TEXT    NOT NULL DEFAULT '',
                 jellyfin_movie_item_ids  TEXT    NOT NULL DEFAULT '',
                 excluded_episode_keys    TEXT    NOT NULL DEFAULT '',
+                is_excluded              INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (playlist_id, show_rating_key),
                 FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
             );
@@ -151,6 +159,9 @@ def init_db() -> None:
         # v1.3.0 — weighted rotation
         if "weight" not in cols:
             conn.execute("ALTER TABLE playlist_shows ADD COLUMN weight INTEGER NOT NULL DEFAULT 1")
+        # v1.4.0 — genre playlist soft-delete flag
+        if "is_excluded" not in cols:
+            conn.execute("ALTER TABLE playlist_shows ADD COLUMN is_excluded INTEGER NOT NULL DEFAULT 0")
 
         pl_cols = _columns(conn, "managed_playlists")
         if "sort_mode" not in pl_cols:
@@ -177,6 +188,13 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE managed_playlists ADD COLUMN shuffle_seed INTEGER"
             )
+        # v1.4.0 — genre playlists
+        if "playlist_type" not in pl_cols:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN playlist_type TEXT NOT NULL DEFAULT 'manual'"
+            )
+        if "genre_filter" not in pl_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN genre_filter TEXT")
 
 
 def create_playlist(
@@ -185,14 +203,19 @@ def create_playlist(
     unwatched_only: bool = False,
     auto_sync: bool = True,
     backend: str = "plex",
+    playlist_type: str = "manual",
+    genre_filter: str | None = None,
 ) -> int:
     if backend not in VALID_BACKENDS:
         raise ValueError(f"Invalid backend: {backend!r}. Must be one of {VALID_BACKENDS}")
+    if playlist_type not in VALID_PLAYLIST_TYPES:
+        raise ValueError(f"Invalid playlist_type: {playlist_type!r}. Must be one of {VALID_PLAYLIST_TYPES}")
     with connection() as conn:
         cur = conn.execute(
             """INSERT INTO managed_playlists
-               (name, created_at, sort_mode, unwatched_only, auto_sync, backend)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (name, created_at, sort_mode, unwatched_only, auto_sync, backend,
+                playlist_type, genre_filter)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name,
                 datetime.now(timezone.utc).isoformat(),
@@ -200,9 +223,30 @@ def create_playlist(
                 1 if unwatched_only else 0,
                 1 if auto_sync else 0,
                 backend,
+                playlist_type,
+                genre_filter,
             ),
         )
         return int(cur.lastrowid)
+
+
+def set_genre_filter(playlist_id: int, genre_filter: str | None) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET genre_filter = ? WHERE id = ?",
+            (genre_filter, playlist_id),
+        )
+
+
+def set_show_excluded(
+    playlist_id: int, show_rating_key: str, excluded: bool
+) -> None:
+    with connection() as conn:
+        conn.execute(
+            """UPDATE playlist_shows SET is_excluded = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (1 if excluded else 0, playlist_id, show_rating_key),
+        )
 
 
 def set_sort_mode(playlist_id: int, sort_mode: str) -> None:

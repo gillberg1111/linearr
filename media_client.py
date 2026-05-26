@@ -101,6 +101,12 @@ class MediaClient(ABC):
         """Every TV show across configured libraries, sorted by title."""
 
     @abstractmethod
+    def list_shows_by_genres(self, genres: list[str]) -> list[ShowSummary]:
+        """Shows whose genre metadata matches at least one of the given genres
+        (case-insensitive). Returns the union across libraries, deduplicated
+        by id, sorted by title. Empty `genres` list returns []."""
+
+    @abstractmethod
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         """A single show by id."""
 

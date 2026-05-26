@@ -871,6 +871,15 @@ a { color: var(--accent); }
   margin-right: 0.6rem;
 }
 
+/* v1.4.0 — excluded shows section on genre playlists. Dimmer styling to
+   distinguish from the active rotation. */
+.excluded-shows { margin-top: 2rem; opacity: 0.85; }
+.rotation-row.is-excluded {
+  background: rgba(255, 155, 77, 0.05);
+  border-color: rgba(255, 155, 77, 0.25);
+}
+.rotation-row.is-excluded .title { color: var(--fg-dim); }
+
 /* Backend badge — appears on playlist cards, header titles, and per-show
    "not on X" annotations. Three colour variants. */
 .backend-badge {

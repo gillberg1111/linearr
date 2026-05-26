@@ -681,6 +681,133 @@ def create_app() -> Flask:
         flash("Playlist reshuffled.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
+    # ------------------------------------------------------------------ #
+    # Genre playlist creation (v1.4.0)
+    # ------------------------------------------------------------------ #
+    @app.route("/new/genre", methods=["GET"])
+    def new_genre():
+        backends = available_backends()
+        if not backends:
+            flash("No backends configured. Set credentials in your .env first.", "error")
+            return redirect(url_for("index"))
+        return render_template(
+            "new_genre.html",
+            backends=backends,
+            default_backend=("both" if len(backends) > 1 else backends[0]),
+            matched_shows=None,
+            prev_name=request.args.get("name", ""),
+            prev_genres=request.args.get("genres", ""),
+            prev_sort_mode=request.args.get("sort_mode", "rotation"),
+        )
+
+    @app.route("/new/genre", methods=["POST"])
+    def new_genre_action():
+        backends = available_backends()
+        if not backends:
+            abort(400)
+        name = (request.form.get("name") or "").strip()
+        genres_raw = (request.form.get("genres") or "").strip()
+        genre_list = [g.strip() for g in genres_raw.split(",") if g.strip()]
+        backend_choice = request.form.get("backend") or (
+            "both" if len(backends) > 1 else backends[0]
+        )
+        if backend_choice not in ("plex", "jellyfin", "both"):
+            backend_choice = backends[0]
+        sort_mode = request.form.get("sort_mode", "rotation")
+        if sort_mode not in VALID_SORT_MODES:
+            sort_mode = "rotation"
+        try:
+            block_size = max(1, int(request.form.get("block_size", "1") or "1"))
+        except ValueError:
+            block_size = 1
+        unwatched_only = bool(request.form.get("unwatched_only"))
+        auto_sync = bool(request.form.get("auto_sync")) if request.method == "POST" else True
+
+        action = request.form.get("action", "preview")
+        target_backends = ["plex", "jellyfin"] if backend_choice == "both" else [backend_choice]
+
+        # On preview: resolve the genres to a candidate list to show the user.
+        matched_shows = None
+        if genre_list:
+            try:
+                configs = service._resolve_genre_shows(genre_list, target_backends)
+                matched_shows = [
+                    {
+                        "title": c.title,
+                        "rating_key": c.rating_key,
+                        "plex": bool(c.plex_rating_key),
+                        "jellyfin": bool(c.jellyfin_rating_key),
+                    }
+                    for c in configs
+                ]
+            except Exception as e:
+                log.exception("genre preview failed")
+                flash(f"Couldn't resolve genres: {e}", "error")
+
+        if action == "create":
+            if not name:
+                flash("Playlist name is required.", "error")
+            elif not genre_list:
+                flash("Enter at least one genre.", "error")
+            else:
+                try:
+                    pid = service.create_genre_playlist(
+                        name, genre_list,
+                        sort_mode=sort_mode,
+                        unwatched_only=unwatched_only,
+                        auto_sync=auto_sync,
+                        backend=backend_choice,
+                        block_size=block_size,
+                    )
+                except Exception as e:
+                    log.exception("genre create failed")
+                    flash(f"Failed to create genre playlist: {e}", "error")
+                else:
+                    flash(f"Created genre playlist '{name}' "
+                          f"({len(matched_shows or [])} shows matched).", "ok")
+                    return redirect(url_for("view_playlist", playlist_id=pid))
+
+        return render_template(
+            "new_genre.html",
+            backends=backends,
+            default_backend=backend_choice,
+            matched_shows=matched_shows,
+            prev_name=name,
+            prev_genres=genres_raw,
+            prev_sort_mode=sort_mode,
+            prev_block_size=block_size,
+            prev_unwatched=unwatched_only,
+            prev_auto_sync=auto_sync,
+        )
+
+    @app.route("/playlist/<int:playlist_id>/exclude", methods=["POST"])
+    def exclude_show(playlist_id: int):
+        show = (request.form.get("show") or "").strip()
+        if not show:
+            abort(400)
+        try:
+            service.set_show_excluded(playlist_id, show, True)
+        except Exception as e:
+            log.exception("exclude failed")
+            flash(f"Failed to exclude show: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash("Show excluded.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/include", methods=["POST"])
+    def include_show(playlist_id: int):
+        show = (request.form.get("show") or "").strip()
+        if not show:
+            abort(400)
+        try:
+            service.set_show_excluded(playlist_id, show, False)
+        except Exception as e:
+            log.exception("re-include failed")
+            flash(f"Failed to re-include show: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash("Show re-included.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
     @app.route("/playlist/<int:playlist_id>/weight", methods=["POST"])
     def change_weight(playlist_id: int):
         show = (request.form.get("show") or "").strip()

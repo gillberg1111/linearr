@@ -194,6 +194,37 @@ class PlexClient(MediaClient):
         out.sort(key=lambda s: s.title.lower())
         return out
 
+    def list_shows_by_genres(self, genres: list[str]) -> list[ShowSummary]:
+        if not genres:
+            return []
+        # Plex's section.search(genre=...) is case-insensitive on the genre
+        # name. We OR across genres by running one search per term and
+        # unioning the ratingKeys.
+        seen: dict[str, ShowSummary] = {}
+        for section in self._tv_sections():
+            for genre in genres:
+                g = genre.strip()
+                if not g:
+                    continue
+                try:
+                    results = section.search(genre=g)
+                except Exception:
+                    continue
+                for show in results:
+                    rk = str(show.ratingKey)
+                    if rk in seen:
+                        continue
+                    seen[rk] = ShowSummary(
+                        rating_key=rk,
+                        title=show.title,
+                        year=show.year,
+                        library=section.title,
+                        thumb=getattr(show, "thumb", None),
+                    )
+        out = list(seen.values())
+        out.sort(key=lambda s: s.title.lower())
+        return out
+
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         show = self._get_show(rating_key)
         return ShowSummary(

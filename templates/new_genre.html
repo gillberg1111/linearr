@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}New genre playlist{% endblock %}
+{% block content %}
+  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+
+  <div class="page-head">
+    <h1>New genre playlist</h1>
+    <p class="subtitle">
+      A playlist that auto-populates from your library by genre. Background sync
+      re-checks every {{ "10" }} minutes and adds new shows matching the chosen
+      genres. Shows you exclude later stay excluded.
+    </p>
+  </div>
+
+  <form method="post" action="{{ url_for('new_genre_action') }}" class="builder">
+    <div class="builder-toolbar">
+      <input type="text" name="name" required placeholder="Playlist name"
+             class="name-input" autofocus value="{{ prev_name or '' }}">
+      <input type="text" name="genres" placeholder="Genres (comma-separated, e.g. Sci-Fi, Drama)"
+             class="filter-input" style="flex: 2;" value="{{ prev_genres or '' }}">
+      <button type="submit" name="action" value="preview" class="btn">Preview matches</button>
+    </div>
+
+    {% if backends|length > 1 %}
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Push to</span>
+        <div class="pill-toggle pill-toggle-3">
+          <label class="pill {% if default_backend == 'both' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="both"
+                   {% if default_backend == 'both' %}checked{% endif %}>
+            <span>Both</span>
+          </label>
+          <label class="pill {% if default_backend == 'plex' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="plex"
+                   {% if default_backend == 'plex' %}checked{% endif %}>
+            <span>Plex</span>
+          </label>
+          <label class="pill {% if default_backend == 'jellyfin' %}is-active{% endif %}">
+            <input type="radio" name="backend" value="jellyfin"
+                   {% if default_backend == 'jellyfin' %}checked{% endif %}>
+            <span>Jellyfin</span>
+          </label>
+        </div>
+      </div>
+    {% else %}
+      <input type="hidden" name="backend" value="{{ default_backend }}">
+    {% endif %}
+
+    <div class="sort-mode-bar">
+      <span class="sort-mode-label">Episode order</span>
+      <div class="pill-toggle pill-toggle-5">
+        {% for value, label in [
+          ('rotation', 'Rotation'),
+          ('rotation_weighted', 'Weighted'),
+          ('rotation_blocks', 'Blocks'),
+          ('air_date', 'Air Date'),
+          ('shuffle_chronological', 'Shuffle'),
+        ] %}
+          <label class="pill {% if prev_sort_mode == value %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="{{ value }}"
+                   {% if prev_sort_mode == value %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <span class="hint">All shows are added with default settings (Season 1+, no specials). Tweak individual shows after creation.</span>
+    </div>
+
+    <div class="sort-mode-bar">
+      <span class="sort-mode-label">Episode filter</span>
+      <label class="toggle">
+        <input type="checkbox" name="unwatched_only" value="1"
+               {% if prev_unwatched %}checked{% endif %}>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Only unwatched episodes</span>
+      </label>
+    </div>
+
+    <div class="sort-mode-bar">
+      <span class="sort-mode-label">Auto-update</span>
+      <label class="toggle">
+        <input type="checkbox" name="auto_sync" value="1"
+               {% if prev_auto_sync is not defined or prev_auto_sync %}checked{% endif %}>
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Auto-add new shows matching these genres &amp; new episodes</span>
+      </label>
+      <span class="hint">When on, the background sweep re-queries your library every PRUNE_INTERVAL_MINUTES.</span>
+    </div>
+
+    {% if matched_shows is not none %}
+      <section class="preview-section">
+        <h2>Matched shows ({{ matched_shows|length }})</h2>
+        {% if not matched_shows %}
+          <p class="empty-state">No shows on your library match those genres. Try different terms.</p>
+        {% else %}
+          <ul class="rotation-list">
+            {% for s in matched_shows %}
+              <li class="rotation-row">
+                <div class="rotation-info">
+                  <div class="title">{{ s.title }}</div>
+                  <div class="sub">
+                    {% if s.plex and s.jellyfin %}On Plex + Jellyfin
+                    {% elif s.plex %}On Plex
+                    {% elif s.jellyfin %}On Jellyfin
+                    {% endif %}
+                  </div>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <div class="commit-bar">
+      <button type="submit" name="action" value="create" class="btn btn-primary btn-large"
+              {% if matched_shows is not none and not matched_shows %}disabled{% endif %}>
+        Create playlist
+      </button>
+      <span class="hint">Click "Preview matches" first to see which shows will be added.</span>
+    </div>
+  </form>
+{% endblock %}

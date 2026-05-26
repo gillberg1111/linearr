@@ -804,6 +804,85 @@ def test_show_config_excluded_default_empty():
 
 
 # --------------------------------------------------------------------------- #
+# v1.4.0 — Dynamic genre playlists (pure-logic tests)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_genre_csv_basic():
+    from service import _parse_genre_csv
+    check("genre parse: empty -> empty list", _parse_genre_csv("") == [])
+    check("genre parse: None -> empty list", _parse_genre_csv(None) == [])
+    check("genre parse: single", _parse_genre_csv("Sci-Fi") == ["Sci-Fi"])
+    check("genre parse: multiple",
+          _parse_genre_csv("Sci-Fi, Drama, Animation") == ["Sci-Fi", "Drama", "Animation"])
+
+
+def test_parse_genre_csv_whitespace():
+    from service import _parse_genre_csv
+    check("genre parse: strips whitespace",
+          _parse_genre_csv(" Sci-Fi ,  Drama\t") == ["Sci-Fi", "Drama"])
+    check("genre parse: skips empty tokens",
+          _parse_genre_csv("Sci-Fi,,Drama") == ["Sci-Fi", "Drama"])
+
+
+def test_show_config_is_excluded_default():
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test")
+    check("ShowConfig: is_excluded defaults to False", cfg.is_excluded is False)
+
+
+def test_show_config_is_excluded_explicit():
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test", is_excluded=True)
+    check("ShowConfig: is_excluded=True persisted", cfg.is_excluded is True)
+
+
+def test_valid_playlist_types_constant():
+    from db import VALID_PLAYLIST_TYPES
+    check("VALID_PLAYLIST_TYPES has manual and genre",
+          set(VALID_PLAYLIST_TYPES) == {"manual", "genre"},
+          f"got {VALID_PLAYLIST_TYPES}")
+
+
+def test_playlist_view_genre_fields():
+    import service
+    view = service.PlaylistView(
+        id=1,
+        name="Test",
+        plex_rating_key=None,
+        jellyfin_playlist_id=None,
+        backend="plex",
+        shows=[],
+        item_count=0,
+    )
+    check("PlaylistView: playlist_type defaults to 'manual'",
+          view.playlist_type == "manual")
+    check("PlaylistView: genre_filter defaults to None",
+          view.genre_filter is None)
+    check("PlaylistView: excluded_shows defaults to empty list",
+          view.excluded_shows == [])
+
+
+def test_genre_parse_roundtrip_via_csv_join():
+    """Genre filter stored as comma-joined string; round-trips through split."""
+    from service import _parse_genre_csv
+    genres = ["Sci-Fi", "Drama", "Animation"]
+    csv_repr = ",".join(genres)
+    parsed = _parse_genre_csv(csv_repr)
+    check("genre round-trip: parse(join(genres)) == genres",
+          parsed == genres, f"got {parsed}")
+
+
+def test_show_config_weight_default():
+    """Weight was added in v1.3.0 but confirm default interacts correctly
+    with the v1.4.0 excluded fields (fields are independent)."""
+    import service
+    cfg = service.ShowConfig(rating_key="12345", title="Test", is_excluded=True, weight=3)
+    check("ShowConfig: weight + is_excluded coexist",
+          cfg.weight == 3 and cfg.is_excluded is True)
+
+
+# --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
 

@@ -22,7 +22,11 @@
       'shuffle_chronological': 'Shuffle',
     } %}
     <p class="subtitle">
+      {% if playlist.playlist_type == 'genre' %}
+        <span class="backend-badge is-both" style="margin-right:0.45rem">Genre · {{ playlist.genre_filter }}</span>
+      {% endif %}
       {{ playlist.shows|length }} show{{ '' if playlist.shows|length == 1 else 's' }}
+      {% if playlist.excluded_shows %}<span class="hint">({{ playlist.excluded_shows|length }} excluded)</span>{% endif %}
       · {{ playlist.item_count }} episode{{ '' if playlist.item_count == 1 else 's' }}
       · sorted by <strong>{{ mode_labels.get(playlist.sort_mode, playlist.sort_mode) }}</strong>
       {% if playlist.sort_mode == 'rotation_blocks' %}(blocks of {{ playlist.block_size }}){% endif %}
@@ -206,6 +210,14 @@
               {% endif %}
               <button type="button" class="btn btn-icon" data-move="up" title="Move up">▲</button>
               <button type="button" class="btn btn-icon" data-move="down" title="Move down">▼</button>
+              {% if playlist.playlist_type == 'genre' %}
+                <form method="post" action="{{ url_for('exclude_show', playlist_id=playlist.id) }}"
+                      onsubmit="event.stopPropagation();"
+                      class="inline-form">
+                  <input type="hidden" name="show" value="{{ s.show_rating_key }}">
+                  <button type="submit" class="btn btn-sm" title="Exclude from this playlist (stays excluded across syncs)">Exclude</button>
+                </form>
+              {% endif %}
               <form method="post" action="{{ url_for('remove_show', playlist_id=playlist.id) }}"
                     onsubmit="event.stopPropagation(); return confirm('Remove {{ s.show_title|e }} and ALL its episodes from this playlist?');"
                     class="inline-form">
@@ -222,6 +234,44 @@
       </div>
     </form>
   </section>
+
+  {% if playlist.excluded_shows %}
+    <section class="excluded-shows">
+      <div class="section-head">
+        <h2>Excluded shows ({{ playlist.excluded_shows|length }})</h2>
+        <span class="hint">
+          These were removed from this playlist's rotation. For genre playlists,
+          excluded shows stay excluded so the auto-add sync won't bring them back.
+        </span>
+      </div>
+      <ul class="rotation-list">
+        {% for s in playlist.excluded_shows %}
+          <li class="rotation-row is-excluded">
+            <div class="rotation-poster">
+              {% if s.show_thumb %}
+                <img loading="lazy"
+                     src="{{ url_for('thumb') }}?path={{ s.show_thumb|urlencode }}&w=120&h=180"
+                     alt="{{ s.show_title }}">
+              {% else %}
+                <div class="poster-fallback">{{ s.show_title[:1] }}</div>
+              {% endif %}
+            </div>
+            <div class="rotation-info">
+              <div class="title">{{ s.show_title }}</div>
+            </div>
+            <div class="rotation-controls">
+              <form method="post" action="{{ url_for('include_show', playlist_id=playlist.id) }}"
+                    onsubmit="event.stopPropagation();"
+                    class="inline-form">
+                <input type="hidden" name="show" value="{{ s.show_rating_key }}">
+                <button type="submit" class="btn btn-sm">Re-include</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
 
   <section>
     <h2>Add another show</h2>

@@ -341,9 +341,21 @@ class JellyfinClient(MediaClient):
     # ----- library / show discovery ----------------------------------------
 
     def list_all_shows(self) -> list[ShowSummary]:
-        out: list[ShowSummary] = []
+        return self._list_series_via_items(extra_params={})
+
+    def list_shows_by_genres(self, genres: list[str]) -> list[ShowSummary]:
+        cleaned = [g.strip() for g in (genres or []) if g and g.strip()]
+        if not cleaned:
+            return []
+        # Jellyfin's /Items accepts a pipe-delimited Genres list and ORs them.
+        return self._list_series_via_items(extra_params={"genres": "|".join(cleaned)})
+
+    def _list_series_via_items(self, extra_params: dict) -> list[ShowSummary]:
+        """Shared core for list_all_shows / list_shows_by_genres. Iterates
+        TV libraries and unions matching series, deduplicated by Id."""
+        seen: dict[str, ShowSummary] = {}
         for lib_id, lib_name in self._tv_library_ids():
-            resp = self._request("GET", "/Items", params={
+            params = {
                 "userId": self._user_id,
                 "parentId": lib_id,
                 "recursive": "true",
@@ -352,17 +364,23 @@ class JellyfinClient(MediaClient):
                 "enableImages": "true",
                 "imageTypeLimit": 1,
                 "enableImageTypes": "Primary",
-            })
+            }
+            params.update(extra_params)
+            resp = self._request("GET", "/Items", params=params)
             for item in resp.json().get("Items") or []:
-                out.append(ShowSummary(
-                    rating_key=str(item["Id"]),
+                rk = str(item["Id"])
+                if rk in seen:
+                    continue
+                seen[rk] = ShowSummary(
+                    rating_key=rk,
                     title=item.get("Name") or "",
                     year=item.get("ProductionYear"),
                     library=lib_name,
                     # Jellyfin "thumb" is the item id itself — the URL is
                     # always /Items/{id}/Images/Primary.
-                    thumb=str(item["Id"]) if item.get("ImageTags", {}).get("Primary") else None,
-                ))
+                    thumb=rk if item.get("ImageTags", {}).get("Primary") else None,
+                )
+        out = list(seen.values())
         out.sort(key=lambda s: s.title.lower())
         return out
 

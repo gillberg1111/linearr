@@ -3,9 +3,84 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.4.0] - 2026-05-26
 
-## [1.3.0] - 2026-05-26
+Dynamic genre playlists. Instead of picking shows one-by-one, you now choose
+a genre (or several) and Linearr builds the playlist from every matching show
+in your library. Background sync re-queries your library and auto-adds new
+shows that match. Exclude individual shows and they stay excluded across syncs.
+
+### Added
+
+- **Dynamic genre playlists** — new playlist type alongside manual. Created via
+  the **+ Genre** button in the topbar. Input genre names (comma-separated,
+  e.g. "Sci-Fi, Drama"), preview matches live before creating.
+- **Genre auto-discovery on sync.** Every background sweep re-queries the
+  configured backends for genre-matching shows. New matches are auto-added
+  (with default settings: Season 1+, no specials). Excluded shows stay
+  excluded — the `is_excluded` flag persists across syncs.
+- **Per-show exclude button** on the playlist rotation list (genre playlists
+  only). Removes the show from rotation but keeps it in the DB so future
+  syncs don't re-add it. An **Excluded shows** section below the rotation
+  list offers a **Re-include** button per show.
+- **`MediaClient.list_shows_by_genres(genres)`** — new ABC method.
+  - **Plex:** `section.search(genre=...)` per TV section, deduplicated by
+    ratingKey.
+  - **Jellyfin:** shared `_list_series_via_items(extra_params)` with
+    `genres="pipe|delimited"` query param for multi-genre OR matching.
+- **`service._resolve_genre_shows(genres, target_backends)`** — queries each
+  backend, deduplicates across backends via title+year, fills in cross-backend
+  IDs for 'both' setups.
+- **`service._genre_sync_discover(playlist_id, row, configs)`** — called
+  during every sync for genre playlists. Compares discovered shows against
+  existing (including excluded) and adds only genuinely new ones.
+- **`service.set_show_excluded(playlist_id, rk, excluded)`** — soft-delete
+  or re-include a single show, then rebuilds tails.
+- **New routes:** `GET/POST /new/genre` (genre playlist creation + preview),
+  `POST /playlist/<id>/exclude`, `POST /playlist/<id>/include`.
+- **New template:** `templates/new_genre.html` — genre name input, genre
+  comma-separated input, backend picker, sort mode pill, unwatched-only
+  toggle, auto-update toggle, preview section, create button.
+
+### Changed
+
+- **`service.PlaylistView`** gains `playlist_type` (default `"manual"`),
+  `genre_filter` (nullable CSV string), and `excluded_shows` (list of
+  soft-deleted show dicts).
+- **`service.get_playlist_view`** splits `list_shows` rows into active
+  (`is_excluded=0`) and excluded (`is_excluded=1`).
+- **`service._rebuild_playlist_tails`** filters out `is_excluded=True`
+  configs so excluded shows never contribute episodes.
+- **`templates/playlist.html`** subtitle shows a **Genre** badge with the
+  genre filter when `playlist_type == 'genre'`. Exclude button per row on
+  genre playlists. New "Excluded shows" section with re-include buttons.
+- **`templates/base.html`** topbar gains a **+ Genre** button alongside
+  **+ New playlist**.
+
+### Database (additive only)
+
+- `managed_playlists.playlist_type TEXT NOT NULL DEFAULT 'manual'
+  CHECK(playlist_type IN ('manual','genre'))`
+- `managed_playlists.genre_filter TEXT` (comma-separated genre names)
+- `playlist_shows.is_excluded INTEGER NOT NULL DEFAULT 0`
+- `db.VALID_PLAYLIST_TYPES` tuple constant
+- New helpers: `db.set_genre_filter`, `db.set_show_excluded`
+
+### Tests
+
+- 131 passing (up from 117). New: 14 covering `_parse_genre_csv` parse +
+  whitespace tolerance, `ShowConfig.is_excluded` default and explicit,
+  `PlaylistView` genre-field defaults, `VALID_PLAYLIST_TYPES` shape, genre
+  CSV round-trip, `weight + is_excluded` field independence.
+
+### Files touched
+
+`media_client.py` · `plex_client.py` · `jellyfin_client.py` · `db.py` ·
+`service.py` · `app.py` · `templates/new_genre.html` ·
+`templates/base.html` · `templates/playlist.html` · `static/style.css` ·
+`tests.py` · `CHANGELOG.md`.
+
+## [1.3.0] - 2026-05-26 - 2026-05-26
 
 Three new sequencing modes alongside Rotation and Air Date. Existing
 playlists keep their current mode and behave identically — the new modes

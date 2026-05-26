@@ -60,6 +60,10 @@ class ShowConfig:
     movie_rating_keys: list[str] = field(default_factory=list)  # Plex movie ratingKeys
     # v1.3.0 — per-show weight for rotation_weighted (clamped to >=1).
     weight: int = 1
+    # v1.4.0 — soft-delete flag for genre playlists. Excluded shows are
+    # kept in the DB but skipped by tail-rebuild and the auto-add path
+    # of sync. UI offers a re-include button.
+    is_excluded: bool = False
     # v1.1.0 dual-backend identifiers
     plex_rating_key: str | None = None
     jellyfin_rating_key: str | None = None
@@ -230,6 +234,7 @@ def _config_from_row(row) -> ShowConfig:
         plex_id = str(row["show_rating_key"])
     excluded_raw = row["excluded_episode_keys"] if "excluded_episode_keys" in row.keys() else ""
     weight_val = max(1, int(_row_get(row, "weight", 1) or 1))
+    is_excl = bool(_row_get(row, "is_excluded", 0) or 0)
     return ShowConfig(
         rating_key=row["show_rating_key"],
         title=row["show_title"],
@@ -244,6 +249,7 @@ def _config_from_row(row) -> ShowConfig:
         jellyfin_movie_rating_keys=jf_movies,
         excluded_episodes=_parse_excluded_episodes(excluded_raw),
         weight=weight_val,
+        is_excluded=is_excl,
     )
 
 
@@ -395,18 +401,22 @@ def _rebuild_playlist_tails(
     the corresponding kwarg.
     Returns (total_added, total_removed) across backends. Individual backend
     failures are logged but don't block the other backend.
+
+    Soft-deleted shows (is_excluded=True) are filtered out — they remain in
+    the DB but don't contribute to playlist contents.
     """
     sm = sort_mode if sort_mode is not None else row["sort_mode"]
     uw = unwatched_only if unwatched_only is not None else bool(row["unwatched_only"])
     bs = block_size if block_size is not None else int(_row_get(row, "block_size", 1) or 1)
     ss = _row_get(row, "shuffle_seed", None) if shuffle_seed is ... else shuffle_seed
+    active_configs = [c for c in full_configs if not c.is_excluded]
     total_added = total_removed = 0
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue
         try:
             added, removed = _rebuild_tail_on(
-                tb, client, pl_id, full_configs, sm, uw,
+                tb, client, pl_id, active_configs, sm, uw,
                 block_size=bs, shuffle_seed=ss,
             )
             total_added += added
@@ -471,7 +481,7 @@ class PlaylistView:
     plex_rating_key: str | None
     jellyfin_playlist_id: str | None
     backend: str  # 'plex' | 'jellyfin' | 'both'
-    shows: list[dict]
+    shows: list[dict]  # active (non-excluded) show rows
     item_count: int  # max across enabled backends
     sort_mode: str = "rotation"
     unwatched_only: bool = False
@@ -479,6 +489,10 @@ class PlaylistView:
     # v1.3.0 — advanced sequencing
     block_size: int = 1
     shuffle_seed: int | None = None
+    # v1.4.0 — dynamic genre playlists
+    playlist_type: str = "manual"  # 'manual' | 'genre'
+    genre_filter: str | None = None
+    excluded_shows: list[dict] = field(default_factory=list)  # soft-deleted rows
 
 
 # --------------------------------------------------------------------------- #
@@ -788,6 +802,137 @@ def set_show_weight(playlist_id: int, show_rating_key: str, weight: int) -> None
 
 
 # --------------------------------------------------------------------------- #
+# v1.4.0 — Dynamic genre playlists
+# --------------------------------------------------------------------------- #
+
+
+def _parse_genre_csv(s: str | None) -> list[str]:
+    return [g.strip() for g in (s or "").split(",") if g and g.strip()]
+
+
+def _resolve_genre_shows(
+    genres: list[str],
+    target_backends: list[str],
+) -> list[ShowConfig]:
+    """Query each configured backend for shows matching the given genres.
+    Returns a list of ShowConfigs deduplicated across backends via
+    title+year matching. For 'both' setups, configs carry both IDs when
+    a match is found on each side.
+    """
+    if not genres:
+        return []
+    # Per-backend matches.
+    per_backend: dict[str, list] = {}
+    for tb in target_backends:
+        try:
+            per_backend[tb] = _client_for(tb).list_shows_by_genres(genres)
+        except Exception:
+            log.exception("genre resolve failed on %s", tb)
+            per_backend[tb] = []
+
+    # Aggregate, deduplicate via title+year.
+    out: list[ShowConfig] = []
+    seen_keys: dict[tuple[str, int], int] = {}
+    for tb in target_backends:
+        for s in per_backend[tb]:
+            key = (s.title.lower().strip(), s.year or 0)
+            if key in seen_keys:
+                # Already added by a previous backend — annotate.
+                idx = seen_keys[key]
+                if tb == "plex" and out[idx].plex_rating_key is None:
+                    out[idx].plex_rating_key = s.rating_key
+                if tb == "jellyfin" and out[idx].jellyfin_rating_key is None:
+                    out[idx].jellyfin_rating_key = s.rating_key
+                # Prefer the first thumb that was set.
+                if not out[idx].thumb and s.thumb:
+                    out[idx].thumb = s.thumb
+                continue
+            cfg = ShowConfig(
+                rating_key=s.rating_key,
+                title=s.title,
+                thumb=s.thumb,
+                plex_rating_key=s.rating_key if tb == "plex" else None,
+                jellyfin_rating_key=s.rating_key if tb == "jellyfin" else None,
+            )
+            seen_keys[key] = len(out)
+            out.append(cfg)
+    # Cross-backend completion: for 'both' setups, fill in missing IDs.
+    if "plex" in target_backends and "jellyfin" in target_backends:
+        _enrich_configs_with_matches(out, target_backends)
+    out.sort(key=lambda c: (c.title or "").lower())
+    return out
+
+
+def create_genre_playlist(
+    name: str,
+    genres: list[str],
+    *,
+    sort_mode: str = "rotation",
+    unwatched_only: bool = False,
+    auto_sync: bool = True,
+    backend: str = "plex",
+    block_size: int = 1,
+    shuffle_seed: int | None = None,
+) -> int:
+    """Create a playlist whose member shows are determined by a genre query
+    rather than hand-picked. Future syncs re-query the backend and auto-add
+    new shows matching the genre."""
+    cleaned_genres = [g.strip() for g in genres if g and g.strip()]
+    if not cleaned_genres:
+        raise ValueError("Need at least one genre to create a genre playlist")
+    if backend not in ("plex", "jellyfin", "both"):
+        raise ValueError(f"Invalid backend: {backend!r}")
+
+    target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
+    configs = _resolve_genre_shows(cleaned_genres, target_backends)
+    if not configs:
+        raise ValueError(
+            f"No shows on the configured backend(s) match genres: {', '.join(cleaned_genres)}"
+        )
+
+    # Delegate to the manual creator. It already handles per-backend playlist
+    # creation, rollback on partial failure, DB insert.
+    playlist_id = create_managed_playlist(
+        name, configs,
+        sort_mode=sort_mode,
+        unwatched_only=unwatched_only,
+        auto_sync=auto_sync,
+        backend=backend,
+        block_size=block_size,
+        shuffle_seed=shuffle_seed,
+    )
+    # Mark the playlist as genre type + persist the filter.
+    with db.connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET playlist_type = 'genre', genre_filter = ? WHERE id = ?",
+            (",".join(cleaned_genres), playlist_id),
+        )
+    log.info(
+        "Created genre playlist '%s' (backend=%s, genres=%s, %d shows)",
+        name, backend, cleaned_genres, len(configs),
+    )
+    return playlist_id
+
+
+def set_show_excluded(playlist_id: int, show_rating_key: str, excluded: bool) -> None:
+    """Soft-delete or re-include a single show. Rebuilds tails on every
+    enabled backend after the change.
+
+    Excluded shows stay in the DB so the next genre sync doesn't re-add
+    them — the user explicitly removed them once."""
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No managed playlist with id={playlist_id}")
+    db.set_show_excluded(playlist_id, show_rating_key, excluded)
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    _rebuild_playlist_tails(row, full_configs, op_label="exclude/re-include")
+    log.info(
+        "Playlist '%s' show %s excluded=%s",
+        row["name"], show_rating_key, excluded,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Sync (with heal-on-sync for missing IDs in 'both' mode)
 # --------------------------------------------------------------------------- #
 
@@ -841,16 +986,64 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
         return (0, 0)
 
     show_rows = db.list_shows(playlist_id)
-    if not show_rows:
+    full_configs = [_config_from_row(r) for r in show_rows]
+
+    # v1.4.0: genre playlists discover new shows on every sync.
+    if _row_get(row, "playlist_type", "manual") == "genre":
+        _genre_sync_discover(playlist_id, row, full_configs)
+        # Reload after potential adds.
+        show_rows = db.list_shows(playlist_id)
+        full_configs = [_config_from_row(r) for r in show_rows]
+
+    if not full_configs:
         return (0, 0)
 
-    full_configs = [_config_from_row(r) for r in show_rows]
     _heal_missing_ids(playlist_id, row, full_configs)
 
     added, removed = _rebuild_playlist_tails(row, full_configs, op_label="sync")
     if added or removed:
         log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
     return (added, removed)
+
+
+def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig]) -> None:
+    """For genre playlists: re-query the backends for genre-matching shows
+    and add any that aren't already in the playlist (respecting the
+    is_excluded flag — excluded rows count as 'already here, don't re-add').
+    """
+    genres = _parse_genre_csv(_row_get(row, "genre_filter", None))
+    if not genres:
+        return
+    target_backends = _backends_for(row)
+    try:
+        candidates = _resolve_genre_shows(genres, target_backends)
+    except Exception:
+        log.exception("genre discovery failed for playlist %s", row["name"])
+        return
+
+    # Build sets of existing IDs across both backends, so we don't re-add a
+    # show that's already represented via either id (incl. excluded ones).
+    existing_plex = {c.plex_rating_key for c in current_configs if c.plex_rating_key}
+    existing_jf = {c.jellyfin_rating_key for c in current_configs if c.jellyfin_rating_key}
+    existing_pks = {c.rating_key for c in current_configs}
+
+    new_configs: list[ShowConfig] = []
+    for cand in candidates:
+        if cand.rating_key in existing_pks:
+            continue
+        if cand.plex_rating_key and cand.plex_rating_key in existing_plex:
+            continue
+        if cand.jellyfin_rating_key and cand.jellyfin_rating_key in existing_jf:
+            continue
+        new_configs.append(cand)
+
+    if not new_configs:
+        return
+    db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
+    log.info(
+        "Genre sync added %d new show(s) to '%s' matching %s",
+        len(new_configs), row["name"], ",".join(genres),
+    )
 
 
 def sync_all() -> None:
@@ -930,7 +1123,9 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
     row = db.get_playlist(playlist_id)
     if not row:
         return None
-    shows = [dict(s) for s in db.list_shows(playlist_id)]
+    all_rows = [dict(s) for s in db.list_shows(playlist_id)]
+    shows = [s for s in all_rows if not s.get("is_excluded")]
+    excluded_shows = [s for s in all_rows if s.get("is_excluded")]
     item_count = 0
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
@@ -956,6 +1151,9 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         auto_sync=bool(row["auto_sync"]) if "auto_sync" in row.keys() else True,
         block_size=int(_row_get(row, "block_size", 1) or 1),
         shuffle_seed=_row_get(row, "shuffle_seed", None),
+        playlist_type=_row_get(row, "playlist_type", "manual") or "manual",
+        genre_filter=_row_get(row, "genre_filter", None),
+        excluded_shows=excluded_shows,
     )
 
 
