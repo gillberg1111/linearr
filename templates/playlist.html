@@ -87,10 +87,6 @@
               class="pill {% if playlist.sort_mode == 'rotation' %}is-active{% endif %}">
         Rotation
       </button>
-      <button type="submit" name="sort_mode" value="air_date"
-              class="pill {% if playlist.sort_mode == 'air_date' %}is-active{% endif %}">
-        Air Date
-      </button>
       <button type="submit" name="sort_mode" value="rotation_blocks"
               class="pill {% if playlist.sort_mode == 'rotation_blocks' %}is-active{% endif %}">
         Blocks
@@ -98,6 +94,10 @@
       <button type="submit" name="sort_mode" value="rotation_weighted"
               class="pill {% if playlist.sort_mode == 'rotation_weighted' %}is-active{% endif %}">
         Weighted
+      </button>
+      <button type="submit" name="sort_mode" value="air_date"
+              class="pill {% if playlist.sort_mode == 'air_date' %}is-active{% endif %}">
+        Air Date
       </button>
       <button type="submit" name="sort_mode" value="shuffle_chronological"
               class="pill {% if playlist.sort_mode == 'shuffle_chronological' %}is-active{% endif %}">

@@ -66,11 +66,6 @@
                    {% if sort_mode == 'rotation' %}checked{% endif %}>
             <span>Rotation</span>
           </label>
-          <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
-            <input type="radio" name="sort_mode" value="air_date"
-                   {% if sort_mode == 'air_date' %}checked{% endif %}>
-            <span>Air Date</span>
-          </label>
           <label class="pill {% if sort_mode == 'rotation_blocks' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="rotation_blocks"
                    {% if sort_mode == 'rotation_blocks' %}checked{% endif %}>
@@ -80,6 +75,11 @@
             <input type="radio" name="sort_mode" value="rotation_weighted"
                    {% if sort_mode == 'rotation_weighted' %}checked{% endif %}>
             <span>Weighted</span>
+          </label>
+          <label class="pill {% if sort_mode == 'air_date' %}is-active{% endif %}">
+            <input type="radio" name="sort_mode" value="air_date"
+                   {% if sort_mode == 'air_date' %}checked{% endif %}>
+            <span>Air Date</span>
           </label>
           <label class="pill {% if sort_mode == 'shuffle_chronological' %}is-active{% endif %}">
             <input type="radio" name="sort_mode" value="shuffle_chronological"
