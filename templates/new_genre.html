@@ -207,6 +207,14 @@
                         {% elif s.jellyfin %}On Jellyfin
                         {% endif %}
                       </div>
+                      <div class="show-weight-control" hidden>
+                        <span class="weight-label">Weight</span>
+                        <input type="number" name="weight_{{ s.rating_key }}"
+                               value="1" min="1" max="20" step="1"
+                               class="number-input number-input-sm genre-weight-input"
+                               data-rk="{{ s.rating_key }}">
+                        <span class="hint">× / cycle</span>
+                      </div>
                     </div>
                   </li>
                 {% endfor %}
@@ -299,10 +307,18 @@
       if (sortHint)  sortHint.textContent  = SORT_HINTS[mode] || '';
       if (blockRow)  blockRow.hidden  = (mode !== 'rotation_blocks');
       if (weightRow) weightRow.hidden = (mode !== 'rotation_weighted');
+      // Show/hide per-show weight fields in matched list
+      document.querySelectorAll('.show-weight-control').forEach(function(el) {
+        el.hidden = (mode !== 'rotation_weighted');
+      });
       updateOrderPreview();
     }
     pills.forEach(function(r) { r.addEventListener('change', applySortMode); });
     if (blockInput) blockInput.addEventListener('input', updateOrderPreview);
+    // Re-simulate when any per-show weight changes
+    document.querySelectorAll('.genre-weight-input').forEach(function(inp) {
+      inp.addEventListener('input', updateOrderPreview);
+    });
     applySortMode();
 
     // ── Options-bar pill-toggle active state (Push to) ─────────────────
@@ -317,32 +333,79 @@
       });
     });
 
-    function simulateOrder(shows, mode, blockSize) {
-      if (!shows.length) return null;
-      if (mode === 'air_date') return { text: 'Episodes appear chronologically by air date across all matched shows.' };
-      if (mode === 'shuffle_chronological') return { text: 'Episodes are shuffled — each show stays in episode order, same-show repeats are avoided.' };
-      if (mode === 'rotation_weighted') return { text: 'Shows rotate by weight. Set per-show weights from the playlist page after creation.' };
-
+    function rotationItems(shows, N) {
       var items = [];
-      var N = 10;
-      if (mode === 'rotation') {
-        for (var ep = 1; items.length < N; ep++) {
-          for (var s = 0; s < shows.length && items.length < N; s++) {
-            items.push({ show: shows[s], ep: ep });
-          }
-        }
-      } else if (mode === 'rotation_blocks') {
-        var si = 0;
-        var epNums = shows.map(function() { return 1; });
-        while (items.length < N) {
-          var idx = si % shows.length;
-          for (var b = 0; b < blockSize && items.length < N; b++) {
-            items.push({ show: shows[idx], ep: epNums[idx]++ });
-          }
-          si++;
+      for (var ep = 1; items.length < N; ep++) {
+        for (var s = 0; s < shows.length && items.length < N; s++) {
+          items.push({ show: shows[s], ep: ep });
         }
       }
-      return { items: items };
+      return items;
+    }
+
+    function blockItems(shows, blockSize, N) {
+      var items = [], si = 0;
+      var epNums = shows.map(function() { return 1; });
+      while (items.length < N) {
+        var idx = si % shows.length;
+        for (var b = 0; b < blockSize && items.length < N; b++) {
+          items.push({ show: shows[idx], ep: epNums[idx]++ });
+        }
+        si++;
+      }
+      return items;
+    }
+
+    function weightedItems(shows, weights, N) {
+      var items = [], si = 0, safety = 0;
+      var epNums = shows.map(function() { return 1; });
+      while (items.length < N && safety++ < 600) {
+        var idx = si % shows.length;
+        var w = Math.max(1, (weights && weights[idx]) || 1);
+        for (var b = 0; b < w && items.length < N; b++) {
+          items.push({ show: shows[idx], ep: epNums[idx]++ });
+        }
+        si++;
+      }
+      return items;
+    }
+
+    function shuffleItems(shows, N) {
+      var items = [], last = -1, safety = 0;
+      var epNums = shows.map(function() { return 1; });
+      while (items.length < N && safety++ < 600) {
+        var pool = shows.map(function(_, i) { return i; })
+          .filter(function(i) { return i !== last || shows.length === 1; });
+        var pick = pool[(items.length * 3 + 7) % pool.length];
+        items.push({ show: shows[pick], ep: epNums[pick]++ });
+        last = pick;
+      }
+      return items;
+    }
+
+    function simulateOrder(shows, mode, blockSize, weights) {
+      if (!shows.length) return null;
+      var N = 15, note = null, items = [];
+      if (mode === 'air_date') {
+        note = 'Actual order follows air date across all matched shows. Round-robin shown as stand-in.';
+        items = rotationItems(shows, N);
+      } else if (mode === 'shuffle_chronological') {
+        note = 'Shuffled — each show stays in episode order, same-show consecutive plays avoided.';
+        items = shuffleItems(shows, N);
+      } else if (mode === 'rotation_weighted') {
+        note = 'Preview uses current weights (set per-show below).';
+        items = weightedItems(shows, weights, N);
+      } else if (mode === 'rotation') {
+        items = rotationItems(shows, N);
+      } else if (mode === 'rotation_blocks') {
+        items = blockItems(shows, blockSize, N);
+      }
+      return { items: items, note: note };
+    }
+
+    function readWeights() {
+      return Array.from(document.querySelectorAll('.genre-weight-input'))
+        .map(function(inp) { return Math.max(1, parseInt(inp.value, 10) || 1); });
     }
 
     function updateOrderPreview() {
@@ -352,31 +415,32 @@
       var checked = document.querySelector('input[name="sort_mode"]:checked');
       var mode = checked ? checked.value : 'rotation';
       var bs = blockInput ? Math.max(1, parseInt(blockInput.value, 10) || 2) : 2;
-      var result = simulateOrder(showTitles, mode, bs);
+      var result = simulateOrder(showTitles, mode, bs, readWeights());
 
       panel.innerHTML = '';
       if (!result) return;
 
-      if (result.text) {
+      if (result.note) {
         var msg = document.createElement('p');
         msg.className = 'order-preview-msg';
-        msg.textContent = result.text;
+        msg.textContent = result.note;
         panel.appendChild(msg);
-        return;
       }
 
-      var ol = document.createElement('ol');
-      ol.className = 'order-preview-list';
-      result.items.forEach(function(item) {
-        var li = document.createElement('li');
-        li.className = 'order-preview-item';
-        var ep = String(item.ep).padStart(2, '0');
-        li.innerHTML =
-          '<span class="order-preview-show">' + escHtml(item.show) + '</span>' +
-          '<span class="order-preview-ep">S01E' + ep + '</span>';
-        ol.appendChild(li);
-      });
-      panel.appendChild(ol);
+      if (result.items && result.items.length) {
+        var ol = document.createElement('ol');
+        ol.className = 'order-preview-list';
+        result.items.forEach(function(item) {
+          var li = document.createElement('li');
+          li.className = 'order-preview-item';
+          var ep = String(item.ep).padStart(2, '0');
+          li.innerHTML =
+            '<span class="order-preview-show">' + escHtml(item.show) + '</span>' +
+            '<span class="order-preview-ep">S01E' + ep + '</span>';
+          ol.appendChild(li);
+        });
+        panel.appendChild(ol);
+      }
     }
 
     function escHtml(s) {

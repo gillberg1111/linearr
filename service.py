@@ -1067,6 +1067,7 @@ def create_genre_playlist(
     backend: str = "plex",
     block_size: int = 1,
     shuffle_seed: int | None = None,
+    weights: dict[str, int] | None = None,
 ) -> int:
     """Create a playlist whose member shows are determined by a genre query
     rather than hand-picked. Future syncs re-query the backend and auto-add
@@ -1079,6 +1080,11 @@ def create_genre_playlist(
 
     target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
     configs = _resolve_genre_shows(cleaned_genres, target_backends)
+    # Apply per-show weights supplied from the creation form.
+    if weights:
+        for cfg in configs:
+            if cfg.rating_key in weights:
+                cfg.weight = max(1, weights[cfg.rating_key])
     if not configs:
         raise ValueError(
             f"No shows on the configured backend(s) match genres: {', '.join(cleaned_genres)}"

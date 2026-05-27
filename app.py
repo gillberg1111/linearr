@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.8.2"
+__version__ = "1.8.3"
 
 import logging
 import os
@@ -801,6 +801,16 @@ def create_app() -> Flask:
         action = request.form.get("action", "preview")
         target_backends = ["plex", "jellyfin"] if backend_choice == "both" else [backend_choice]
 
+        # Per-show weights submitted from the genre creation form (rotation_weighted only).
+        weights_from_form: dict[str, int] = {}
+        for k, v in request.form.items():
+            if k.startswith("weight_") and v:
+                rk = k[len("weight_"):]
+                try:
+                    weights_from_form[rk] = max(1, int(v))
+                except (ValueError, TypeError):
+                    pass
+
         matched_shows = None
         if rule_mode == "rules":
             rule_types = request.form.getlist("rule_type[]")
@@ -864,6 +874,11 @@ def create_app() -> Flask:
                         if not configs:
                             flash("No shows match those rules. Try broadening the criteria.", "error")
                         else:
+                            # Apply any per-show weights from the form.
+                            if weights_from_form:
+                                for cfg in configs:
+                                    if cfg.rating_key in weights_from_form:
+                                        cfg.weight = weights_from_form[cfg.rating_key]
                             pid = service.create_managed_playlist(
                                 name, configs,
                                 sort_mode=sort_mode,
@@ -897,6 +912,7 @@ def create_app() -> Flask:
                         auto_sync=auto_sync,
                         backend=backend_choice,
                         block_size=block_size,
+                        weights=weights_from_form or None,
                     )
                 except Exception as e:
                     log.exception("genre create failed")

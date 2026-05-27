@@ -964,7 +964,7 @@ a { color: var(--accent); }
 
 .rules-add-bar { margin-top: 0.5rem; }
 .rules-add-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.rules-add-value-text { width: 220px; max-width: 100%; }
+.rules-add-value-text { width: 320px; max-width: 100%; }
 .rules-add-select {
   background: var(--bg-elev-2);
   color: var(--fg);
@@ -1064,6 +1064,15 @@ a { color: var(--accent); }
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+/* Per-show weight control inside genre matched-shows list */
+.show-weight-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--fg-dim);
 }
 .weight-label {
   font-size: 0.85rem;

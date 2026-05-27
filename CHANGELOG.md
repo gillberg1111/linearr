@@ -3,6 +3,29 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.3] - 2026-05-27
+
+### Fixed / Improved
+
+- **Episode order preview now shows episode lists for all modes** — Weighted,
+  Air Date, and Shuffle previously returned only a text message (no list).
+  All five modes now produce a simulated episode list (15 items); Air Date and
+  Shuffle include a brief explanatory note above the list explaining the
+  stand-in approximation.
+- **Per-show weight fields in genre playlist creation** — when Weighted mode
+  is selected, a Weight input appears beside each matched show. Fields are
+  hidden for all other modes. Changing a weight immediately updates the
+  episode order preview. Weights are submitted with the creation form and
+  applied to the initial `playlist_shows` rows via `create_genre_playlist`
+  (new `weights` kwarg) and the smart-rules create path.
+- **Smart rules value input** widened from 220 px to 320 px (≈50% bigger);
+  `min-width: 160px` on selects unchanged.
+
+### Files touched
+
+`app.py` · `service.py` · `templates/new_genre.html` · `static/style.css` ·
+`CHANGELOG.md` · `CLAUDE.md`.
+
 ## [1.8.2] - 2026-05-27
 
 ### Fixed
