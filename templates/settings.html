@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+  <div class="page-head">
+    <h1>Settings</h1>
+  </div>
+
+  <section class="card" style="max-width:600px">
+    <div class="section-head">
+      <h2>REST API</h2>
+      <span class="hint">
+        Use this key to authenticate requests to <code>/api/v1/</code>.
+        Pass it as <code>Authorization: Bearer &lt;key&gt;</code> or
+        <code>?api_key=&lt;key&gt;</code>.
+      </span>
+    </div>
+    <div style="display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap; margin-top:0.8rem">
+      <code class="api-key-display">{{ api_key }}</code>
+      <form method="post" style="display:inline">
+        <button type="submit" name="action" value="regenerate"
+                class="btn btn-sm btn-ghost-danger">Regenerate</button>
+      </form>
+    </div>
+    <p class="hint" style="margin-top:0.5rem">
+      Or set <code>LINEARR_API_KEY</code> in your environment to pin the key
+      across container restarts.
+    </p>
+  </section>
+{% endblock %}

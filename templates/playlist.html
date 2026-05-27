@@ -495,6 +495,24 @@
     {% endif %}
   </section>
 
+  {% if playlist.last_stats %}
+    <section class="stats-section">
+      <div class="section-head">
+        <h2>Stats</h2>
+        <span class="hint">Updated each sync. Reflects {{ playlist.last_stats.backend }} side.</span>
+      </div>
+      {% set total = playlist.last_stats.total_episodes or 0 %}
+      {% set watched = playlist.last_stats.watched_episodes or 0 %}
+      {% set pct = ((watched / total * 100)|int) if total else 0 %}
+      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.8rem">
+        <div class="stats-bar stats-bar-large">
+          <div class="stats-bar-fill" style="width:{{ pct }}%"></div>
+        </div>
+        <span class="stats-label">{{ watched }}/{{ total }} episodes watched ({{ pct }}%)</span>
+      </div>
+    </section>
+  {% endif %}
+
   <section class="maintenance">
     <h2>Maintenance</h2>
     <div class="maintenance-row">

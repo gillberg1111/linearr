@@ -369,6 +369,15 @@ class JellyfinClient(MediaClient):
             _log.exception("list_all_genres failed on Jellyfin")
             return []
 
+    def list_tv_sections(self) -> list[str]:
+        try:
+            resp = self._request("GET", "/Library/VirtualFolders")
+            data = resp.json() if resp.ok else []
+            return [f["Name"] for f in data if f.get("CollectionType") == "tvshows"]
+        except Exception:
+            _log.exception("list_tv_sections failed on Jellyfin")
+            return []
+
     def _list_series_via_items(self, extra_params: dict) -> list[ShowSummary]:
         """Shared core for list_all_shows / list_shows_by_genres. Iterates
         TV libraries and unions matching series, deduplicated by Id."""
@@ -768,3 +777,20 @@ class JellyfinClient(MediaClient):
             raise JellyfinAPIError(
                 f"Refresh failed for {rating_key}: {resp.status_code}"
             )
+
+    def list_playlist_episodes(self, playlist_id: str) -> list:
+        # Ensure _user_id is populated before constructing params (same
+        # pattern as episodes_for_show — params are evaluated before
+        # _request() calls _ensure_authenticated() internally).
+        self._ensure_authenticated()
+        resp = self._request(
+            "GET", f"/Playlists/{playlist_id}/Items",
+            params={"UserId": self._user_id, "Fields": "UserData"},
+        )
+        if not resp.ok:
+            return []
+        items = resp.json().get("Items", [])
+        class _Item:
+            def __init__(self, d):
+                self.view_count = (d.get("UserData") or {}).get("PlayCount", 0) or 0
+        return [_Item(item) for item in items]

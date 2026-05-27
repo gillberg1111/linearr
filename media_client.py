@@ -149,6 +149,10 @@ class MediaClient(ABC):
         """
 
     @abstractmethod
+    def list_tv_sections(self) -> list[str]:
+        """Return a list of TV library section names (lightweight health probe)."""
+
+    @abstractmethod
     def find_associated_movies(self, show_title: str) -> list[MovieSummary]:
         """Movies whose title contains the show's name as a word boundary."""
 
@@ -254,6 +258,10 @@ class MediaClient(ABC):
     def refresh_show_metadata(self, rating_key: str) -> None:
         """Ask the backend to refresh this show's metadata from upstream sources.
         Fire-and-forget: raise on connection error, swallow 404 gracefully."""
+
+    @abstractmethod
+    def list_playlist_episodes(self, playlist_id: str) -> list:
+        """Return raw episode objects (with view_count) for an existing playlist."""
 
 
 # --------------------------------------------------------------------------- #

@@ -637,7 +637,7 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 175 passed, 0 failed, 175 total
+# 187 passed, 0 failed, 187 total
 ```
 
 Covers:

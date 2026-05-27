@@ -278,6 +278,21 @@ def init_db() -> None:
                 "ALTER TABLE managed_playlists ADD COLUMN rule_mode TEXT NOT NULL DEFAULT 'genre'"
             )
 
+        # v2.0.0 — settings store for API key
+        if "managed_settings" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE managed_settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )"""
+            )
+
+        # v2.0.0 — analytics stats cache
+        if "last_stats" not in pl_cols2:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN last_stats TEXT"
+            )
+
 
 def create_playlist(
     name: str,
@@ -738,4 +753,34 @@ def set_rule_mode(playlist_id: int, mode: str) -> None:
         conn.execute(
             "UPDATE managed_playlists SET rule_mode = ? WHERE id = ?",
             (mode, playlist_id),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# v2.0.0 — Settings store
+# --------------------------------------------------------------------------- #
+
+
+def get_setting(key: str) -> str | None:
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM managed_settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+
+def set_setting(key: str, value: str) -> None:
+    with connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO managed_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+
+def update_playlist_stats(playlist_id: int, stats: dict) -> None:
+    import json as _json
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET last_stats = ? WHERE id = ?",
+            (_json.dumps(stats), playlist_id),
         )

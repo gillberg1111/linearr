@@ -140,6 +140,12 @@ a { color: var(--accent); }
   border-color: rgba(0,0,0,0.2);
   color: white;
 }
+.btn-ghost {
+  background: transparent;
+  color: var(--fg-dim);
+  border-color: var(--border);
+}
+.btn-ghost:hover { background: var(--bg-elev); color: var(--fg); }
 .btn-ghost-danger {
   background: transparent;
   color: var(--danger);
@@ -1012,6 +1018,34 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   flex-wrap: wrap;
 }
 
+/* ---------- v2.0.0 ---------- */
+.api-key-display {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.82rem;
+  word-break: break-all;
+  color: var(--fg-dim);
+}
+
+.stats-bar {
+  height: 4px;
+  background: var(--border-strong);
+  border-radius: 2px;
+  width: 100%;
+  overflow: hidden;
+}
+.stats-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.stats-bar-large { height: 8px; border-radius: 4px; max-width: 360px; }
+.stats-hint { font-size: 0.78rem; color: var(--fg-dim); }
+.stats-label { font-size: 0.9rem; color: var(--fg-dim); }
+
 /* ---------- v1.1.0 — backend badges + warning banner ---------- */
 
 /* Triple-pill picker layout: three segments instead of two. The base
@@ -1354,15 +1388,56 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 }
 .exclude-episode-title { color: var(--fg-dim); }
 
-/* ---------- responsive ---------- */
-@media (max-width: 600px) {
-  .topbar-inner, main { padding-left: 1rem; padding-right: 1rem; }
-  .builder-toolbar { top: 60px; }
-  .poster-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+/* ══════════════════════════════════════════════════════════════════════
+   v2.0.0 — Mobile-first responsive layout
+   Breakpoints: 768px (tablet/large phone), 480px (phone)
+   ══════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  .topbar-inner { gap: 0.6rem; }
+  .brand { font-size: 1.1rem; }
+
+  main { padding: 1rem 1rem 3rem; max-width: 100%; }
+
+  .poster-grid { grid-template-columns: repeat(3, 1fr); }
+
+  .rotation-poster { width: 48px; height: 72px; flex-shrink: 0; }
+  .rotation-row { gap: 0.6rem; }
+
+  .config-stack { grid-template-columns: 1fr 1fr; }
+
+  .sort-mode-bar { flex-wrap: wrap; gap: 0.5rem 1rem; }
+  .pill-toggle { flex-wrap: wrap; }
+
+  .options-bar { flex-direction: column; align-items: flex-start; }
+
+  .builder-toolbar { top: 54px; }
+
   .season-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .config-poster { width: 64px; }
   .preview-list li { grid-template-columns: 24px 1fr; }
   .preview-list .pl-se, .preview-list .pl-title { grid-column: 2; }
   .preview-list .pl-show { grid-column: 2; }
-  .config-poster { width: 64px; }
   .exclude-episode-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .topbar-actions .btn:not(.btn-primary) { display: none; }
+
+  .poster-grid { grid-template-columns: repeat(2, 1fr); }
+
+  .config-stack { grid-template-columns: 1fr; }
+
+  .builder-toolbar { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  .builder-toolbar .name-input { width: 100%; }
+
+  .commit-bar .btn { width: 100%; }
+
+  .genre-preview-section { max-width: 100%; }
+  .genre-preview-section .rotation-row { grid-template-columns: 48px 1fr; }
+
+  .maintenance-row { flex-wrap: wrap; gap: 0.4rem; }
+  .maintenance-row .btn { flex: 1 1 auto; min-width: 120px; }
+
+  .reorder-actions { flex-wrap: wrap; gap: 0.4rem; }
 }

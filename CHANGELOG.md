@@ -3,126 +3,108 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-05-27
+
+### Added
+
+- **REST API** (`/api/v1/`). JSON endpoints for external integrations: list
+  playlists, get playlist detail (with shows + rules), trigger manual sync,
+  list configured backends with health checks, genre cache, and playlist
+  stats. Authenticated via `Authorization: Bearer <key>` or `?api_key=`.
+  API key auto-generated on first boot, persisted in `managed_settings`,
+  overridable via `LINEARR_API_KEY` env var. Settings page at `/settings`
+  shows the key with a regenerate button.
+- **Playlist analytics.** After each sync, watched/total episode counts are
+  collected from the first available backend and stored as JSON on
+  `managed_playlists.last_stats`. Index page cards show a progress bar.
+  Playlist detail gets a Stats section. A `/api/v1/playlists/{id}/stats`
+  endpoint exposes the raw JSON.
+- **Mobile-first CSS redesign.** Breakpoints at 768px (tablet) and 480px
+  (phone). Topbar actions hide non-primary buttons on small screens. Poster
+  grid drops to 3→2 columns. Config card stack goes single-column on phone.
+  Builder toolbar stacks vertically. Commit button goes full-width. Genre
+  preview section max-width removed on phone.
+- **Settings page** (`/settings`) to view and regenerate the API key.
+- **`MediaClient.list_tv_sections()`** ABC method (lightweight health probe)
+  implemented in Plex and Jellyfin clients.
+- **`MediaClient.list_playlist_episodes()`** ABC method for stats collection.
+
+### Database (additive only)
+
+- `managed_settings` table (key/value store for API key)
+- `managed_playlists.last_stats` TEXT column (JSON analytics blob)
+- New helpers: `db.get_setting`, `db.set_setting`, `db.update_playlist_stats`
+
+### Changed
+
+- **`sync_playlist`** now collects and persists analytics stats after each
+  tail rebuild.
+- **`PlaylistView`** gained `last_stats` field (parsed from JSON on load).
+- **`templates/base.html`** topbar nav wrapped in `<nav class="topbar-actions">`
+  for mobile CSS targeting.
+
+### Tests
+
+- **187 passing** (up from 175). 12 new: 9 REST API (auth, list, 404, query
+  param auth, backends health) + 3 analytics (stats store/retrieve, default
+  None field).
+
+### Files touched
+
+`app.py` · `media_client.py` · `plex_client.py` · `jellyfin_client.py` ·
+`db.py` · `service.py` · `templates/settings.html` · `templates/base.html` ·
+`templates/index.html` · `templates/playlist.html` · `static/style.css` ·
+`tests.py` · `CHANGELOG.md` · `README.md` · `CLAUDE.md`.
+
 ## [1.8.4] - 2026-05-27
 
 ### Fixed
 
 - **Smart rules value input still too narrow** — `input.rules-add-value-text`
-  now uses element+class specificity (0,1,1) so it wins over `.number-input`
-  (0,1,0 — defined later in the CSS file), which was silently clamping the
-  width back to 5 rem. Also adds `text-align: left` (`.number-input` centers
-  text, wrong for a freeform text field).
-- **Episode order preview: Air Date now shows illustrative dates** — instead
-  of a round-robin stand-in with no dates, each item now shows an illustrative
-  `YYYY-MM-DD` (shows staggered by 3 days, episodes weekly) so the
-  chronological interleaving is visually obvious. A note reads "Illustrative
-  dates — actual playlist uses real air dates from your library."
-- **Episode order preview count raised to 25** (was 15 / 10 in earlier
-  patches).
-
-### Note on Air Date sorting accuracy
-
-Air dates **are** fetched from both backends (`originallyAvailableAt` for
-Plex, `PremiereDate` for Jellyfin). If a playlist appears out-of-order in Air
-Date mode, the most likely cause is missing air-date metadata on those
-episodes in your media server — Plex/Jellyfin must have the `Originally
-Available At` / `Premiere Date` field populated for sorting to work.
-
-### Files touched
-
-`app.py` · `templates/new_genre.html` · `static/style.css` ·
-`CHANGELOG.md` · `CLAUDE.md`.
+  uses element+class specificity so it wins over `.number-input { width: 5rem }`
+  (defined later in the CSS file). Added `text-align: left`.
+- **Episode order preview: Air Date** now shows illustrative `YYYY-MM-DD`
+  dates (shows staggered by 3 days, episodes weekly) so chronological
+  interleaving is visible. Note: "Illustrative dates — actual playlist uses
+  real air dates from your library."
+- **Episode order preview count** raised to 25 (was 15).
 
 ## [1.8.3] - 2026-05-27
 
-### Fixed / Improved
+### Added / Fixed
 
-- **Episode order preview now shows episode lists for all modes** — Weighted,
-  Air Date, and Shuffle previously returned only a text message (no list).
-  All five modes now produce a simulated episode list (15 items); Air Date and
-  Shuffle include a brief explanatory note above the list explaining the
-  stand-in approximation.
-- **Per-show weight fields in genre playlist creation** — when Weighted mode
-  is selected, a Weight input appears beside each matched show. Fields are
-  hidden for all other modes. Changing a weight immediately updates the
-  episode order preview. Weights are submitted with the creation form and
-  applied to the initial `playlist_shows` rows via `create_genre_playlist`
-  (new `weights` kwarg) and the smart-rules create path.
-- **Smart rules value input** widened from 220 px to 320 px (≈50% bigger);
-  `min-width: 160px` on selects unchanged.
-
-### Files touched
-
-`app.py` · `service.py` · `templates/new_genre.html` · `static/style.css` ·
-`CHANGELOG.md` · `CLAUDE.md`.
+- **Episode order preview for all modes** — Weighted, Air Date, and Shuffle
+  now produce episode lists (15 items) with a mode note.
+- **Per-show weight fields in genre playlist creation** — Weight inputs appear
+  per-show when Weighted mode is active; live-update the preview; submitted at
+  create time via `create_genre_playlist(weights=)` and smart-rules path.
+- **Smart rules value input** widened to 320 px.
 
 ## [1.8.2] - 2026-05-27
 
 ### Fixed
 
-- **Genre playlist JS crash after "Preview Matches"** — `var showTitles` was
-  declared after `applySortMode()` was called, so `showTitles.length` threw a
-  TypeError that silently killed the entire `<script>` IIFE. The genre pill
-  fetch never started (stuck at "Loading genres…"), and no event listeners
-  were attached. Fixed by moving `showTitles` initialization before
-  `applySortMode()` and adding a `!showTitles` null guard in
-  `updateOrderPreview()`.
-- **Matched shows preview capped at 50** — genres with large libraries
-  (50+ shows) now render only the first 50 tiles with an "… and N more"
-  note; all shows are still added to the playlist.
-- **Episode exclusion `scheduleUpdate is not defined`** — `scheduleUpdate`
-  was defined inside the config-change IIFE and was not visible to the
-  episode-exclusion IIFE. Pulled `scheduleUpdate` / `_debounceTimer` out to
-  outer script scope so both sections share it.
-- **Smart rules value input too narrow** — `.rules-add-value-text` widened
-  from 150 px to 220 px so placeholders like "e.g. Science Fiction" and year
-  values are not clipped. `.rules-add-select` gets `min-width: 160px` for the
-  same reason.
-
-### Files touched
-
-`app.py` · `templates/new_genre.html` · `templates/configure.html` ·
-`static/style.css` · `CHANGELOG.md` · `CLAUDE.md`.
+- **Genre playlist JS crash after "Preview Matches"** — `var showTitles`
+  declared after first use (`applySortMode()`) → TypeError killed IIFE; genre
+  fetch stuck at "Loading genres…", all options unresponsive. Fixed by moving
+  `showTitles` init before `applySortMode()` and adding `!showTitles` guard.
+- **Matched shows preview capped at 50** for performance.
+- **Episode exclusion `scheduleUpdate is not defined`** — `scheduleUpdate` was
+  IIFE-local; moved to outer script scope.
+- **Smart rules inputs widened** from 150 px to 220 px.
 
 ## [1.8.1] - 2026-05-27
 
 ### Fixed
 
-- **Genre playlist filter input** was rendering as a full-height stretched box
-  (CSS `flex-grow:1` expanded it vertically inside the column-flex genre picker).
-  Overridden to `flex: 0 0 auto; width: 200px`.
-- **"Push to / Filter / Auto-update" options bar** was top-aligned instead of
-  vertically centred. Fixed `align-items: flex-start → center` in `.options-bar`.
-- **Episode order description** in the genre playlist builder now always appears
-  below the sort-mode pills (not beside them). Wrapped pills + hint in a
-  `.sort-mode-content` column-flex div — same change applied to configure page.
-- **Block size / Weighted controls** in genre playlist now appear inline inside
-  the Episode order card and are always accessible without scrolling.
-- **Smart Rules add UI** replaced `window.prompt()` dialogs with an inline
-  add-row: type dropdown + value input (or status select) + "Add" button.
-  Enter key commits the rule.
-- **Simulated episode order preview** added to the right of the Matched Shows
-  column in genre playlist creation — shows fictional `S01E01`-style sequence
-  based on selected sort mode and block size so the effect is visible before
-  committing.
-- **Genre playlist preview** no longer requires a playlist name to be set;
-  the Preview button has `formnovalidate` to skip HTML5 required-field
-  validation.
-- **Jellyfin episode exclusion** was always returning "Couldn't load episodes
-  from the backend" because `_user_id` could be `None` when the request params
-  were constructed. Added explicit `_ensure_authenticated()` call at the start
-  of `episodes_for_show`, plus `resp.ok` guard and `try/except` on JSON parse.
-  JS error message now includes the backend name and HTTP status code.
-- **Smart rule changes** (`/rules/add`, `/rules/<id>/delete`) now call
-  `service.sync_playlist(force=True)` instead of only `_rebuild_playlist_tails`,
-  so newly matching shows are discovered immediately after a rule is added or
-  removed.
-
-### Files touched
-
-`app.py` · `jellyfin_client.py` · `templates/new_genre.html` ·
-`templates/configure.html` · `static/style.css` · `CHANGELOG.md` ·
-`README.md` · `CLAUDE.md`.
+- Genre filter input CSS stretch; options bar vertical alignment; episode order
+  description always below pills (genre + configure pages); block size +
+  weighted controls inline in episode order card; smart rules inline add-row
+  (no `prompt()` dialogs); simulated episode order preview panel in genre
+  playlist builder; Preview button works before name is set (`formnovalidate`);
+  Jellyfin episode exclusion (`_ensure_authenticated()` before param
+  construction, `resp.ok` guard); smart rule add/delete calls
+  `sync_playlist(force=True)`.
 
 ## [1.8.0] - 2026-05-26
 

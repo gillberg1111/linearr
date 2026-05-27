@@ -1183,6 +1183,163 @@ def test_apply_rules_content_rating():
     check("apply_rules: content_rating include permits None", "s3" in keys)
 
 
+def test_rest_api_no_auth():
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "test_rest.db")
+    os.environ["LINEARR_API_KEY"] = "test-key-api-123"
+    os.environ.setdefault("PLEX_URL", "")
+    os.environ.setdefault("PLEX_TOKEN", "")
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    import app as _app
+    importlib.reload(_app)
+    flask_app = _app.create_app()
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    try:
+        r = client.get("/api/v1/playlists")
+        check("rest api: no auth → 401", r.status_code == 401)
+        r2 = client.get("/api/v1/playlists", headers={"Authorization": "Bearer wrong"})
+        check("rest api: wrong key → 401", r2.status_code == 401)
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_app)
+        os.environ.pop("LINEARR_API_KEY", None)
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_rest_api_list_empty():
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "test_rest2.db")
+    os.environ["LINEARR_API_KEY"] = "test-key-456"
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    import app as _app
+    importlib.reload(_app)
+    flask_app = _app.create_app()
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    try:
+        r = client.get("/api/v1/playlists", headers={"Authorization": "Bearer test-key-456"})
+        check("rest api: empty list → 200", r.status_code == 200)
+        check("rest api: empty list → []", r.get_json() == [])
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_app)
+        os.environ.pop("LINEARR_API_KEY", None)
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_rest_api_not_found():
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "test_rest3.db")
+    os.environ["LINEARR_API_KEY"] = "key-789"
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    import app as _app
+    importlib.reload(_app)
+    flask_app = _app.create_app()
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    auth = {"Authorization": "Bearer key-789"}
+    try:
+        r = client.get("/api/v1/playlists/999", headers=auth)
+        check("rest api: get missing → 404", r.status_code == 404)
+        r2 = client.post("/api/v1/playlists/999/sync", headers=auth)
+        check("rest api: sync missing → 404", r2.status_code == 404)
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_app)
+        os.environ.pop("LINEARR_API_KEY", None)
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_rest_api_query_param_auth():
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "test_rest4.db")
+    os.environ["LINEARR_API_KEY"] = "query-key"
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    import app as _app
+    importlib.reload(_app)
+    flask_app = _app.create_app()
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    try:
+        r = client.get("/api/v1/playlists?api_key=query-key")
+        check("rest api: query param auth → 200", r.status_code == 200)
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_app)
+        os.environ.pop("LINEARR_API_KEY", None)
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_rest_api_backends():
+    import tempfile, os
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "test_rest5.db")
+    os.environ["LINEARR_API_KEY"] = "bk-key"
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    import app as _app
+    importlib.reload(_app)
+    flask_app = _app.create_app()
+    flask_app.config["TESTING"] = True
+    client = flask_app.test_client()
+    try:
+        r = client.get("/api/v1/backends", headers={"Authorization": "Bearer bk-key"})
+        check("rest api: backends → 200", r.status_code == 200)
+        data = r.get_json()
+        check("rest api: backends is dict", isinstance(data, dict))
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_app)
+        os.environ.pop("LINEARR_API_KEY", None)
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_update_and_retrieve_stats():
+    import tempfile, os, json
+    td = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(td, "stats_test.db")
+    import importlib, db as _db
+    importlib.reload(_db)
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO managed_playlists (name, sort_mode, backend, created_at) VALUES (?,?,?,?)",
+            ("Test", "rotation", "plex", "2026-01-01T00:00:00"),
+        )
+        pid = conn.execute(
+            "SELECT id FROM managed_playlists WHERE name='Test'"
+        ).fetchone()["id"]
+    _db.update_playlist_stats(pid, {"total_episodes": 10, "watched_episodes": 3})
+    with _db.connection() as conn:
+        row = conn.execute(
+            "SELECT last_stats FROM managed_playlists WHERE id=?", (pid,)
+        ).fetchone()
+        data = json.loads(row["last_stats"])
+    check("analytics: total episodes stored", data["total_episodes"] == 10)
+    check("analytics: watched episodes stored", data["watched_episodes"] == 3)
+
+
+def test_stats_none_if_never_synced():
+    from service import PlaylistView
+    v = PlaylistView.__new__(PlaylistView)
+    check("analytics: last_stats default None",
+          getattr(v, "last_stats", "MISSING") is None)
+
+
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #

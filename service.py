@@ -17,6 +17,7 @@ Dual-backend (v1.1.0):
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -35,6 +36,28 @@ from media_client import (
 from rotation import PlaylistItem
 
 log = logging.getLogger(__name__)
+
+
+def _compute_playlist_stats(
+    playlist_id: int,
+    backend: str,
+    client: MediaClient,
+    pl_id: str,
+    configs: list[ShowConfig],
+) -> dict:
+    import datetime as _dt
+    try:
+        episodes = client.list_playlist_episodes(pl_id)
+    except Exception:
+        return {}
+    total = len(episodes)
+    watched = sum(1 for ep in episodes if getattr(ep, "view_count", 0) or 0 > 0)
+    return {
+        "synced_at": _dt.datetime.utcnow().isoformat(timespec="seconds"),
+        "backend": backend,
+        "total_episodes": total,
+        "watched_episodes": watched,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -561,6 +584,8 @@ class PlaylistView:
     crossover_groups: list[dict] = field(default_factory=list)
     # v1.8.0 — smart playlist rules
     rule_mode: str = "genre"
+    # v2.0.0 — analytics
+    last_stats: dict | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -1209,6 +1234,16 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
     added, removed = _rebuild_playlist_tails(row, full_configs, op_label="sync")
     if added or removed:
         log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
+
+    # v2.0.0: collect stats from the first available backend side.
+    for _be, _cl, _pl_id in _clients_for_playlist(row):
+        if not _pl_id:
+            continue
+        stats = _compute_playlist_stats(playlist_id, _be, _cl, _pl_id, full_configs)
+        if stats:
+            db.update_playlist_stats(playlist_id, stats)
+        break
+
     return (added, removed)
 
 
@@ -1428,6 +1463,8 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
             db.list_crossover_groups(playlist_id), all_rows
         ),
         rule_mode=_row_get(row, "rule_mode", "genre") or "genre",
+        last_stats=(json.loads(_row_get(row, "last_stats", None) or ""
+                              ) if _row_get(row, "last_stats", None) else None),
     )
 
 

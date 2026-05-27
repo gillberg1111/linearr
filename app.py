@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-__version__ = "1.8.4"
+__version__ = "2.0.0"
 
 import logging
 import os
+import secrets
 
 from dotenv import load_dotenv
 from flask import (
@@ -301,6 +302,14 @@ def create_app() -> Flask:
     app.secret_key = os.environ.get("FLASK_SECRET") or "dev-secret-change-me"
 
     db.init_db()
+
+    # Ensure an API key exists (generate once, persist).
+    _env_key = os.environ.get("LINEARR_API_KEY", "").strip()
+    if _env_key:
+        db.set_setting("api_key", _env_key)
+    elif not db.get_setting("api_key"):
+        db.set_setting("api_key", secrets.token_urlsafe(32))
+
     scheduler.start()
 
     # Make available_backends visible to all templates (used by the picker
@@ -308,6 +317,27 @@ def create_app() -> Flask:
     @app.context_processor
     def _inject_backends():
         return {"AVAILABLE_BACKENDS": available_backends(), "APP_VERSION": __version__}
+
+    # ------------------------------------------------------------------ #
+    # Auth helper for REST API
+    # ------------------------------------------------------------------ #
+    def _api_key_required(f):
+        from functools import wraps
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            expected = db.get_setting("api_key") or ""
+            if not expected:
+                return jsonify({"error": "API key not configured"}), 503
+            auth_header = request.headers.get("Authorization", "")
+            token = ""
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+            if not token:
+                token = (request.args.get("api_key") or "").strip()
+            if not secrets.compare_digest(token, expected):
+                return jsonify({"error": "Unauthorized"}), 401
+            return f(*args, **kwargs)
+        return wrapper
 
     # ------------------------------------------------------------------ #
     # Thumb proxy — dispatches by thumb reference shape
@@ -1233,6 +1263,137 @@ def create_app() -> Flask:
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
         flash(f"Linked show to {backend.capitalize()} ({link_to_key}). Rebuilding…", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    # -- v2.0.0 settings page ------------------------------------------- #
+
+    @app.route("/settings", methods=["GET", "POST"])
+    def settings():
+        if request.method == "POST":
+            if request.form.get("action") == "regenerate":
+                db.set_setting("api_key", secrets.token_urlsafe(32))
+                flash("API key regenerated.", "ok")
+            return redirect(url_for("settings"))
+        api_key = db.get_setting("api_key") or "(not set)"
+        return render_template("settings.html", api_key=api_key)
+
+    # ── REST API v1 ──────────────────────────────────────────────────── #
+
+    @app.route("/api/v1/playlists", methods=["GET"])
+    @_api_key_required
+    def api_list_playlists():
+        views = service.list_playlist_views()
+        return jsonify([
+            {
+                "id":            v.id,
+                "name":          v.name,
+                "sort_mode":     v.sort_mode,
+                "backend":       v.backend,
+                "playlist_type": v.playlist_type,
+                "auto_sync":     bool(v.auto_sync),
+                "unwatched_only": bool(v.unwatched_only),
+                "shows_count":   len(v.shows),
+            }
+            for v in views
+        ])
+
+    @app.route("/api/v1/playlists/<int:playlist_id>", methods=["GET"])
+    @_api_key_required
+    def api_get_playlist(playlist_id: int):
+        view = service.get_playlist_view(playlist_id)
+        if not view:
+            return jsonify({"error": "Not found"}), 404
+        rules = db.list_rules(playlist_id) if view.playlist_type == "genre" else []
+        return jsonify({
+            "id":            view.id,
+            "name":          view.name,
+            "sort_mode":     view.sort_mode,
+            "backend":       view.backend,
+            "playlist_type": view.playlist_type,
+            "auto_sync":     bool(view.auto_sync),
+            "unwatched_only": bool(view.unwatched_only),
+            "genre_filter":  view.genre_filter,
+            "rule_mode":     view.rule_mode,
+            "shows": [
+                {
+                    "title":            s.get("show_title", s.get("title", "")),
+                    "start_season":     s.get("start_season", 1),
+                    "end_season":       s.get("end_season"),
+                    "include_specials": bool(s.get("include_specials", False)),
+                    "include_movies":   bool(s.get("include_movies", False)),
+                    "weight":           s.get("weight", 1),
+                }
+                for s in view.shows
+            ],
+            "rules": [
+                {
+                    "id":        r["id"],
+                    "rule_type": r["rule_type"],
+                    "operator":  r["operator"],
+                    "value":     r["value"],
+                }
+                for r in rules
+            ],
+        })
+
+    @app.route("/api/v1/playlists/<int:playlist_id>/sync", methods=["POST"])
+    @_api_key_required
+    def api_sync_playlist(playlist_id: int):
+        row = db.get_playlist(playlist_id)
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        try:
+            added, removed = service.sync_playlist(playlist_id, force=True)
+        except Exception as exc:
+            log.exception("api sync failed for playlist %d", playlist_id)
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({"added": added, "removed": removed})
+
+    @app.route("/api/v1/backends", methods=["GET"])
+    @_api_key_required
+    def api_backends():
+        result = {}
+        for backend in available_backends():
+            info: dict = {"configured": True}
+            try:
+                client = get_client(backend)
+                client.list_tv_sections()
+                info["healthy"] = True
+            except Exception as exc:
+                info["healthy"] = False
+                info["error"] = str(exc)
+            if backend == "plex":
+                info["url"] = os.environ.get("PLEX_URL", "")
+            elif backend == "jellyfin":
+                info["url"] = os.environ.get("JELLYFIN_URL", "")
+            result[backend] = info
+        return jsonify(result)
+
+    @app.route("/api/v1/genres", methods=["GET"])
+    @_api_key_required
+    def api_genres_v1():
+        result: dict[str, list[str]] = {}
+        for backend in available_backends():
+            cached = db.get_genre_cache(backend)
+            if cached is not None:
+                result[backend] = cached
+            else:
+                try:
+                    genres = get_client(backend).list_all_genres()
+                    db.set_genre_cache(backend, genres)
+                    result[backend] = genres
+                except Exception:
+                    result[backend] = []
+        return jsonify(result)
+
+    @app.route("/api/v1/playlists/<int:playlist_id>/stats", methods=["GET"])
+    @_api_key_required
+    def api_playlist_stats(playlist_id: int):
+        view = service.get_playlist_view(playlist_id)
+        if not view:
+            return jsonify({"error": "Not found"}), 404
+        if not view.last_stats:
+            return jsonify({"error": "No stats yet — run a sync first"}), 404
+        return jsonify(view.last_stats)
 
     return app
 

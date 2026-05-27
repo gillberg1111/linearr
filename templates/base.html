@@ -18,13 +18,14 @@
         <img class="brand-mark" src="{{ url_for('static', filename='favicon.png') }}" alt="">
         <span class="brand-name">Linearr</span>
       </a>
-      <nav>
+      <nav class="topbar-actions">
         <a href="{{ url_for('new_genre') }}" class="btn">
           <span class="plus">+</span> Genre
         </a>
         <a href="{{ url_for('new_playlist') }}" class="btn btn-primary">
           <span class="plus">+</span> New playlist
         </a>
+        <a href="{{ url_for('settings') }}" class="btn btn-sm btn-ghost" style="margin-left:auto">Settings</a>
       </nav>
     </div>
   </header>

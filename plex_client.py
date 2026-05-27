@@ -257,6 +257,9 @@ class PlexClient(MediaClient):
             log_.exception("list_all_genres failed on Plex")
         return sorted(out)
 
+    def list_tv_sections(self) -> list[str]:
+        return [s.title for s in self._tv_sections()]
+
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         show = self._get_show(rating_key)
         return ShowSummary(
@@ -504,6 +507,13 @@ class PlexClient(MediaClient):
         except Exception as e:
             _log.warning("Plex metadata refresh failed for %s: %s", rating_key, e)
             raise
+
+    def list_playlist_episodes(self, playlist_id: str) -> list:
+        try:
+            pl = self._server.fetchItem(int(playlist_id))
+            return pl.items()
+        except Exception:
+            return []
 
 
 # --------------------------------------------------------------------------- #
