@@ -360,7 +360,7 @@ class JellyfinClient(MediaClient):
                 "parentId": lib_id,
                 "recursive": "true",
                 "includeItemTypes": "Series",
-                "fields": "ProductionYear",
+                "fields": "ProductionYear,ProviderIds",
                 "enableImages": "true",
                 "imageTypeLimit": 1,
                 "enableImageTypes": "Primary",
@@ -371,6 +371,7 @@ class JellyfinClient(MediaClient):
                 rk = str(item["Id"])
                 if rk in seen:
                     continue
+                prov = item.get("ProviderIds") or {}
                 seen[rk] = ShowSummary(
                     rating_key=rk,
                     title=item.get("Name") or "",
@@ -379,6 +380,7 @@ class JellyfinClient(MediaClient):
                     # Jellyfin "thumb" is the item id itself — the URL is
                     # always /Items/{id}/Images/Primary.
                     thumb=rk if item.get("ImageTags", {}).get("Primary") else None,
+                    tvdb_id=prov.get("Tvdb") or None,
                 )
         out = list(seen.values())
         out.sort(key=lambda s: s.title.lower())
@@ -388,12 +390,14 @@ class JellyfinClient(MediaClient):
         item = self._fetch_item(rating_key)
         if item is None:
             raise JellyfinAPIError(f"Jellyfin show {rating_key!r} not found")
+        prov = item.get("ProviderIds") or {}
         return ShowSummary(
             rating_key=str(item["Id"]),
             title=item.get("Name") or "",
             year=item.get("ProductionYear"),
             library="",  # not exposed on the item dto
             thumb=str(item["Id"]) if item.get("ImageTags", {}).get("Primary") else None,
+            tvdb_id=prov.get("Tvdb") or None,
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:
@@ -718,3 +722,21 @@ class JellyfinClient(MediaClient):
         content = resp.content
         ctype = resp.headers.get("Content-Type", "image/jpeg")
         return content, ctype
+
+    # ----- metadata refresh --------------------------------------------------
+
+    def refresh_show_metadata(self, rating_key: str) -> None:
+        """POST /Items/{id}/Refresh — fire-and-forget metadata refresh."""
+        resp = self._request(
+            "POST",
+            f"/Items/{rating_key}/Refresh",
+            params={
+                "MetadataRefreshMode": "FullRefresh",
+                "ImageRefreshMode":    "FullRefresh",
+                "ReplaceAllMetadata":  "false",
+            },
+        )
+        if resp.status_code not in (200, 204):
+            raise JellyfinAPIError(
+                f"Refresh failed for {rating_key}: {resp.status_code}"
+            )

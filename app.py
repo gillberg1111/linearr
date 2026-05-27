@@ -227,7 +227,11 @@ def _missing_side_shows(
         label = "Plex" if tb == "plex" else "Jellyfin"
         for c in configs:
             if c.id_for(tb) is None:
-                out.append({"title": c.title or c.rating_key, "missing": label})
+                out.append({
+                    "title": c.title or c.rating_key,
+                    "missing": label,
+                    "rating_key": c.rating_key,
+                })
     return out
 
 
@@ -550,6 +554,8 @@ def create_app() -> Flask:
             and r.get("plex_rating_key") not in existing_plex
             and r.get("jellyfin_rating_key") not in existing_jf
         ]
+        # Full deduplicated list for the manual-link widget (needs shows on both sides).
+        all_shows = agg
 
         # Build the missing-side warning data: any show that lacks an id
         # for a backend this playlist targets is reported. Most actionable
@@ -558,15 +564,24 @@ def create_app() -> Flask:
         missing_on = []
         for s in view.shows:
             if view.backend in ("both", "jellyfin") and not s.get("jellyfin_show_item_id"):
-                missing_on.append({"title": s["show_title"], "missing": "Jellyfin"})
+                missing_on.append({
+                    "title": s["show_title"],
+                    "missing": "Jellyfin",
+                    "rating_key": s["show_rating_key"],
+                })
             if view.backend in ("both", "plex") and not s.get("plex_show_item_id"):
-                missing_on.append({"title": s["show_title"], "missing": "Plex"})
+                missing_on.append({
+                    "title": s["show_title"],
+                    "missing": "Plex",
+                    "rating_key": s["show_rating_key"],
+                })
 
         selected = {k for k in request.args.get("selected", "").split(",") if k}
         return render_template(
             "playlist.html",
             playlist=view,
             available=available,
+            all_shows=all_shows,
             selected=selected,
             missing_on=missing_on,
         )
@@ -1024,6 +1039,35 @@ def create_app() -> Flask:
             flash(f"Prune failed: {e}", "error")
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
         flash(f"Removed {removed} watched item(s).", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/refresh-metadata", methods=["POST"])
+    def refresh_metadata(playlist_id: int):
+        try:
+            result = service.refresh_playlist_metadata(playlist_id)
+        except Exception as e:
+            log.exception("metadata refresh failed")
+            flash(f"Refresh failed: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        msg = f"Metadata refresh queued for {result['ok']} show(s)."
+        if result["errors"]:
+            msg += f" {result['errors']} failed."
+        flash(msg, "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/shows/<show_rating_key>/link", methods=["POST"])
+    def link_show_backend(playlist_id: int, show_rating_key: str):
+        backend = request.form.get("backend", "")
+        link_to_key = (request.form.get("link_to_key") or "").strip()
+        if not backend or not link_to_key:
+            abort(400)
+        try:
+            service.link_show_backend(playlist_id, show_rating_key, backend, link_to_key)
+        except Exception as e:
+            log.exception("manual link failed")
+            flash(f"Failed to link show: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash(f"Linked show to {backend.capitalize()} ({link_to_key}). Rebuilding…", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
     return app

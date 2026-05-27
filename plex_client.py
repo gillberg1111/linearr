@@ -94,6 +94,15 @@ def _title_match(movie_title: str, show_title: str) -> bool:
     return bool(re.search(pattern, movie_title.lower()))
 
 
+def _tvdb_id_from_guids(guids) -> str | None:
+    """Extract numeric TVDB id from a list of plexapi Guid objects."""
+    for g in (guids or []):
+        gid = getattr(g, "id", "")
+        if gid.startswith("tvdb://"):
+            return gid[len("tvdb://"):]
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # PlexClient
 # --------------------------------------------------------------------------- #
@@ -189,6 +198,7 @@ class PlexClient(MediaClient):
                         year=show.year,
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
+                        tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
                     )
                 )
         out.sort(key=lambda s: s.title.lower())
@@ -220,6 +230,7 @@ class PlexClient(MediaClient):
                         year=show.year,
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
+                        tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
                     )
         out = list(seen.values())
         out.sort(key=lambda s: s.title.lower())
@@ -233,6 +244,7 @@ class PlexClient(MediaClient):
             year=show.year,
             library=show.librarySectionTitle if hasattr(show, "librarySectionTitle") else "",
             thumb=getattr(show, "thumb", None),
+            tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:
@@ -461,6 +473,16 @@ class PlexClient(MediaClient):
         resp = self._server._session.get(url, timeout=10)
         resp.raise_for_status()
         return resp.content, resp.headers.get("Content-Type", "image/jpeg")
+
+    # ----- metadata refresh --------------------------------------------------
+
+    def refresh_show_metadata(self, rating_key: str) -> None:
+        try:
+            show = self._server.fetchItem(int(rating_key))
+            show.refresh()
+        except Exception as e:
+            _log.warning("Plex metadata refresh failed for %s: %s", rating_key, e)
+            raise
 
 
 # --------------------------------------------------------------------------- #

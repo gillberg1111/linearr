@@ -49,6 +49,7 @@ class ShowSummary:
     year: int | None
     library: str
     thumb: str | None  # backend-specific image reference (path for Plex, item-id for Jellyfin)
+    tvdb_id: str | None = None  # TVDB numeric ID for cross-backend matching
 
 
 @dataclass
@@ -233,6 +234,11 @@ class MediaClient(ABC):
     ) -> tuple[bytes, str]:
         """Fetch a poster/thumb by the backend-specific reference returned in
         ShowSummary.thumb etc. Returns (bytes, content_type)."""
+
+    @abstractmethod
+    def refresh_show_metadata(self, rating_key: str) -> None:
+        """Ask the backend to refresh this show's metadata from upstream sources.
+        Fire-and-forget: raise on connection error, swallow 404 gracefully."""
 
 
 # --------------------------------------------------------------------------- #

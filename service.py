@@ -275,9 +275,46 @@ def _find_match(candidates: list, title: str, year: int | None) -> str | None:
     return None
 
 
+def _find_match_by_tvdb(candidates: list[ShowSummary], tvdb_id: str) -> str | None:
+    """Find a show in candidates by TVDB ID."""
+    for s in candidates:
+        if s.tvdb_id == tvdb_id:
+            return s.rating_key
+    return None
+
+
+def _tvdb_id_for_cfg(cfg: ShowConfig) -> str | None:
+    """Look up the TVDB id for a config by asking whichever backend already
+    has an id for this show. Returns None if the show can't be found or has
+    no TVDB id."""
+    for backend in ("plex", "jellyfin"):
+        target_id = cfg.id_for(backend)
+        if not target_id:
+            continue
+        try:
+            summary = _client_for(backend).get_show_summary(target_id)
+            if summary.tvdb_id:
+                return summary.tvdb_id
+        except Exception:
+            continue
+    return None
+
+
+def _find_match_by_tvdb_for_cfg(
+    cfg: ShowConfig, candidates: list[ShowSummary], source_backend: str
+) -> str | None:
+    """If the config already has an id on `source_backend`, look up its TVDB id
+    and search `candidates` for a show with the same TVDB id."""
+    tvdb_id = _tvdb_id_for_cfg(cfg)
+    if not tvdb_id:
+        return None
+    return _find_match_by_tvdb(candidates, tvdb_id)
+
+
 def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: list[str]) -> None:
     """For each config missing an id on a target backend, attempt to find it
-    by title+year. Populates the appropriate *_rating_key field in-place.
+    by TVDB ID first, then by title+year. Populates the appropriate *_rating_key
+    field in-place.
 
     Caches the candidate list per backend so we make at most ONE
     list_all_shows call per backend, regardless of how many configs need
@@ -292,13 +329,21 @@ def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: lis
     for cfg in configs:
         year = _year_hint(cfg)
         if "plex" in target_backends and cfg.plex_rating_key is None:
-            mid = _find_match(cands("plex"), cfg.title or "", year)
+            mid = _find_match_by_tvdb_for_cfg(cfg, cands("plex"), "jellyfin")
             if mid:
                 cfg.plex_rating_key = mid
+            else:
+                mid = _find_match(cands("plex"), cfg.title or "", year)
+                if mid:
+                    cfg.plex_rating_key = mid
         if "jellyfin" in target_backends and cfg.jellyfin_rating_key is None:
-            mid = _find_match(cands("jellyfin"), cfg.title or "", year)
+            mid = _find_match_by_tvdb_for_cfg(cfg, cands("jellyfin"), "plex")
             if mid:
                 cfg.jellyfin_rating_key = mid
+            else:
+                mid = _find_match(cands("jellyfin"), cfg.title or "", year)
+                if mid:
+                    cfg.jellyfin_rating_key = mid
 
 
 def _year_hint(cfg: ShowConfig) -> int | None:
@@ -994,14 +1039,20 @@ def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> 
     jf_cands = _candidates_for("jellyfin") if needs_jf else []
 
     for cfg in needs_plex:
-        matched = _find_match(plex_cands, cfg.title or "", _year_hint(cfg))
+        matched = (
+            _find_match_by_tvdb_for_cfg(cfg, plex_cands, "jellyfin")
+            or _find_match(plex_cands, cfg.title or "", _year_hint(cfg))
+        )
         if matched:
             cfg.plex_rating_key = matched
             db.set_plex_show_item_id(playlist_id, cfg.rating_key, matched)
             log.info("Healed Plex id for '%s' on playlist %s: %s",
                      cfg.title, playlist_id, matched)
     for cfg in needs_jf:
-        matched = _find_match(jf_cands, cfg.title or "", _year_hint(cfg))
+        matched = (
+            _find_match_by_tvdb_for_cfg(cfg, jf_cands, "plex")
+            or _find_match(jf_cands, cfg.title or "", _year_hint(cfg))
+        )
         if matched:
             cfg.jellyfin_rating_key = matched
             db.set_jellyfin_show_item_id(playlist_id, cfg.rating_key, matched)
@@ -1042,6 +1093,53 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
     if added or removed:
         log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
     return (added, removed)
+
+
+def refresh_playlist_metadata(playlist_id: int) -> dict[str, int]:
+    """Trigger metadata refresh on every backend for every non-excluded show
+    in the playlist. Returns {"ok": N, "errors": M} — always returns, never
+    raises."""
+    row = db.get_playlist(playlist_id)
+    if not row:
+        raise ValueError(f"No playlist with id={playlist_id}")
+    ok = 0
+    errors = 0
+    for backend, client, _pl_id in _clients_for_playlist(row):
+        for show_row in db.list_shows(playlist_id):
+            if show_row["is_excluded"]:
+                continue
+            key = (
+                show_row["plex_show_item_id"] if backend == "plex"
+                else show_row["jellyfin_show_item_id"]
+            )
+            if not key:
+                continue
+            try:
+                client.refresh_show_metadata(key)
+                ok += 1
+            except Exception:
+                log.warning("refresh failed for show %s on %s", key, backend)
+                errors += 1
+    return {"ok": ok, "errors": errors}
+
+
+def link_show_backend(
+    playlist_id: int,
+    show_rating_key: str,
+    backend: str,
+    target_key: str,
+) -> None:
+    """Manually link a show's ID on one backend to the existing playlist row.
+    Triggers a tail rebuild on every enabled backend."""
+    if backend == "plex":
+        db.set_plex_show_item_id(playlist_id, show_rating_key, target_key)
+    elif backend == "jellyfin":
+        db.set_jellyfin_show_item_id(playlist_id, show_rating_key, target_key)
+    else:
+        raise ValueError(f"Unknown backend: {backend!r}")
+    row = db.get_playlist(playlist_id)
+    full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
+    _rebuild_playlist_tails(row, full_configs, op_label="manual link")
 
 
 def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig]) -> None:

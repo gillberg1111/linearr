@@ -66,6 +66,20 @@
       <span class="hint">All shows are added with default settings (Season 1+, no specials). Tweak individual shows after creation.</span>
     </div>
 
+    <!-- Block size — hidden until "Blocks" mode is selected -->
+    <div class="sort-mode-bar mode-block-size" id="genreBlockSizeBar" hidden>
+      <span class="sort-mode-label">Block size</span>
+      <input type="number" name="block_size" id="genreBlockSizeInput"
+             min="1" max="20" step="1" value="2" class="number-input">
+      <span class="hint">Episodes per block before rotating to the next show.</span>
+    </div>
+
+    <!-- Weighted note — hidden until "Weighted" mode is selected -->
+    <div class="sort-mode-bar" id="genreWeightHintBar" hidden>
+      <span class="sort-mode-label">Weights</span>
+      <span class="hint">Set per-show weights from the playlist page after creation.</span>
+    </div>
+
     <div class="sort-mode-bar">
       <span class="sort-mode-label">Episode filter</span>
       <label class="toggle">
@@ -120,4 +134,26 @@
       <span class="hint">Click "Preview matches" first to see which shows will be added.</span>
     </div>
   </form>
+
+  <script>
+  (function () {
+    var blockBar   = document.getElementById('genreBlockSizeBar');
+    var weightHint = document.getElementById('genreWeightHintBar');
+    var pills      = document.querySelectorAll('input[name="sort_mode"]');
+
+    function applyMode() {
+      var checked = document.querySelector('input[name="sort_mode"]:checked');
+      var mode = checked ? checked.value : 'rotation';
+      document.querySelectorAll('.pill-toggle.pill-toggle-5 .pill').forEach(function(p) {
+        var r = p.querySelector('input[name="sort_mode"]');
+        if (r) p.classList.toggle('is-active', r.checked);
+      });
+      if (blockBar)   blockBar.hidden   = (mode !== 'rotation_blocks');
+      if (weightHint) weightHint.hidden = (mode !== 'rotation_weighted');
+    }
+
+    pills.forEach(function(r) { r.addEventListener('change', applyMode); });
+    applyMode();
+  })();
+  </script>
 {% endblock %}

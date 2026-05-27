@@ -43,7 +43,33 @@
       </div>
       <ul class="warning-banner-list">
         {% for m in missing_on %}
-          <li><strong>{{ m.title }}</strong> — not in your {{ m.missing }} library</li>
+          <li>
+            <strong>{{ m.title }}</strong> — not in your {{ m.missing }} library
+            {% if AVAILABLE_BACKENDS|length > 1 and playlist.backend == 'both' %}
+              <details class="link-manually" style="display:inline;margin-left:0.5rem">
+                <summary class="hint" style="cursor:pointer">Link manually…</summary>
+                <form method="post"
+                      action="{{ url_for('link_show_backend', playlist_id=playlist.id, show_rating_key=m.rating_key) }}"
+                      class="inline-form link-form" style="margin-top:0.25rem">
+                  <input type="hidden" name="backend"
+                         value="{{ 'jellyfin' if m.missing == 'Jellyfin' else 'plex' }}">
+                  <select name="link_to_key" class="link-select" required style="max-width:300px">
+                    <option value="">— pick a show —</option>
+                    {% for s in all_shows %}
+                      {% if (m.missing == 'Jellyfin' and s.jellyfin_rating_key)
+                         or (m.missing == 'Plex' and s.plex_rating_key) %}
+                        <option value="{{ s.jellyfin_rating_key if m.missing == 'Jellyfin'
+                                                        else s.plex_rating_key }}">
+                          {{ s.title }}{% if s.year %} ({{ s.year }}){% endif %}
+                        </option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="btn btn-sm">Link</button>
+                </form>
+              </details>
+            {% endif %}
+          </li>
         {% endfor %}
       </ul>
       <p class="warning-banner-foot">
@@ -409,6 +435,10 @@
       <form method="post" action="{{ url_for('sync_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn btn-primary">Sync now</button>
         <span class="hint">Re-checks every backend for new episodes / seasons and updates the playlist immediately (otherwise this runs on the background sweep).</span>
+      </form>
+      <form method="post" action="{{ url_for('refresh_metadata', playlist_id=playlist.id) }}">
+        <button type="submit" class="btn btn-ghost">Refresh metadata</button>
+        <span class="hint">Ask Plex/Jellyfin to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
       </form>
       <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
