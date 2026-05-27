@@ -121,16 +121,20 @@ fall-asleep buffer.
   `Push to: Both / Plex / Jellyfin`. With only one backend configured, the
   picker is hidden and that backend is used.
   - **Cross-backend matching:** shows added to a "Both" playlist are matched
-    on the other side by normalized title + year. The matched IDs are
-    persisted, so each backend's playlist references the correct local item.
+    on the other side by **TVDB ID first**, then normalized title + year as
+    a fallback. TVDB ID bridges cases where backends disagree on the title
+    (e.g. "Stargirl" on Plex ↔ "DC's Stargirl" on Jellyfin). Matched IDs
+    are persisted so each backend's playlist references the correct local item.
   - **Heal-on-sync:** every sync re-attempts matching for shows missing an
-    ID on one side. Add a show to a previously-empty Jellyfin library and
-    the next sync auto-resolves it onto every "Both" playlist that should
-    contain it — no manual reconciliation.
+    ID on one side, using the same TVDB-first strategy. Add a show to a
+    previously-empty Jellyfin library and the next sync auto-resolves it onto
+    every "Both" playlist that should contain it — no manual reconciliation.
   - **Missing-side warning:** an informational (never blocking) banner lists
     any shows that aren't on every targeted backend. Add the show to the
-    missing library and the next sync heals it; or remove it from the
-    playlist; or switch the playlist to a single backend.
+    missing library and the next sync heals it automatically. Or use the
+    **Link manually…** disclosure in the banner to pick the exact show on
+    the other backend — useful when the TVDB ID is missing on one side and
+    the titles differ enough that auto-matching fails.
 - **Five sort modes per playlist:**
   - **Rotation** — round-robin in the order you picked shows.
   - **Weighted Rotation** — per-show weight (1–20); heavier shows get more
@@ -187,7 +191,15 @@ fall-asleep buffer.
   to create a playlist that auto-populates from your library by genre
   (e.g. "Sci-Fi, Drama"). Background sync re-queries your library every
   sweep and auto-adds new shows matching the chosen genres. Exclude
-  individual shows and they stay excluded across syncs.
+  individual shows and they stay excluded across syncs. When creating, the
+  block-size and weight fields appear and hide automatically as you toggle
+  between sort modes — matching the configure-page behaviour.
+- **Metadata refresh** — a **Refresh metadata** button in the maintenance
+  section of each playlist page asks every configured backend to re-fetch
+  metadata for all shows in the playlist (Plex: `PUT /library/metadata/{id}/refresh`;
+  Jellyfin: `POST /Items/{id}/Refresh`). Useful when air dates look wrong
+  or a newly added season isn't appearing. The refresh is server-side
+  asynchronous — the flash message says "queued" to set the right expectation.
 - **Manual "Sync Now" button** — force an immediate sync on any playlist,
   bypassing the auto-update toggle. Reports added/removed counts.
 - **Per-episode exclusions** — exclude specific episodes from a show within
@@ -776,7 +788,7 @@ static/
 images/                      — Logo, banner, favicons, Unraid icon (SVG + PNG)
 ca_profile.xml               — Repository-wide metadata for Unraid CA
 tests.py                     — Self-contained unit tests (rotation, safety
-                                guards, title matching, dispatch — 87 total)
+                                guards, title matching, dispatch — 136 total)
 ```
 
 Each backend's playlist is the source of truth for *its own* episode order.
