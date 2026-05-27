@@ -502,14 +502,7 @@
         <span class="hint">Updated each sync. Reflects {{ 'Plex' if playlist.last_stats.backend == 'plex' else 'Jellyfin' }} library state.</span>
       </div>
       {% set total = playlist.last_stats.total_episodes or 0 %}
-      {% set watched = playlist.last_stats.watched_episodes or 0 %}
-      {% set pct = ((watched / total * 100)|int) if total else 0 %}
-      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:0.8rem">
-        <div class="stats-bar stats-bar-large">
-          <div class="stats-bar-fill" style="width:{{ pct }}%"></div>
-        </div>
-        <span class="stats-label">{{ total }} episodes in playlist · {{ watched }} watched ({{ pct }}%)</span>
-      </div>
+      <p class="stats-label" style="margin-top:0.8rem">{{ total }} episode{{ 's' if total != 1 else '' }} in playlist</p>
     </section>
   {% endif %}
 

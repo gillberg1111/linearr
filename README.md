@@ -222,9 +222,11 @@ fall-asleep buffer.
 - **Never destructive** — two-layer safety guard refuses any backend API
   call that could delete media or library items (Plex's monkey-patch on
   `Episode/Show/Season/Movie.delete` + Jellyfin's HTTP-layer DELETE allow-list).
-- **Playlist analytics** — after every sync, watched/total episode counts are
-  stored for each playlist. Index cards show a progress bar; each playlist's
-  detail page shows a larger stats bar with watched percentage.
+- **Playlist stats** — after every sync, the current episode count is stored
+  for each playlist and shown on the detail page. The watched-episode fraction
+  is intentionally not displayed: because Linearr prunes watched episodes down
+  to the `WATCHED_KEEP` buffer, a watched percentage would always read near
+  zero and be misleading.
 - **REST API** (`/api/v1/`) — JSON endpoints for external integrations
   (Home Assistant, Sonarr webhooks, shell scripts). All routes require a
   bearer token or `?api_key=` query param. The API key is auto-generated on

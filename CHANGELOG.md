@@ -3,6 +3,17 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.8] - 2026-05-27
+
+### Changed
+
+- **Playlist stats simplified.** The watched-episode progress bar and
+  watched/total fraction have been removed. Because Linearr prunes watched
+  episodes down to the configured `WATCHED_KEEP` buffer after every sync,
+  the watched count was always artificially low and the percentage was
+  meaningless. The Stats section now shows only the current episode count
+  in the playlist — a number that is always accurate and useful.
+
 ## [2.0.7] - 2026-05-27
 
 ### Added
