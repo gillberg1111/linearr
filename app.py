@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 
 import logging
 import os
@@ -486,11 +486,14 @@ def create_app() -> Flask:
     @app.route("/new/show", methods=["GET"])
     def new_show_playlist():
         backends = available_backends()
+        with db.connection() as conn:
+            existing_names = [r[0] for r in conn.execute(
+                "SELECT name FROM managed_playlists").fetchall()]
         if not backends:
             flash("No backends configured. Set PLEX_URL+PLEX_TOKEN and/or "
                   "JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD.", "error")
             return render_template("new.html", shows=[], prev_name="", selected=set(),
-                                   default_backend="plex")
+                                   default_backend="plex", existing_names=existing_names)
         try:
             shows = _aggregated_shows()
         except Exception as e:
@@ -505,6 +508,7 @@ def create_app() -> Flask:
             prev_name=prev_name,
             selected=selected,
             default_backend=("both" if len(backends) > 1 else backends[0]),
+            existing_names=existing_names,
         )
 
     @app.route("/new/configure", methods=["POST"])
@@ -797,6 +801,9 @@ def create_app() -> Flask:
         if not backends:
             flash("No backends configured. Set credentials in your .env first.", "error")
             return redirect(url_for("index"))
+        with db.connection() as conn:
+            existing_names = [r[0] for r in conn.execute(
+                "SELECT name FROM managed_playlists").fetchall()]
         return render_template(
             "new_genre.html",
             backends=backends,
@@ -806,6 +813,7 @@ def create_app() -> Flask:
             prev_genres=request.args.get("genres", ""),
             prev_sort_mode=request.args.get("sort_mode", "rotation"),
             prev_rule_mode=request.args.get("rule_mode", "genre"),
+            existing_names=existing_names,
         )
 
     @app.route("/new/genre", methods=["POST"])
@@ -956,6 +964,9 @@ def create_app() -> Flask:
                           f"({len(matched_shows or [])} shows matched).", "ok")
                     return redirect(url_for("view_playlist", playlist_id=pid))
 
+        with db.connection() as conn:
+            existing_names = [r[0] for r in conn.execute(
+                "SELECT name FROM managed_playlists").fetchall()]
         return render_template(
             "new_genre.html",
             backends=backends,
@@ -968,6 +979,7 @@ def create_app() -> Flask:
             prev_unwatched=unwatched_only,
             prev_auto_sync=auto_sync,
             prev_rule_mode=rule_mode,
+            existing_names=existing_names,
         )
 
     @app.route("/playlist/<int:playlist_id>/exclude", methods=["POST"])

@@ -246,7 +246,7 @@
       <div class="commit-card">
         <button type="submit" name="action" value="create"
                 class="btn btn-primary btn-large"
-                {% if not prev_name or matched_shows is none or not matched_shows %}disabled{% endif %}>
+                {% if matched_shows is none or not matched_shows %}disabled{% endif %}>
           <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9;">
           Create Playlist
         </button>
@@ -677,6 +677,37 @@
     });
 
     renderRules();
+  })();
+
+  // ── Auto-name + dynamic Create button enable ────────────────────────────
+  (function () {
+    var EXISTING_NAMES  = new Set({{ existing_names | tojson }});
+    var hasMatchedShows = {{ (matched_shows is not none and matched_shows|length > 0) | tojson }};
+
+    function nextAutoName() {
+      for (var i = 1; i <= 999; i++) {
+        var n = 'Linearr ' + String(i).padStart(3, '0');
+        if (!EXISTING_NAMES.has(n)) return n;
+      }
+      return 'Linearr Playlist';
+    }
+
+    var createBtn  = document.querySelector('button[name="action"][value="create"]');
+    var nameInput  = document.querySelector('input[name="name"]');
+
+    function updateCreateBtn() {
+      if (!createBtn) return;
+      createBtn.disabled = !(nameInput && nameInput.value.trim() && hasMatchedShows);
+    }
+
+    if (nameInput) nameInput.addEventListener('input', updateCreateBtn);
+    updateCreateBtn();
+
+    // Auto-fill name before form submit if blank
+    var builderFormOuter = document.querySelector('form.builder');
+    if (builderFormOuter) builderFormOuter.addEventListener('submit', function() {
+      if (nameInput && !nameInput.value.trim()) nameInput.value = nextAutoName();
+    }, true); // capture phase so it runs before the rules serializer
   })();
   </script>
 {% endblock %}

@@ -85,7 +85,23 @@
 
   <script src="{{ url_for('static', filename='picker.js') }}"></script>
   <script>
+    var EXISTING_NAMES = new Set({{ existing_names | tojson }});
+    function nextAutoName() {
+      for (var i = 1; i <= 999; i++) {
+        var n = 'Linearr ' + String(i).padStart(3, '0');
+        if (!EXISTING_NAMES.has(n)) return n;
+      }
+      return 'Linearr Playlist';
+    }
+
     const configureBtn = document.getElementById('configureBtn');
+    const nameInput = document.querySelector('input[name="name"]');
+
+    // Auto-fill name before submit if left blank
+    document.getElementById('builderForm').addEventListener('submit', function() {
+      if (!nameInput.value.trim()) nameInput.value = nextAutoName();
+    });
+
     setupPicker({
       grid:            document.getElementById('showList'),
       tray:            document.getElementById('selectedTray'),

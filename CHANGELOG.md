@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.6] - 2026-05-27
+
+### Fixed
+
+- **Auto-name on proceed.** Submitting the show picker or genre builder without
+  entering a playlist name now auto-generates "Linearr 001" (incrementing to
+  the first unused number) instead of sending a blank name to the server.
+- **Genre page "Create Playlist" button permanently disabled.** The button was
+  server-rendered as `disabled` when no name was present, with no client-side
+  logic to re-enable it. A new JS block watches the name input and dynamically
+  toggles `disabled` based on whether a name has been typed and whether a
+  preview has been run. The `prev_name` condition was removed from the
+  server-side disabled check (the `matched_shows` guard alone is sufficient
+  for the initial state before any preview).
+
 ## [2.0.5] - 2026-05-27
 
 ### Changed
