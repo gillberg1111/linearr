@@ -5,7 +5,7 @@
 # Linearr
 
 ### The missing show sequencer for Plex and Jellyfin.
-Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
+Five sort modes. Two backends. Your rules.
 
 ---
 
