@@ -3,6 +3,27 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.2] - 2026-05-27
+
+### Changed
+
+- **Playlist type picker.** "+ New Playlist" now opens an interstitial page
+  (`/new`) with two large cards — "By Show" and "By Genre" — before routing
+  to the respective creation flow. The separate "+ Genre" topbar button is
+  removed; both playlist types are now discovered through a single entry
+  point. Back-navigation on the show picker and configure page updated.
+- **"Configure →" floating button on show picker.** "Next: configure →" moved
+  from the sticky toolbar into a sticky commit-bar at the bottom (consistent
+  with the configure page), disabled until at least one show is selected.
+  The toolbar now holds only the name input, filter, counter, and clear button.
+
+### Fixed
+
+- **Desktop pill background full-width.** `.pill-toggle` inside a column-flex
+  `.sort-mode-content` (which has `flex: 1`) stretched to the full section
+  width. Added `align-self: flex-start` to the global `.pill-toggle` rule so
+  it always sizes to its content.
+
 ## [2.0.1] - 2026-05-27
 
 ### Fixed

@@ -97,6 +97,7 @@
       if (opts.emptyMsg) {
         opts.emptyMsg.hidden = total > 0 || allTiles.length === 0;
       }
+      if (opts.onSelectionChange) opts.onSelectionChange(selected.length);
     }
 
     // Event wiring

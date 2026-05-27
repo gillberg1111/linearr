@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}New rotating playlist{% endblock %}
+{% block title %}New playlist — pick shows{% endblock %}
 {% block content %}
-  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+  <a href="{{ url_for('new_type') }}" class="back">← Choose type</a>
   <div class="page-head">
-    <h1>New rotating playlist</h1>
+    <h1>By Show</h1>
     <p class="subtitle">
-      Pick the shows in the order you want them to play. You'll set seasons/specials/sort on the next step.
+      Pick the shows in the order you want them to play. You'll set seasons, specials, and sort order on the next step.
     </p>
   </div>
 
@@ -20,7 +20,6 @@
       <input type="text" id="filterInput" placeholder="Filter shows…" class="filter-input">
       <span class="counter"><span id="selectedCount">0</span> selected</span>
       <button type="button" id="clearBtn" class="btn btn-sm">Clear selection</button>
-      <button type="submit" class="btn btn-primary">Next: configure →</button>
     </div>
 
     {% if not shows %}
@@ -74,10 +73,17 @@
 
       <p class="empty-state" id="emptyResults" hidden>No shows match that filter.</p>
     {% endif %}
+
+    <div class="commit-bar">
+      <button type="submit" id="configureBtn" class="btn btn-primary btn-large" disabled>
+        Configure →
+      </button>
+    </div>
   </form>
 
   <script src="{{ url_for('static', filename='picker.js') }}"></script>
   <script>
+    const configureBtn = document.getElementById('configureBtn');
     setupPicker({
       grid:            document.getElementById('showList'),
       tray:            document.getElementById('selectedTray'),
@@ -88,6 +94,9 @@
       clearBtn:        document.getElementById('clearBtn'),
       emptyMsg:        document.getElementById('emptyResults'),
       formRoot:        document.getElementById('builderForm'),
+      onSelectionChange: function(count) {
+        configureBtn.disabled = count === 0;
+      },
     });
   </script>
 {% endblock %}

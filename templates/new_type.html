@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}New Playlist{% endblock %}
+{% block content %}
+  <a href="{{ url_for('index') }}" class="back">← All playlists</a>
+  <div class="page-head">
+    <h1>New Playlist</h1>
+    <p class="subtitle">Choose how your playlist will be built.</p>
+  </div>
+
+  <div class="type-picker">
+    <a href="{{ url_for('new_show_playlist') }}" class="type-card">
+      <div class="type-card-title">By Show</div>
+      <div class="type-card-desc">
+        Hand-pick the shows you want and set their rotation order. Configure season ranges, episode ordering, specials, and associated movies per show.
+      </div>
+      <span class="type-card-cta">Pick shows →</span>
+    </a>
+    <a href="{{ url_for('new_genre') }}" class="type-card">
+      <div class="type-card-title">By Genre</div>
+      <div class="type-card-desc">
+        Auto-populate from genre tags in your library. Add smart rules to filter by year, content rating, community score, show status, and more.
+      </div>
+      <span class="type-card-cta">Set up genre playlist →</span>
+    </a>
+  </div>
+{% endblock %}

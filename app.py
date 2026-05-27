@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 import logging
 import os
@@ -477,10 +477,14 @@ def create_app() -> Flask:
         return render_template("index.html", playlists=views)
 
     # ------------------------------------------------------------------ #
-    # Create playlist: pick → configure → commit
+    # Create playlist: type picker → pick → configure → commit
     # ------------------------------------------------------------------ #
     @app.route("/new", methods=["GET"])
-    def new_playlist():
+    def new_type():
+        return render_template("new_type.html")
+
+    @app.route("/new/show", methods=["GET"])
+    def new_show_playlist():
         backends = available_backends()
         if not backends:
             flash("No backends configured. Set PLEX_URL+PLEX_TOKEN and/or "
@@ -509,10 +513,10 @@ def create_app() -> Flask:
         show_keys = request.form.getlist("shows")
         if not name:
             flash("Playlist name is required.", "error")
-            return redirect(url_for("new_playlist"))
+            return redirect(url_for("new_show_playlist"))
         if not show_keys:
             flash("Pick at least one show.", "error")
-            return redirect(url_for("new_playlist"))
+            return redirect(url_for("new_show_playlist"))
 
         action = request.form.get("action", "preview")
         sort_mode = request.form.get("sort_mode", "rotation")

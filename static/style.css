@@ -734,6 +734,7 @@ a { color: var(--accent); }
 }
 .pill-toggle {
   display: inline-flex;
+  align-self: flex-start;  /* prevent stretching to full width in column-flex parents */
   background: var(--bg-elev-2);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -773,6 +774,48 @@ a { color: var(--accent); }
   z-index: 4;
 }
 .btn-large { font-size: 1.05rem; padding: 0.8rem 1.6rem; box-shadow: var(--shadow-md); }
+
+/* ---------- playlist type picker (/new interstitial) ---------- */
+.type-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  margin-top: 1.5rem;
+  max-width: 680px;
+}
+.type-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.4rem;
+  text-decoration: none;
+  color: var(--fg);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.type-card:hover {
+  border-color: var(--accent);
+  background: rgba(77,150,255,0.05);
+}
+.type-card-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.type-card-desc {
+  font-size: 0.88rem;
+  color: var(--fg-dim);
+  line-height: 1.55;
+  flex: 1;
+}
+.type-card-cta {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 0.4rem;
+}
 
 /* ---------- rotation list (playlist detail) ---------- */
 .rotation-list { list-style: none; padding: 0; margin: 0; }
@@ -1449,4 +1492,6 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .maintenance-row .btn { flex: 1 1 auto; min-width: 120px; }
 
   .reorder-actions { flex-wrap: wrap; gap: 0.4rem; }
+
+  .type-picker { grid-template-columns: 1fr; }
 }

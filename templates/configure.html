@@ -2,7 +2,7 @@
 {% block title %}Configure rotation{% endblock %}
 {% block content %}
   {% if mode == 'new' %}
-    <a href="{{ url_for('new_playlist', name=name, selected=show_keys|join(',')) }}" class="back">← Back to show picker</a>
+    <a href="{{ url_for('new_show_playlist', name=name, selected=show_keys|join(',')) }}" class="back">← Back to show picker</a>
   {% else %}
     <a href="{{ url_for('view_playlist', playlist_id=playlist_id, selected=show_keys|join(',')) }}" class="back">← Back to {{ name }}</a>
   {% endif %}
