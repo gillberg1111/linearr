@@ -24,39 +24,6 @@
     {% endfor %}
 
     {% if mode == 'new' %}
-      {% if AVAILABLE_BACKENDS|length > 1 %}
-      <div class="sort-mode-bar">
-        <span class="sort-mode-label">Push to</span>
-        <div class="pill-toggle pill-toggle-3">
-          <label class="pill {% if backend == 'both' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="both"
-                   {% if backend == 'both' %}checked{% endif %}>
-            <span>Both</span>
-          </label>
-          <label class="pill {% if backend == 'plex' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="plex"
-                   {% if backend == 'plex' %}checked{% endif %}>
-            <span>Plex</span>
-          </label>
-          <label class="pill {% if backend == 'jellyfin' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="jellyfin"
-                   {% if backend == 'jellyfin' %}checked{% endif %}>
-            <span>Jellyfin</span>
-          </label>
-        </div>
-        <span class="hint">
-          {% if backend == 'both' %}
-            Linearr will mirror this playlist to your Plex AND Jellyfin server. Shows missing on one side are flagged below.
-          {% elif backend == 'plex' %}
-            This playlist will only be created on Plex.
-          {% else %}
-            This playlist will only be created on Jellyfin.
-          {% endif %}
-        </span>
-      </div>
-      {% else %}
-        <input type="hidden" name="backend" value="{{ backend }}">
-      {% endif %}
 
       <div class="sort-mode-bar">
         <span class="sort-mode-label">Episode order</span>
@@ -112,30 +79,47 @@
         <span class="hint">Episodes per block before rotating to the next show.</span>
       </div>
 
-      <div class="sort-mode-bar">
-        <span class="sort-mode-label">Episode filter</span>
-        <label class="toggle">
-          <input type="checkbox" name="unwatched_only" value="1" id="unwatchedOnly"
-                 {% if unwatched_only %}checked{% endif %}>
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span class="toggle-label">Only unwatched episodes</span>
-        </label>
-        <span class="hint">
-          When on, episodes you've already watched (anywhere in Plex) are excluded.
-        </span>
-      </div>
+      {# ── Options: Push to | Episode filter | Auto-update ─────────────── #}
+      <div class="sort-mode-bar options-bar">
 
-      <div class="sort-mode-bar">
-        <span class="sort-mode-label">Auto-update</span>
-        <label class="toggle">
-          <input type="checkbox" name="auto_sync" value="1" id="autoSync"
-                 {% if auto_sync %}checked{% endif %}>
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          <span class="toggle-label">Add new episodes &amp; seasons automatically</span>
-        </label>
-        <span class="hint">
-          When on, the background sweep splices newly-aired episodes (and matching movies) into this playlist. Turn off to lock it at creation.
-        </span>
+        {% if AVAILABLE_BACKENDS|length > 1 %}
+        <div class="options-group">
+          <span class="sort-mode-label">Push to</span>
+          <div class="pill-toggle pill-toggle-3">
+            {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
+              <label class="pill {% if backend == val %}is-active{% endif %}">
+                <input type="radio" name="backend" value="{{ val }}"
+                       {% if backend == val %}checked{% endif %}>
+                <span>{{ lbl }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+        {% else %}
+          <input type="hidden" name="backend" value="{{ backend }}">
+        {% endif %}
+
+        <div class="options-group">
+          <span class="sort-mode-label">Filter</span>
+          <label class="toggle">
+            <input type="checkbox" name="unwatched_only" value="1" id="unwatchedOnly"
+                   {% if unwatched_only %}checked{% endif %}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Unwatched only</span>
+          </label>
+        </div>
+
+        <div class="options-group">
+          <span class="sort-mode-label">Auto-update</span>
+          <label class="toggle">
+            <input type="checkbox" name="auto_sync" value="1" id="autoSync"
+                   {% if auto_sync %}checked{% endif %}>
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Auto-add new episodes</span>
+          </label>
+          <span class="hint">(Every {{ "10" }} min)</span>
+        </div>
+
       </div>
     {% else %}
       <input type="hidden" name="sort_mode" value="{{ sort_mode }}">
@@ -334,9 +318,14 @@
 
           {# Per-episode exclusions (v1.2.0). Lazy-loaded on expand to keep
              the configure page snappy for shows with hundreds of episodes. #}
+          {% set _ep_be = m.source_backend if m
+                        else ('plex' if c and c.plex_rating_key else 'jellyfin') %}
+          {% set _ep_id = (c.plex_rating_key if _ep_be == 'plex' else c.jellyfin_rating_key)
+                        if c else rk %}
           <details class="exclude-section"
-                   data-show="{{ rk }}"
-                   data-backend="{{ (m.source_backend if m else 'plex') }}">
+                   data-show="{{ _ep_id or rk }}"
+                   data-backend="{{ _ep_be }}"
+                   data-is-both="{{ 'true' if (backend == 'both' and c and c.plex_rating_key and c.jellyfin_rating_key) else '' }}">
             <summary class="exclude-summary">
               <span class="exclude-summary-label">Exclude individual episodes</span>
               <span class="hint exclude-summary-count">
@@ -708,6 +697,16 @@
           });
 
           content.innerHTML = '';
+          // Cross-backend info note for 'both' playlists
+          if (section.dataset.isBoth === 'true') {
+            const note = document.createElement('p');
+            note.className = 'hint';
+            note.style.cssText = 'margin: 0 0 0.5rem; color: var(--muted);';
+            note.textContent =
+              'Exclusions are stored as season/episode numbers and apply to both ' +
+              'Plex and Jellyfin. Episode lists may vary slightly between backends.';
+            wrap.insertBefore(note, wrap.firstChild);
+          }
           content.appendChild(wrap);
           content.dataset.loaded = '1';
           // Re-sync hidden input in case the initial parse normalized something.

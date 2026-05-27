@@ -6,47 +6,84 @@
   <div class="page-head">
     <h1>New genre playlist</h1>
     <p class="subtitle">
-      A playlist that auto-populates from your library by genre. Background sync
-      re-checks every {{ "10" }} minutes and adds new shows matching the chosen
-      genres. Shows you exclude later stay excluded.
+      A playlist that auto-populates from your library by genre. The background
+      sync re-checks every {{ "10" }} minutes and adds new shows matching the
+      chosen genres. Shows you exclude stay excluded.
     </p>
   </div>
 
   <form method="post" action="{{ url_for('new_genre_action') }}" class="builder">
+
+    {# ── Toolbar: name + preview button ────────────────────────────────── #}
     <div class="builder-toolbar">
       <input type="text" name="name" required placeholder="Playlist name"
              class="name-input" autofocus value="{{ prev_name or '' }}">
-      <input type="text" name="genres" placeholder="Genres (comma-separated, e.g. Science Fiction, Drama)"
-             class="filter-input" style="flex: 2;" value="{{ prev_genres or '' }}">
-      <button type="submit" name="action" value="preview" class="btn">Preview matches</button>
+      <button type="submit" name="action" value="preview" class="btn">
+        Preview matches
+      </button>
     </div>
-    <p class="hint" style="margin-top:0.4rem">Genre names must match exactly what your media server uses. Check the genre browser in Plex or Jellyfin if you get zero results — e.g. Plex uses "Science Fiction", not "Sci-Fi".</p>
 
-    {% if backends|length > 1 %}
-      <div class="sort-mode-bar">
-        <span class="sort-mode-label">Push to</span>
-        <div class="pill-toggle pill-toggle-3">
-          <label class="pill {% if default_backend == 'both' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="both"
-                   {% if default_backend == 'both' %}checked{% endif %}>
-            <span>Both</span>
-          </label>
-          <label class="pill {% if default_backend == 'plex' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="plex"
-                   {% if default_backend == 'plex' %}checked{% endif %}>
-            <span>Plex</span>
-          </label>
-          <label class="pill {% if default_backend == 'jellyfin' %}is-active{% endif %}">
-            <input type="radio" name="backend" value="jellyfin"
-                   {% if default_backend == 'jellyfin' %}checked{% endif %}>
-            <span>Jellyfin</span>
-          </label>
+    {# ── Rule mode toggle ──────────────────────────────────────────────── #}
+    <div class="sort-mode-bar">
+      <span class="sort-mode-label">Mode</span>
+      <div class="pill-toggle" id="ruleModeToggle">
+        <label class="pill {% if prev_rule_mode != 'rules' %}is-active{% endif %}" data-mode="genre">
+          <input type="radio" name="rule_mode" value="genre"
+                 {% if prev_rule_mode != 'rules' %}checked{% endif %}>
+          <span>Genre mode</span>
+        </label>
+        <label class="pill {% if prev_rule_mode == 'rules' %}is-active{% endif %}" data-mode="rules">
+          <input type="radio" name="rule_mode" value="rules"
+                 {% if prev_rule_mode == 'rules' %}checked{% endif %}>
+          <span>Smart rules</span>
+        </label>
+      </div>
+      <span class="hint" id="ruleModeHint">
+        Pick one or more genres; all matching shows are added to the playlist.
+      </span>
+    </div>
+
+    {# ── Genre picker (visible in genre mode) ──────────────────────────── #}
+    <div class="sort-mode-bar genre-picker-bar" id="genrePickerSection"
+         {% if prev_rule_mode == 'rules' %}hidden{% endif %}>
+      <span class="sort-mode-label">Genres</span>
+      <div class="genre-picker">
+        <div id="genreSelectedTags" class="genre-tags-row"></div>
+        <input type="text" id="genreFilterInput"
+               placeholder="Filter genres…"
+               class="filter-input" style="max-width:220px; margin-top:0.4rem">
+        <div id="genrePillGrid" class="genre-pill-grid">
+          <span class="hint">Loading genres…</span>
         </div>
       </div>
-    {% else %}
-      <input type="hidden" name="backend" value="{{ default_backend }}">
-    {% endif %}
+      {# Hidden input carries CSV value on form submit #}
+      <input type="hidden" name="genres" id="genresHidden"
+             value="{{ prev_genres or '' }}">
+    </div>
 
+    {# ── Smart rules builder (visible in rules mode) ───────────────────── #}
+    <div class="sort-mode-bar genre-picker-bar" id="rulesSection"
+         {% if prev_rule_mode != 'rules' %}hidden{% endif %}>
+      <span class="sort-mode-label">Rules</span>
+      <div class="rules-builder">
+        <div id="rulesList"></div>
+        <div class="rules-add-bar">
+          <select id="rulesAddType" class="rules-add-select">
+            <option value="">+ Add rule…</option>
+            <option value="genre">Genre</option>
+            <option value="year_min">Year (min)</option>
+            <option value="year_max">Year (max)</option>
+            <option value="status">Status</option>
+            <option value="content_rating">Content rating</option>
+            <option value="season_min">Season count (min)</option>
+            <option value="season_max">Season count (max)</option>
+            <option value="rating_min">Rating (min)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    {# ── Episode order ──────────────────────────────────────────────────── #}
     <div class="sort-mode-bar">
       <span class="sort-mode-label">Episode order</span>
       <div class="pill-toggle pill-toggle-5">
@@ -64,54 +101,89 @@
           </label>
         {% endfor %}
       </div>
-      <span class="hint">All shows are added with default settings (Season 1+, no specials). Tweak individual shows after creation.</span>
+      <span class="hint">All shows are added with default settings
+        (Season 1+, no specials). Tweak individual shows after creation.</span>
     </div>
 
-    <!-- Block size — hidden until "Blocks" mode is selected -->
-    <div class="sort-mode-bar mode-block-size" id="genreBlockSizeBar" hidden>
+    {# Block size — shown when "Blocks" mode is selected #}
+    <div class="sort-mode-bar" id="genreBlockSizeBar" hidden>
       <span class="sort-mode-label">Block size</span>
       <input type="number" name="block_size" id="genreBlockSizeInput"
-             min="1" max="20" step="1" value="2" class="number-input">
+             min="1" max="20" step="1"
+             value="{{ prev_block_size or 2 }}" class="number-input">
       <span class="hint">Episodes per block before rotating to the next show.</span>
     </div>
 
-    <!-- Weighted note — hidden until "Weighted" mode is selected -->
+    {# Weighted note — shown when "Weighted" mode is selected #}
     <div class="sort-mode-bar" id="genreWeightHintBar" hidden>
       <span class="sort-mode-label">Weights</span>
       <span class="hint">Set per-show weights from the playlist page after creation.</span>
     </div>
 
-    <div class="sort-mode-bar">
-      <span class="sort-mode-label">Episode filter</span>
-      <label class="toggle">
-        <input type="checkbox" name="unwatched_only" value="1"
-               {% if prev_unwatched %}checked{% endif %}>
-        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        <span class="toggle-label">Only unwatched episodes</span>
-      </label>
+    {# ── Options: Push to + Filter + Auto-update ────────────────────────── #}
+    <div class="sort-mode-bar options-bar">
+
+      {% if backends|length > 1 %}
+      <div class="options-group">
+        <span class="sort-mode-label">Push to</span>
+        <div class="pill-toggle pill-toggle-3">
+          {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
+            <label class="pill {% if default_backend == val %}is-active{% endif %}">
+              <input type="radio" name="backend" value="{{ val }}"
+                     {% if default_backend == val %}checked{% endif %}>
+              <span>{{ lbl }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+        <input type="hidden" name="backend" value="{{ default_backend }}">
+      {% endif %}
+
+      <div class="options-group">
+        <span class="sort-mode-label">Filter</span>
+        <label class="toggle">
+          <input type="checkbox" name="unwatched_only" value="1"
+                 {% if prev_unwatched %}checked{% endif %}>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">Unwatched only</span>
+        </label>
+      </div>
+
+      <div class="options-group">
+        <span class="sort-mode-label">Auto-update</span>
+        <label class="toggle">
+          <input type="checkbox" name="auto_sync" value="1"
+                 {% if prev_auto_sync is not defined or prev_auto_sync %}checked{% endif %}>
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">Auto-add new shows &amp; episodes</span>
+        </label>
+        <span class="hint">(Every {{ "10" }} min)</span>
+      </div>
+
     </div>
 
-    <div class="sort-mode-bar">
-      <span class="sort-mode-label">Auto-update</span>
-      <label class="toggle">
-        <input type="checkbox" name="auto_sync" value="1"
-               {% if prev_auto_sync is not defined or prev_auto_sync %}checked{% endif %}>
-        <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        <span class="toggle-label">Auto-add new shows matching these genres &amp; new episodes</span>
-      </label>
-      <span class="hint">When on, the background sweep re-queries your library every {{ "10" }} minutes.</span>
-    </div>
-
+    {# ── Preview results ─────────────────────────────────────────────────── #}
     {% if matched_shows is not none %}
-      <section class="preview-section">
+      <section class="preview-section genre-preview-section">
         <h2>Matched shows ({{ matched_shows|length }})</h2>
         {% if not matched_shows %}
-          <p class="empty-state">No shows on your library match those genres. Try different terms.</p>
+          <p class="empty-state">
+            No shows in your library match those genres. Try different terms.
+          </p>
         {% else %}
           <ul class="rotation-list">
             {% for s in matched_shows %}
               <li class="rotation-row">
-                <div class="rotation-poster"></div>
+                <div class="rotation-poster">
+                  {% if s.thumb %}
+                    <img loading="lazy"
+                         src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ s.thumb_backend }}&w=120&h=180"
+                         alt="{{ s.title }}">
+                  {% else %}
+                    <div class="poster-fallback">{{ s.title[:1] }}</div>
+                  {% endif %}
+                </div>
                 <div class="rotation-info">
                   <div class="title">{{ s.title }}</div>
                   <div class="sub">
@@ -128,22 +200,53 @@
       </section>
     {% endif %}
 
+    {# ── Commit bar ──────────────────────────────────────────────────────── #}
+    {% if matched_shows is none %}
+      <p class="hint" style="margin: 0.4rem 0 0.25rem">
+        Click "Preview matches" to see which shows will be added before creating.
+      </p>
+    {% endif %}
     <div class="commit-bar">
-      <button type="submit" name="action" value="create" class="btn btn-primary btn-large"
-              {% if matched_shows is not none and not matched_shows %}disabled{% endif %}>
+      <button type="submit" name="action" value="create"
+              class="btn btn-primary btn-large"
+              {% if matched_shows is none or not matched_shows %}disabled{% endif %}>
         Create playlist
       </button>
-      <span class="hint">Click "Preview matches" first to see which shows will be added.</span>
     </div>
+
   </form>
 
   <script>
   (function () {
+    // ── Rule mode toggle ───────────────────────────────────────────────
+    var modeRadios = document.querySelectorAll('input[name="rule_mode"]');
+    var genreSection = document.getElementById('genrePickerSection');
+    var rulesSection = document.getElementById('rulesSection');
+    var modeHint = document.getElementById('ruleModeHint');
+
+    function applyRuleMode() {
+      var checked = document.querySelector('input[name="rule_mode"]:checked');
+      var mode = checked ? checked.value : 'genre';
+      document.querySelectorAll('#ruleModeToggle .pill').forEach(function(p) {
+        p.classList.toggle('is-active', p.dataset.mode === mode);
+      });
+      if (genreSection) genreSection.hidden = (mode !== 'genre');
+      if (rulesSection) rulesSection.hidden = (mode !== 'rules');
+      if (modeHint) {
+        modeHint.textContent = mode === 'rules'
+          ? 'Build a rule set. Genre rules narrow the candidate pool; other rules filter the results.'
+          : 'Pick one or more genres; all matching shows are added to the playlist.';
+      }
+    }
+    modeRadios.forEach(function(r) { r.addEventListener('change', applyRuleMode); });
+    applyRuleMode();
+
+    // ── Episode order pill toggle + sub-bar visibility ──────────────────
     var blockBar   = document.getElementById('genreBlockSizeBar');
     var weightHint = document.getElementById('genreWeightHintBar');
     var pills      = document.querySelectorAll('input[name="sort_mode"]');
 
-    function applyMode() {
+    function applySortMode() {
       var checked = document.querySelector('input[name="sort_mode"]:checked');
       var mode = checked ? checked.value : 'rotation';
       document.querySelectorAll('.pill-toggle.pill-toggle-5 .pill').forEach(function(p) {
@@ -153,9 +256,208 @@
       if (blockBar)   blockBar.hidden   = (mode !== 'rotation_blocks');
       if (weightHint) weightHint.hidden = (mode !== 'rotation_weighted');
     }
+    pills.forEach(function(r) { r.addEventListener('change', applySortMode); });
+    applySortMode();
 
-    pills.forEach(function(r) { r.addEventListener('change', applyMode); });
-    applyMode();
+    // ── Options-bar pill-toggle active state (Push to) ─────────────────
+    document.querySelectorAll('.options-bar input[type="radio"]').forEach(function(r) {
+      r.addEventListener('change', function() {
+        var group = r.closest('.pill-toggle');
+        if (!group) return;
+        group.querySelectorAll('.pill').forEach(function(p) {
+          var ri = p.querySelector('input[type="radio"]');
+          if (ri) p.classList.toggle('is-active', ri.checked);
+        });
+      });
+    });
+
+    // ── Genre pill picker ───────────────────────────────────────────────
+    var hidden      = document.getElementById('genresHidden');
+    var pillGrid    = document.getElementById('genrePillGrid');
+    var tagsRow     = document.getElementById('genreSelectedTags');
+    var filterInput = document.getElementById('genreFilterInput');
+    if (!hidden || !pillGrid) return;
+
+    var selected = new Set(
+      (hidden.value || '').split(',')
+        .map(function(s) { return s.trim(); })
+        .filter(Boolean)
+    );
+    var allGenres = [];
+
+    function syncHidden() {
+      hidden.value = Array.from(selected).join(', ');
+    }
+
+    function renderTags() {
+      tagsRow.innerHTML = '';
+      selected.forEach(function(genre) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'genre-tag';
+        btn.textContent = genre + ' \u00d7';
+        btn.addEventListener('click', function() {
+          selected.delete(genre);
+          renderTags();
+          renderPills();
+          syncHidden();
+        });
+        tagsRow.appendChild(btn);
+      });
+    }
+
+    function renderPills() {
+      var filter = filterInput ? filterInput.value.toLowerCase() : '';
+      pillGrid.innerHTML = '';
+      var toShow = allGenres.filter(function(g) {
+        return !filter || g.label.toLowerCase().indexOf(filter) !== -1;
+      });
+      if (!toShow.length) {
+        var msg = document.createElement('span');
+        msg.className = 'hint';
+        msg.textContent = filter ? 'No genres match that filter.' : 'No genres found.';
+        pillGrid.appendChild(msg);
+        return;
+      }
+      toShow.forEach(function(g) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pill genre-pill' + (selected.has(g.label) ? ' is-active' : '');
+        btn.textContent = g.label;
+        btn.addEventListener('click', function() {
+          if (selected.has(g.label)) selected.delete(g.label);
+          else selected.add(g.label);
+          renderTags();
+          renderPills();
+          syncHidden();
+        });
+        pillGrid.appendChild(btn);
+      });
+    }
+
+    if (filterInput) filterInput.addEventListener('input', renderPills);
+
+    renderTags();
+
+    fetch('/api/genres')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        var seen = new Set();
+        Object.keys(data).forEach(function(backend) {
+          (data[backend] || []).forEach(function(g) {
+            if (!seen.has(g)) {
+              seen.add(g);
+              allGenres.push({ label: g, backend: backend });
+            }
+          });
+        });
+        allGenres.sort(function(a, b) { return a.label.localeCompare(b.label); });
+        pillGrid.innerHTML = '';
+        renderPills();
+      })
+      .catch(function() {
+        pillGrid.innerHTML =
+          '<span class="hint" style="color:var(--accent-warn)">' +
+          'Could not load genres — check that your media server is reachable.' +
+          '</span>';
+      });
+
+    // ── Smart rules builder ─────────────────────────────────────────────
+    var rulesList = document.getElementById('rulesList');
+    var rulesAddType = document.getElementById('rulesAddType');
+    if (!rulesList || !rulesAddType) return;
+
+    var rules = [];
+
+    function renderRules() {
+      rulesList.innerHTML = '';
+      if (!rules.length) {
+        var msg = document.createElement('span');
+        msg.className = 'hint';
+        msg.textContent = 'No rules yet. Add one below.';
+        rulesList.appendChild(msg);
+        return;
+      }
+      rules.forEach(function(rule, i) {
+        var row = document.createElement('div');
+        row.className = 'rule-row';
+        row.innerHTML =
+          '<span class="rule-type-label">' + rule.type_label + '</span>' +
+          '<span class="rule-value">' + (rule.display_value || rule.value) + '</span>' +
+          '<button type="button" class="btn btn-sm btn-ghost-danger rule-remove" data-idx="' + i + '">×</button>';
+        rulesList.appendChild(row);
+      });
+      rulesList.querySelectorAll('.rule-remove').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          rules.splice(parseInt(btn.dataset.idx), 1);
+          renderRules();
+        });
+      });
+    }
+
+    rulesAddType.addEventListener('change', function() {
+      var type = rulesAddType.value;
+      if (!type) return;
+
+      var typeLabels = {
+        genre: 'Genre', year_min: 'Year (min)', year_max: 'Year (max)',
+        status: 'Status', content_rating: 'Content rating',
+        season_min: 'Seasons (min)', season_max: 'Seasons (max)',
+        rating_min: 'Rating (min)'
+      };
+
+      var value = '';
+      if (type === 'genre') {
+        value = prompt('Genre name (exact match, e.g. "Science Fiction"):', '');
+      } else if (type === 'year_min' || type === 'year_max') {
+        value = prompt('Year:', '');
+      } else if (type === 'status') {
+        value = prompt('Status ("Ended" or "Continuing"):', 'Ended');
+      } else if (type === 'content_rating') {
+        value = prompt('Content rating (e.g. "TV-MA", "TV-14"):', '');
+      } else if (type === 'season_min' || type === 'season_max') {
+        value = prompt('Season count:', '');
+      } else if (type === 'rating_min') {
+        value = prompt('Minimum rating (0.0–10.0):', '7.0');
+      }
+
+      if (value === null || value.trim() === '') {
+        rulesAddType.value = '';
+        return;
+      }
+
+      var operator = 'include';
+      rules.push({
+        type: type,
+        type_label: typeLabels[type] || type,
+        operator: operator,
+        value: value.trim(),
+        display_value: value.trim()
+      });
+      renderRules();
+      rulesAddType.value = '';
+    });
+
+    // Serialize rules to hidden inputs before form submit.
+    var builderForm = document.querySelector('form.builder');
+    builderForm.addEventListener('submit', function() {
+      if (document.querySelector('input[name="rule_mode"]:checked').value !== 'rules') return;
+      rules.forEach(function(rule) {
+        [['rule_type[]', rule.type], ['rule_operator[]', rule.operator], ['rule_value[]', rule.value]]
+          .forEach(function(pair) {
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = pair[0];
+            inp.value = pair[1];
+            builderForm.appendChild(inp);
+          });
+      });
+    });
+
+    renderRules();
   })();
   </script>
 {% endblock %}

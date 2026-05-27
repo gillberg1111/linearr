@@ -50,6 +50,10 @@ class ShowSummary:
     library: str
     thumb: str | None  # backend-specific image reference (path for Plex, item-id for Jellyfin)
     tvdb_id: str | None = None  # TVDB numeric ID for cross-backend matching
+    status: str | None = None
+    content_rating: str | None = None
+    season_count: int | None = None
+    community_rating: float | None = None
 
 
 @dataclass
@@ -132,6 +136,17 @@ class MediaClient(ABC):
         """
 
     # ----- Movies -----------------------------------------------------------
+
+    @abstractmethod
+    def list_all_genres(self) -> list[str]:
+        """All genre tags present in the TV library, sorted alphabetically.
+
+        Backends should query their native genre-list endpoint rather than
+        iterating every show. Returns an empty list on error rather than
+        raising — callers treat an empty list as "cache unavailable".
+        Results are expected to be cached by the scheduler (see db.py
+        get_genre_cache / set_genre_cache).
+        """
 
     @abstractmethod
     def find_associated_movies(self, show_title: str) -> list[MovieSummary]:

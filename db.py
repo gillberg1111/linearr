@@ -242,6 +242,42 @@ def init_db() -> None:
                 )"""
             )
 
+        # v1.7.0 — genre cache
+        if "genre_cache" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE genre_cache (
+                    backend    TEXT NOT NULL,
+                    genre      TEXT NOT NULL,
+                    PRIMARY KEY (backend, genre)
+                )"""
+            )
+        if "genre_cache_meta" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE genre_cache_meta (
+                    backend    TEXT PRIMARY KEY,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+
+        # v1.8.0 — smart playlist rules
+        if "playlist_rules" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE playlist_rules (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    playlist_id INTEGER NOT NULL,
+                    rule_type   TEXT    NOT NULL,
+                    operator    TEXT    NOT NULL DEFAULT 'include',
+                    value       TEXT    NOT NULL DEFAULT '',
+                    FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
+                )"""
+            )
+
+        pl_cols2 = _columns(conn, "managed_playlists")
+        if "rule_mode" not in pl_cols2:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN rule_mode TEXT NOT NULL DEFAULT 'genre'"
+            )
+
 
 def create_playlist(
     name: str,
@@ -617,3 +653,89 @@ def add_crossover_link(
 def remove_crossover_link(link_id: int) -> None:
     with connection() as conn:
         conn.execute("DELETE FROM crossover_links WHERE id = ?", (link_id,))
+
+
+# --------------------------------------------------------------------------- #
+# v1.7.0 — Genre cache
+# --------------------------------------------------------------------------- #
+
+GENRE_CACHE_TTL_DAYS = 7
+
+
+def get_genre_cache(backend: str) -> list[str] | None:
+    """Return cached genre list for `backend`, or None if missing/expired.
+
+    Expiry = GENRE_CACHE_TTL_DAYS (7 days). Returns None on expiry so the
+    caller knows to refresh; returns [] when the backend reported no genres.
+    """
+    with connection() as conn:
+        meta = conn.execute(
+            "SELECT updated_at FROM genre_cache_meta WHERE backend = ?",
+            (backend,),
+        ).fetchone()
+        if not meta:
+            return None
+        try:
+            updated = datetime.fromisoformat(meta["updated_at"])
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
+            return None
+        if (datetime.now(timezone.utc) - updated).days >= GENRE_CACHE_TTL_DAYS:
+            return None
+        rows = conn.execute(
+            "SELECT genre FROM genre_cache WHERE backend = ? ORDER BY genre",
+            (backend,),
+        ).fetchall()
+        return [r["genre"] for r in rows]
+
+
+def set_genre_cache(backend: str, genres: list[str]) -> None:
+    """Overwrite the genre cache for `backend` and reset its timestamp."""
+    with connection() as conn:
+        conn.execute("DELETE FROM genre_cache WHERE backend = ?", (backend,))
+        if genres:
+            conn.executemany(
+                "INSERT INTO genre_cache (backend, genre) VALUES (?, ?)",
+                [(backend, g) for g in genres],
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO genre_cache_meta (backend, updated_at) VALUES (?, ?)",
+            (backend, datetime.now(timezone.utc).isoformat()),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# v1.8.0 — Smart playlist rules
+# --------------------------------------------------------------------------- #
+
+
+def list_rules(playlist_id: int) -> list[sqlite3.Row]:
+    with connection() as conn:
+        return list(conn.execute(
+            "SELECT * FROM playlist_rules WHERE playlist_id = ? ORDER BY id",
+            (playlist_id,),
+        ).fetchall())
+
+
+def add_rule(playlist_id: int, rule_type: str, operator: str, value: str) -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO playlist_rules (playlist_id, rule_type, operator, value) VALUES (?,?,?,?)",
+            (playlist_id, rule_type, operator, value),
+        )
+        return int(cur.lastrowid)
+
+
+def remove_rule(rule_id: int) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM playlist_rules WHERE id = ?", (rule_id,))
+
+
+def set_rule_mode(playlist_id: int, mode: str) -> None:
+    assert mode in ("genre", "rules")
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET rule_mode = ? WHERE id = ?",
+            (mode, playlist_id),
+        )

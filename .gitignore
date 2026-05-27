@@ -7,6 +7,7 @@ venv/
 data/
 *.db
 *.db-journal
+device_id
 .idea/
 .vscode/
 .claude/

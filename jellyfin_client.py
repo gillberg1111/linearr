@@ -60,7 +60,7 @@ _log = logging.getLogger(__name__)
 # Client identity sent in the Authorization header. The version string is
 # decorative on the server side but appears in the Jellyfin Devices list.
 _CLIENT_NAME = "Linearr"
-_CLIENT_VERSION = "1.1.0"
+_CLIENT_VERSION = "1.8.0"
 
 # Episode/movie metadata fields we always request from /Items and friends so
 # the response carries the data we need to build PlaylistItem / EpisodeRef.
@@ -347,8 +347,27 @@ class JellyfinClient(MediaClient):
         cleaned = [g.strip() for g in (genres or []) if g and g.strip()]
         if not cleaned:
             return []
-        # Jellyfin's /Items accepts a pipe-delimited Genres list and ORs them.
         return self._list_series_via_items(extra_params={"genres": "|".join(cleaned)})
+
+    def list_all_genres(self) -> list[str]:
+        try:
+            resp = self._request(
+                "GET",
+                "/Genres",
+                params={
+                    "UserId": self._user_id,
+                    "IncludeItemTypes": "Series",
+                    "Limit": 2000,
+                },
+            )
+            return sorted(
+                g["Name"]
+                for g in resp.json().get("Items", [])
+                if g.get("Name")
+            )
+        except Exception:
+            _log.exception("list_all_genres failed on Jellyfin")
+            return []
 
     def _list_series_via_items(self, extra_params: dict) -> list[ShowSummary]:
         """Shared core for list_all_shows / list_shows_by_genres. Iterates
@@ -360,7 +379,7 @@ class JellyfinClient(MediaClient):
                 "parentId": lib_id,
                 "recursive": "true",
                 "includeItemTypes": "Series",
-                "fields": "ProductionYear,ProviderIds",
+                "fields": "ProductionYear,ProviderIds,ChildCount,CommunityRating,OfficialRating,Status",
                 "enableImages": "true",
                 "imageTypeLimit": 1,
                 "enableImageTypes": "Primary",
@@ -377,10 +396,12 @@ class JellyfinClient(MediaClient):
                     title=item.get("Name") or "",
                     year=item.get("ProductionYear"),
                     library=lib_name,
-                    # Jellyfin "thumb" is the item id itself — the URL is
-                    # always /Items/{id}/Images/Primary.
                     thumb=rk if item.get("ImageTags", {}).get("Primary") else None,
                     tvdb_id=prov.get("Tvdb") or None,
+                    status=item.get("Status"),
+                    content_rating=item.get("OfficialRating"),
+                    season_count=item.get("ChildCount"),
+                    community_rating=item.get("CommunityRating"),
                 )
         out = list(seen.values())
         out.sort(key=lambda s: s.title.lower())

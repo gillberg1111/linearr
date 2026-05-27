@@ -995,6 +995,194 @@ def test_rebuild_tail_crossover_map_passthrough():
           keys == ["showA-1-1", "showB-1-1", "showA-1-2"], f"got {keys}")
 
 
+def test_genre_cache_db():
+    import os, tempfile
+    from datetime import datetime, timezone, timedelta
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+
+        check("genre cache: empty → None", _db_mod.get_genre_cache("plex") is None)
+
+        _db_mod.set_genre_cache("plex", ["Drama", "Action", "Comedy"])
+        result = _db_mod.get_genre_cache("plex")
+        check("genre cache: roundtrip sorted", result == ["Action", "Comedy", "Drama"])
+
+        check("genre cache: other backend → None",
+              _db_mod.get_genre_cache("jellyfin") is None)
+
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "UPDATE genre_cache_meta SET updated_at = ? WHERE backend = ?",
+                (old_ts, "plex"),
+            )
+        check("genre cache: expired → None", _db_mod.get_genre_cache("plex") is None)
+
+        _db_mod.set_genre_cache("plex", ["Sci-Fi", "Thriller"])
+        check("genre cache: overwrite", _db_mod.get_genre_cache("plex") == ["Sci-Fi", "Thriller"])
+
+        _db_mod.set_genre_cache("plex", [])
+        check("genre cache: empty list ok", _db_mod.get_genre_cache("plex") == [])
+
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_apply_rules_year():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk_summary(rk="A", year=None):
+        return ShowSummary(rating_key=rk, title="Test", year=year,
+                           library="", thumb=None)
+
+    s1 = mk_summary("show1", year=1995)
+    s2 = mk_summary("show2", year=2005)
+    s3 = mk_summary("show3", year=None)
+
+    rules = [{"rule_type": "year_min", "operator": "include", "value": "2000"}]
+    result = _svc._apply_rules([s1, s2, s3], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: year_min filters below", "show1" not in keys)
+    check("apply_rules: year_min keeps above", "show2" in keys)
+    check("apply_rules: year_min permits None year", "show3" in keys)
+
+    rules2 = [{"rule_type": "year_max", "operator": "include", "value": "2000"}]
+    result2 = _svc._apply_rules([s1, s2, s3], rules2)
+    keys2 = [r.rating_key for r in result2]
+    check("apply_rules: year_max keeps below", "show1" in keys2)
+    check("apply_rules: year_max filters above", "show2" not in keys2)
+    check("apply_rules: year_max permits None year", "show3" in keys2)
+
+
+def test_apply_rules_status():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk(rk, status):
+        return ShowSummary(rating_key=rk, title="Test", year=None,
+                           library="", thumb=None, status=status)
+
+    s1 = mk("s1", "Ended")
+    s2 = mk("s2", "Continuing")
+    s3 = mk("s3", None)
+
+    rules = [{"rule_type": "status", "operator": "include", "value": "Ended"}]
+    result = _svc._apply_rules([s1, s2, s3], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: status include matches", "s1" in keys)
+    check("apply_rules: status include rejects other", "s2" not in keys)
+    check("apply_rules: status include permits None", "s3" in keys)
+
+    rules2 = [{"rule_type": "status", "operator": "exclude", "value": "Continuing"}]
+    result2 = _svc._apply_rules([s1, s2, s3], rules2)
+    keys2 = [r.rating_key for r in result2]
+    check("apply_rules: status exclude keeps non-match", "s1" in keys2)
+    check("apply_rules: status exclude removes match", "s2" not in keys2)
+
+
+def test_apply_rules_season_count():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk(rk, seasons):
+        return ShowSummary(rating_key=rk, title="Test", year=None,
+                           library="", thumb=None, season_count=seasons)
+
+    s1 = mk("s1", 3)
+    s2 = mk("s2", 10)
+    s3 = mk("s3", None)
+
+    rules = [{"rule_type": "season_max", "operator": "include", "value": "5"}]
+    result = _svc._apply_rules([s1, s2, s3], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: season_max keeps below", "s1" in keys)
+    check("apply_rules: season_max filters above", "s2" not in keys)
+    check("apply_rules: season_max permits None", "s3" in keys)
+
+    rules2 = [{"rule_type": "season_min", "operator": "include", "value": "8"}]
+    result2 = _svc._apply_rules([s1, s2, s3], rules2)
+    keys2 = [r.rating_key for r in result2]
+    check("apply_rules: season_min filter below", "s1" not in keys2)
+    check("apply_rules: season_min keeps above", "s2" in keys2)
+
+
+def test_apply_rules_rating():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk(rk, rating):
+        return ShowSummary(rating_key=rk, title="Test", year=None,
+                           library="", thumb=None, community_rating=rating)
+
+    s1 = mk("s1", 8.5)
+    s2 = mk("s2", 5.0)
+    s3 = mk("s3", None)
+
+    rules = [{"rule_type": "rating_min", "operator": "include", "value": "7.0"}]
+    result = _svc._apply_rules([s1, s2, s3], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: rating_min keeps above", "s1" in keys)
+    check("apply_rules: rating_min filters below", "s2" not in keys)
+    check("apply_rules: rating_min permits None", "s3" in keys)
+
+
+def test_apply_rules_combined():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk(rk, year=None, status=None, seasons=None, rating=None):
+        return ShowSummary(rating_key=rk, title="Test", year=year,
+                           library="", thumb=None, status=status,
+                           season_count=seasons, community_rating=rating)
+
+    s1 = mk("s1", year=1995, status="Ended", seasons=3, rating=8.5)
+    s2 = mk("s2", year=2005, status="Ended", seasons=10, rating=6.0)
+    s3 = mk("s3", year=2005, status="Continuing", seasons=4, rating=9.0)
+    s4 = mk("s4", year=2010, status="Ended", seasons=3, rating=7.5)
+
+    rules = [
+        {"rule_type": "year_min", "operator": "include", "value": "2000"},
+        {"rule_type": "status", "operator": "include", "value": "Ended"},
+        {"rule_type": "season_max", "operator": "include", "value": "5"},
+    ]
+    result = _svc._apply_rules([s1, s2, s3, s4], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: combined - s1 filtered by year_min", "s1" not in keys)
+    check("apply_rules: combined - s2 filtered by season_max", "s2" not in keys)
+    check("apply_rules: combined - s3 filtered by status", "s3" not in keys)
+    check("apply_rules: combined - s4 passes all", "s4" in keys)
+
+
+def test_apply_rules_content_rating():
+    from media_client import ShowSummary
+    import service as _svc
+
+    def mk(rk, cr):
+        return ShowSummary(rating_key=rk, title="Test", year=None,
+                           library="", thumb=None, content_rating=cr)
+
+    s1 = mk("s1", "TV-MA")
+    s2 = mk("s2", "TV-PG")
+    s3 = mk("s3", None)
+
+    rules = [{"rule_type": "content_rating", "operator": "include", "value": "TV-MA"}]
+    result = _svc._apply_rules([s1, s2, s3], rules)
+    keys = [r.rating_key for r in result]
+    check("apply_rules: content_rating include matches", "s1" in keys)
+    check("apply_rules: content_rating include rejects other", "s2" not in keys)
+    check("apply_rules: content_rating include permits None", "s3" in keys)
+
+
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #

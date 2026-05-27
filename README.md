@@ -188,15 +188,20 @@ fall-asleep buffer.
   Disabled playlists are skipped on every sweep and stay locked until you
   edit them.
 - **Dynamic genre playlists** — hit **+ Genre** instead of **+ New playlist**
-  to create a playlist that auto-populates from your library by genre
-  (e.g. "Science Fiction, Drama"). Background sync re-queries your library
-  every sweep and auto-adds new shows matching the chosen genres. Exclude
-  individual shows and they stay excluded across syncs. When creating, the
-  block-size and weight fields appear and hide automatically as you toggle
-  between sort modes — matching the configure-page behaviour. Genre names
-  must match exactly what your media server uses (Plex uses "Science
-  Fiction", not "Sci-Fi" — check the genre browser in your library if you
-  get zero results).
+  to create a playlist that auto-populates from your library by genre.
+  Background sync re-queries your library every sweep and auto-adds new shows
+  matching the chosen genres. Exclude individual shows and they stay excluded
+  across syncs. Genre selection uses a **pill picker** — Linearr scrapes all
+  genres from your connected backends on first launch (and weekly thereafter)
+  and renders them as selectable buttons, so you don't have to type exact genre
+  names. When creating, the block-size and weight fields appear and hide
+  automatically as you toggle between sort modes.
+- **Smart playlist rules** — in **Genre mode**, select genres via pill
+  buttons; in **Smart rules mode**, build a rule set from these types: Genre
+  (include), Year min/max, Status (Ended/Continuing), Content rating,
+  Season count min/max, and Rating min. Genre rules narrow the candidate pool;
+  other rule types combine with AND logic as post-filters. Adding or removing
+  a rule triggers an immediate sync to keep the show list current.
 - **Metadata refresh** — a **Refresh metadata** button in the maintenance
   section of each playlist page asks every configured backend to re-fetch
   metadata for all shows in the playlist (Plex: `PUT /library/metadata/{id}/refresh`;
@@ -632,7 +637,7 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 143 passed, 0 failed, 143 total
+# 175 passed, 0 failed, 175 total
 ```
 
 Covers:
@@ -659,8 +664,13 @@ Covers:
   avoidance, compose dispatch, rebuild_tail in weighted/shuffle modes.
 - **Genre playlists** (14 tests): genre CSV parsing, `is_excluded` field,
   `PlaylistView` genre defaults, `VALID_PLAYLIST_TYPES`.
+- **Genre cache** (6 tests): empty-cache → None, round-trip store/retrieve,
+  per-backend isolation, expiry after 7 days, overwrite, empty-list handling.
 - **Crossover grouping** (5 tests): crossover_map sort key behavior, compose
   and rebuild_tail passthrough.
+- **Smart rules** (20 tests): `_apply_rules` with year min/max, status,
+  season count min/max, rating min, content rating, combined multi-rule
+  filtering, None-field permissiveness.
 
 ---
 

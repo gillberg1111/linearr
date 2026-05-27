@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.6.3"
+__version__ = "1.8.0"
 
 import logging
 import os
@@ -341,7 +341,7 @@ def create_app() -> Flask:
             log.exception("thumb fetch failed: %s on %s", ref, backend)
             abort(502)
         resp = Response(data, mimetype=ctype)
-        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["Cache-Control"] = "public, max-age=3600"
         return resp
 
     # ------------------------------------------------------------------ #
@@ -364,6 +364,25 @@ def create_app() -> Flask:
              "air_date": e.air_date}
             for e in eps
         ])
+
+    # ------------------------------------------------------------------ #
+    # Genre list (JSON) — used by the genre picker in new_genre.html
+    # ------------------------------------------------------------------ #
+    @app.route("/api/genres")
+    def api_genres():
+        result: dict[str, list[str]] = {}
+        for backend in available_backends():
+            cached = db.get_genre_cache(backend)
+            if cached is None:
+                try:
+                    genres = get_client(backend).list_all_genres()
+                    db.set_genre_cache(backend, genres)
+                    cached = genres
+                except Exception:
+                    log.exception("live genre fetch failed for %s", backend)
+                    cached = []
+            result[backend] = cached
+        return jsonify(result)
 
     # ------------------------------------------------------------------ #
     # AJAX preview (returns rendered HTML partial)
@@ -596,6 +615,7 @@ def create_app() -> Flask:
                 })
 
         selected = {k for k in request.args.get("selected", "").split(",") if k}
+        rules = db.list_rules(playlist_id) if view.playlist_type == "genre" else []
         return render_template(
             "playlist.html",
             playlist=view,
@@ -603,6 +623,7 @@ def create_app() -> Flask:
             all_shows=all_shows,
             selected=selected,
             missing_on=missing_on,
+            rules=rules,
         )
 
     # ------------------------------------------------------------------ #
@@ -750,6 +771,7 @@ def create_app() -> Flask:
             prev_name=request.args.get("name", ""),
             prev_genres=request.args.get("genres", ""),
             prev_sort_mode=request.args.get("sort_mode", "rotation"),
+            prev_rule_mode=request.args.get("rule_mode", "genre"),
         )
 
     @app.route("/new/genre", methods=["POST"])
@@ -774,19 +796,46 @@ def create_app() -> Flask:
             block_size = 1
         unwatched_only = bool(request.form.get("unwatched_only"))
         auto_sync = bool(request.form.get("auto_sync")) if request.method == "POST" else True
+        rule_mode = (request.form.get("rule_mode") or "genre").strip()
 
         action = request.form.get("action", "preview")
         target_backends = ["plex", "jellyfin"] if backend_choice == "both" else [backend_choice]
 
-        # On preview: resolve the genres to a candidate list to show the user.
         matched_shows = None
-        if genre_list:
+        if rule_mode == "rules":
+            rule_types = request.form.getlist("rule_type[]")
+            rule_operators = request.form.getlist("rule_operator[]")
+            rule_values = request.form.getlist("rule_value[]")
+            rules = [
+                {"rule_type": rt, "operator": (rule_operators[i] if i < len(rule_operators) else "include"), "value": rv}
+                for i, (rt, rv) in enumerate(zip(rule_types, rule_values))
+            ] if rule_types else []
+            if rules:
+                try:
+                    configs = service._resolve_smart_shows(rules, target_backends)
+                    matched_shows = [
+                        {
+                            "title": c.title,
+                            "rating_key": c.rating_key,
+                            "thumb": c.thumb,
+                            "thumb_backend": "plex" if c.plex_rating_key else "jellyfin",
+                            "plex": bool(c.plex_rating_key),
+                            "jellyfin": bool(c.jellyfin_rating_key),
+                        }
+                        for c in configs
+                    ]
+                except Exception as e:
+                    log.exception("smart rule preview failed")
+                    flash(f"Couldn't resolve rules: {e}", "error")
+        elif genre_list:
             try:
                 configs = service._resolve_genre_shows(genre_list, target_backends)
                 matched_shows = [
                     {
                         "title": c.title,
                         "rating_key": c.rating_key,
+                        "thumb": c.thumb,
+                        "thumb_backend": "plex" if c.plex_rating_key else "jellyfin",
                         "plex": bool(c.plex_rating_key),
                         "jellyfin": bool(c.jellyfin_rating_key),
                     }
@@ -799,6 +848,44 @@ def create_app() -> Flask:
         if action == "create":
             if not name:
                 flash("Playlist name is required.", "error")
+            elif rule_mode == "rules":
+                rule_types = request.form.getlist("rule_type[]")
+                rule_operators = request.form.getlist("rule_operator[]")
+                rule_values = request.form.getlist("rule_value[]")
+                rules_list = [
+                    {"rule_type": rt, "operator": (rule_operators[i] if i < len(rule_operators) else "include"), "value": rv}
+                    for i, (rt, rv) in enumerate(zip(rule_types, rule_values))
+                ] if rule_types else []
+                if not rules_list:
+                    flash("Add at least one rule.", "error")
+                else:
+                    try:
+                        configs = service._resolve_smart_shows(rules_list, target_backends)
+                        if not configs:
+                            flash("No shows match those rules. Try broadening the criteria.", "error")
+                        else:
+                            pid = service.create_managed_playlist(
+                                name, configs,
+                                sort_mode=sort_mode,
+                                unwatched_only=unwatched_only,
+                                auto_sync=auto_sync,
+                                backend=backend_choice,
+                                block_size=block_size,
+                            )
+                            # Mark as genre type + persist rules.
+                            with db.connection() as conn:
+                                conn.execute(
+                                    "UPDATE managed_playlists SET playlist_type = 'genre', rule_mode = 'rules' WHERE id = ?",
+                                    (pid,),
+                                )
+                            for r in rules_list:
+                                db.add_rule(pid, r["rule_type"], r["operator"], r["value"])
+                    except Exception as e:
+                        log.exception("smart rule create failed")
+                        flash(f"Failed to create playlist: {e}", "error")
+                    else:
+                        flash(f"Created smart rules playlist '{name}'.", "ok")
+                        return redirect(url_for("view_playlist", playlist_id=pid))
             elif not genre_list:
                 flash("Enter at least one genre.", "error")
             else:
@@ -830,6 +917,7 @@ def create_app() -> Flask:
             prev_block_size=block_size,
             prev_unwatched=unwatched_only,
             prev_auto_sync=auto_sync,
+            prev_rule_mode=rule_mode,
         )
 
     @app.route("/playlist/<int:playlist_id>/exclude", methods=["POST"])
@@ -966,6 +1054,47 @@ def create_app() -> Flask:
         except Exception:
             log.exception("tail rebuild after crossover remove failed")
         flash("Episode removed from crossover group.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    # -- v1.8.0 smart playlist rules ------------------------------------- #
+
+    @app.route("/playlist/<int:playlist_id>/rules/add", methods=["POST"])
+    def add_smart_rule(playlist_id: int):
+        rule_type = (request.form.get("rule_type") or "").strip()
+        operator = (request.form.get("operator") or "include").strip()
+        value = (request.form.get("value") or "").strip()
+        if not rule_type or not value:
+            abort(400)
+        try:
+            db.add_rule(playlist_id, rule_type, operator, value)
+        except Exception as e:
+            log.exception("add_rule failed")
+            flash(f"Failed to add rule: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        service.sync_playlist(playlist_id, force=True)
+        flash("Rule added — playlist synced.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/rules/<int:rule_id>/delete", methods=["POST"])
+    def delete_smart_rule(playlist_id: int, rule_id: int):
+        try:
+            db.remove_rule(rule_id)
+        except Exception as e:
+            log.exception("remove_rule failed")
+            flash(f"Failed to remove rule: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        service.sync_playlist(playlist_id, force=True)
+        flash("Rule removed — playlist synced.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    @app.route("/playlist/<int:playlist_id>/rules/reorder", methods=["POST"])
+    def reorder_genre_list(playlist_id: int):
+        row = db.get_playlist(playlist_id)
+        if not row:
+            abort(404)
+        full_configs = [service._config_from_row(r) for r in db.list_shows(playlist_id)]
+        service._rebuild_playlist_tails(row, full_configs, op_label="genre reorder")
+        flash("Playlist rebuilt.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
     @app.route("/playlist/<int:playlist_id>/weight", methods=["POST"])

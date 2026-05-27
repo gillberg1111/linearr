@@ -199,6 +199,10 @@ class PlexClient(MediaClient):
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
+                        status=getattr(show, "status", None),
+                        content_rating=getattr(show, "contentRating", None),
+                        season_count=getattr(show, "childCount", None),
+                        community_rating=getattr(show, "audienceRating", None),
                     )
                 )
         out.sort(key=lambda s: s.title.lower())
@@ -231,10 +235,27 @@ class PlexClient(MediaClient):
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
+                        status=getattr(show, "status", None),
+                        content_rating=getattr(show, "contentRating", None),
+                        season_count=getattr(show, "childCount", None),
+                        community_rating=getattr(show, "audienceRating", None),
                     )
         out = list(seen.values())
         out.sort(key=lambda s: s.title.lower())
         return out
+
+    def list_all_genres(self) -> list[str]:
+        out: set[str] = set()
+        try:
+            for section in self._tv_sections():
+                for choice in section.listChoices("genre"):
+                    if choice.title:
+                        out.add(choice.title)
+        except Exception:
+            import logging
+            log_ = logging.getLogger(__name__)
+            log_.exception("list_all_genres failed on Plex")
+        return sorted(out)
 
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         show = self._get_show(rating_key)

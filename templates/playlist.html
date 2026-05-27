@@ -261,6 +261,72 @@
     </form>
   </section>
 
+  {% if playlist.playlist_type == 'genre' %}
+  <section class="rules-section">
+    <div class="section-head">
+      <h2>Rules</h2>
+      <span class="hint">
+        {% if playlist.rule_mode == 'rules' %}
+          Show discovery is driven by these smart rules. Rules marked "include" add shows; non-genre rules combine with AND logic.
+        {% else %}
+          Show discovery is driven by the genre filter below. Add or remove genres to change which shows are auto-added.
+        {% endif %}
+      </span>
+    </div>
+
+    {% if rules %}
+      <ul class="rules-list">
+        {% for rule in rules %}
+          <li class="rules-item">
+            <div class="rules-item-info">
+              <span class="rules-item-type">{{ rule.rule_type }}</span>
+              <span class="rules-item-value">{{ rule.operator }}: {{ rule.value }}</span>
+            </div>
+            <form method="post"
+                  action="{{ url_for('delete_smart_rule', playlist_id=playlist.id, rule_id=rule.id) }}"
+                  class="inline-form">
+              <button type="submit" class="btn btn-sm btn-ghost-danger">Remove</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state">
+        {% if playlist.genre_filter %}
+          Genre filter: <strong>{{ playlist.genre_filter }}</strong>
+        {% else %}
+          No rules or genre filter set.
+        {% endif %}
+      </p>
+    {% endif %}
+
+    <div class="rules-add-bar" style="margin-top:0.8rem">
+      <form method="post" action="{{ url_for('add_smart_rule', playlist_id=playlist.id) }}"
+            class="rules-add-form">
+        <select name="rule_type" class="rules-add-select">
+          <option value="genre">Genre</option>
+          <option value="year_min">Year (min)</option>
+          <option value="year_max">Year (max)</option>
+          <option value="status">Status</option>
+          <option value="content_rating">Content rating</option>
+          <option value="season_min">Seasons (min)</option>
+          <option value="season_max">Seasons (max)</option>
+          <option value="rating_min">Rating (min)</option>
+        </select>
+        <input type="text" name="value" placeholder="Rule value" class="filter-input" style="max-width:200px">
+        <button type="submit" class="btn btn-sm">Add rule</button>
+      </form>
+      {% if playlist.genre_filter %}
+        <form method="post" action="{{ url_for('reorder_genre_list', playlist_id=playlist.id) }}"
+              class="inline-form" style="margin-top:0.5rem">
+          <button type="submit" class="btn btn-sm">Rebuild from rules</button>
+          <span class="hint">Re-resolves shows and rebuilds the playlist.</span>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if playlist.excluded_shows %}
     <section class="excluded-shows">
       <div class="section-head">

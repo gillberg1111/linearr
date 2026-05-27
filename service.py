@@ -27,6 +27,7 @@ from media_client import (
     EpisodeRef,
     MediaClient,
     MovieSummary,
+    ShowSummary,
     get_client,
     normalize_title,
     titles_match,
@@ -558,6 +559,8 @@ class PlaylistView:
     excluded_shows: list[dict] = field(default_factory=list)  # soft-deleted rows
     # v1.5.0 — manual crossover groups
     crossover_groups: list[dict] = field(default_factory=list)
+    # v1.8.0 — smart playlist rules
+    rule_mode: str = "genre"
 
 
 # --------------------------------------------------------------------------- #
@@ -879,36 +882,23 @@ def _parse_genre_csv(s: str | None) -> list[str]:
     return [g.strip() for g in (s or "").split(",") if g and g.strip()]
 
 
-def _resolve_genre_shows(
-    genres: list[str],
+def _dedup_show_summaries_to_configs(
+    per_backend: dict[str, list[ShowSummary]],
     target_backends: list[str],
 ) -> list[ShowConfig]:
-    """Query each configured backend for shows matching the given genres.
-    Returns a list of ShowConfigs deduplicated across backends via
-    title+year matching. For 'both' setups, configs carry both IDs when
-    a match is found on each side.
-    """
-    if not genres:
-        return []
-    # Per-backend matches.
-    per_backend: dict[str, list] = {}
-    for tb in target_backends:
-        try:
-            per_backend[tb] = _client_for(tb).list_shows_by_genres(genres)
-        except Exception:
-            log.exception("genre resolve failed on %s", tb)
-            per_backend[tb] = []
-
-    # Aggregate, deduplicate via title+year then TVDB ID fallback.
+    """Deduplicate ShowSummary lists from multiple backends into a single
+    list of ShowConfigs. Matches via normalized title+year first, then
+    TVDB ID fallback. Cross-backend IDs are enriched at the end for 'both'
+    setups."""
     out: list[ShowConfig] = []
     seen_keys: dict[str, list[int]] = {}
-    tvdb_seen: dict[str, int] = {}   # tvdb_id -> index in out
-    _years: dict[int, int | None] = {}  # year per output index (ShowConfig has no year field)
+    tvdb_seen: dict[str, int] = {}
+    _years: dict[int, int | None] = {}
+
     for tb in target_backends:
-        for s in per_backend[tb]:
+        for s in per_backend.get(tb, []):
             nk = normalize_title(s.title)
 
-            # 1. Title+year match.
             match_idx: int | None = None
             for idx in seen_keys.get(nk, []):
                 existing_year = _years.get(idx)
@@ -921,7 +911,6 @@ def _resolve_genre_shows(
                 match_idx = idx
                 break
 
-            # 2. TVDB ID fallback.
             if match_idx is None and s.tvdb_id:
                 match_idx = tvdb_seen.get(s.tvdb_id)
 
@@ -953,11 +942,119 @@ def _resolve_genre_shows(
             if s.tvdb_id:
                 tvdb_seen[s.tvdb_id] = new_idx
             out.append(cfg)
-    # Cross-backend completion: for 'both' setups, fill in missing IDs.
+
     if "plex" in target_backends and "jellyfin" in target_backends:
         _enrich_configs_with_matches(out, target_backends)
     out.sort(key=lambda c: (c.title or "").lower())
     return out
+
+
+def _resolve_genre_shows(
+    genres: list[str],
+    target_backends: list[str],
+) -> list[ShowConfig]:
+    if not genres:
+        return []
+    per_backend: dict[str, list] = {}
+    for tb in target_backends:
+        try:
+            per_backend[tb] = _client_for(tb).list_shows_by_genres(genres)
+        except Exception:
+            log.exception("genre resolve failed on %s", tb)
+            per_backend[tb] = []
+    return _dedup_show_summaries_to_configs(per_backend, target_backends)
+
+
+def _apply_rules(shows: list[ShowSummary], rules: list[dict]) -> list[ShowSummary]:
+    result = list(shows)
+    for rule in rules:
+        rt = rule["rule_type"]
+        op = rule["operator"]
+        val = rule["value"]
+
+        if rt == "genre":
+            continue
+        elif rt == "year_min":
+            try:
+                y = int(val)
+                if op == "include":
+                    result = [s for s in result if s.year is None or s.year >= y]
+            except ValueError:
+                pass
+        elif rt == "year_max":
+            try:
+                y = int(val)
+                if op == "include":
+                    result = [s for s in result if s.year is None or s.year <= y]
+            except ValueError:
+                pass
+        elif rt == "status":
+            v_lower = val.lower()
+            if op == "include":
+                result = [s for s in result
+                          if s.status is None or s.status.lower() == v_lower]
+            elif op == "exclude":
+                result = [s for s in result
+                          if s.status is None or s.status.lower() != v_lower]
+        elif rt == "content_rating":
+            v_lower = val.lower()
+            if op == "include":
+                result = [s for s in result
+                          if s.content_rating is None or s.content_rating.lower() == v_lower]
+            elif op == "exclude":
+                result = [s for s in result
+                          if s.content_rating is None or s.content_rating.lower() != v_lower]
+        elif rt == "season_max":
+            try:
+                n = int(val)
+                if op == "include":
+                    result = [s for s in result
+                              if s.season_count is None or s.season_count <= n]
+            except ValueError:
+                pass
+        elif rt == "season_min":
+            try:
+                n = int(val)
+                if op == "include":
+                    result = [s for s in result
+                              if s.season_count is None or s.season_count >= n]
+            except ValueError:
+                pass
+        elif rt == "rating_min":
+            try:
+                r = float(val)
+                if op == "include":
+                    result = [s for s in result
+                              if s.community_rating is None or s.community_rating >= r]
+            except ValueError:
+                pass
+
+    return result
+
+
+def _resolve_smart_shows(
+    rules: list[dict],
+    target_backends: list[str],
+) -> list[ShowConfig]:
+    genre_includes = [r["value"] for r in rules
+                      if r["rule_type"] == "genre" and r["operator"] == "include"]
+    non_genre_rules = [r for r in rules if r["rule_type"] != "genre"]
+
+    per_backend: dict[str, list] = {}
+    for tb in target_backends:
+        try:
+            client = _client_for(tb)
+            if genre_includes:
+                shows = client.list_shows_by_genres(genre_includes)
+            else:
+                shows = client.list_all_shows()
+            shows = _apply_rules(shows, non_genre_rules)
+            per_backend[tb] = shows
+        except Exception:
+            log.exception("smart rule query failed on %s", tb)
+            per_backend[tb] = []
+
+    return _dedup_show_summaries_to_configs(per_backend, target_backends)
 
 
 def create_genre_playlist(
@@ -1157,22 +1254,28 @@ def link_show_backend(
 
 
 def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig]) -> None:
-    """For genre playlists: re-query the backends for genre-matching shows
-    and add any that aren't already in the playlist (respecting the
-    is_excluded flag — excluded rows count as 'already here, don't re-add').
-    """
-    genres = _parse_genre_csv(_row_get(row, "genre_filter", None))
-    if not genres:
-        return
+    rule_mode = _row_get(row, "rule_mode", "genre")
     target_backends = _backends_for(row)
-    try:
-        candidates = _resolve_genre_shows(genres, target_backends)
-    except Exception:
-        log.exception("genre discovery failed for playlist %s", row["name"])
-        return
 
-    # Build sets of existing IDs across both backends, so we don't re-add a
-    # show that's already represented via either id (incl. excluded ones).
+    if rule_mode == "rules":
+        rules = [dict(r) for r in db.list_rules(playlist_id)]
+        if not rules:
+            return
+        try:
+            candidates = _resolve_smart_shows(rules, target_backends)
+        except Exception:
+            log.exception("smart rule discovery failed for playlist %s", row["name"])
+            return
+    else:
+        genres = _parse_genre_csv(_row_get(row, "genre_filter", None))
+        if not genres:
+            return
+        try:
+            candidates = _resolve_genre_shows(genres, target_backends)
+        except Exception:
+            log.exception("genre discovery failed for playlist %s", row["name"])
+            return
+
     existing_plex = {c.plex_rating_key for c in current_configs if c.plex_rating_key}
     existing_jf = {c.jellyfin_rating_key for c in current_configs if c.jellyfin_rating_key}
     existing_pks = {c.rating_key for c in current_configs}
@@ -1191,8 +1294,8 @@ def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig
         return
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
     log.info(
-        "Genre sync added %d new show(s) to '%s' matching %s",
-        len(new_configs), row["name"], ",".join(genres),
+        "Sync added %d new show(s) to '%s'",
+        len(new_configs), row["name"],
     )
 
 
@@ -1318,6 +1421,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         crossover_groups=_annotate_crossover_titles(
             db.list_crossover_groups(playlist_id), all_rows
         ),
+        rule_mode=_row_get(row, "rule_mode", "genre") or "genre",
     )
 
 

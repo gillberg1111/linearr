@@ -3,6 +3,122 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] - 2026-05-26
+
+### Added
+
+- **Smart playlist rules** — new `rule_mode='rules'` for genre playlists, driven
+  by `playlist_rules` DB rows instead of the `genre_filter` CSV. Rule types:
+  `year_min`, `year_max`, `status`, `content_rating`, `season_min`,
+  `season_max`, `rating_min`, plus genre include rules. Non-genre rules combine
+  with AND logic; genre includes are OR'd at query time. `rule_mode='genre'`
+  preserves the v1.4–v1.7 behaviour for existing playlists.
+- **New ShowSummary fields:** `status`, `content_rating`, `season_count`,
+  `community_rating` — populated by both PlexClient (`show.status`,
+  `show.contentRating`, `show.childCount`, `show.audienceRating`) and
+  JellyfinClient (`item.Status`, `item.OfficialRating`, `item.ChildCount`,
+  `item.CommunityRating`). No extra network round-trips — they ride on the
+  existing `list_all_shows()` / `list_shows_by_genres()` responses.
+- **`service._apply_rules(shows, rules)`** filters a list of `ShowSummary`
+  objects against a rule set. Null-absent field values are permissive (they
+  pass through rather than being filtered out).
+- **`service._resolve_smart_shows(rules, target_backends)`** queries backends
+  with genre-include rules and applies non-genre rules as post-filters. Shares
+  the `_dedup_show_summaries_to_configs()` dedup helper with
+  `_resolve_genre_shows` (extracted to eliminate duplication).
+- **New routes:** `POST /playlist/<id>/rules/add`,
+  `POST /playlist/<id>/rules/<rule_id>/delete`.
+- **Sync now respects `rule_mode`:** `_genre_sync_discover` dispatches to
+  `_resolve_smart_shows` when `rule_mode='rules'`, or the legacy
+  `_resolve_genre_shows` for `rule_mode='genre'`.
+
+### Changed
+
+- **`_resolve_genre_shows`** dedup logic extracted to shared
+  `_dedup_show_summaries_to_configs()` so both genre and smart-rule paths
+  use the same title+year→TVDB matching.
+- **`_list_series_via_items`** in `JellyfinClient` now requests additional
+  fields (`ChildCount`, `CommunityRating`, `OfficialRating`, `Status`) to
+  populate the new `ShowSummary` attributes.
+
+### Database (additive only)
+
+- `playlist_rules` table (id, playlist_id FK, rule_type, operator, value)
+- `managed_playlists.rule_mode TEXT NOT NULL DEFAULT 'genre'`
+- New helpers: `db.list_rules`, `db.add_rule`, `db.remove_rule`,
+  `db.set_rule_mode`
+
+### Tests
+
+- **175 passing** (up from 149). 26 new: 6 genre cache + 20 covering
+  `_apply_rules` (year, status, season count, rating, combined, content
+  rating).
+
+### Files touched
+
+`media_client.py` · `plex_client.py` · `jellyfin_client.py` · `db.py` ·
+`service.py` · `app.py` · `tests.py` · `CHANGELOG.md` · `README.md` ·
+`CLAUDE.md`.
+
+## [1.7.0] - 2026-05-26
+
+### Added
+
+- **Genre picker UI** replaces the freeform genres text input. All genre tags
+  from your configured media servers are loaded via `/api/genres` and displayed
+  as selectable pills. A filter input narrows the list; selected genres appear
+  as removable chips. Genres are cached in the DB (7-day TTL) and refreshed
+  weekly by the scheduler, plus on first startup.
+- **`MediaClient.list_all_genres()`** abstract method implemented in both
+  `PlexClient` (`section.listChoices("genre")`) and `JellyfinClient`
+  (`GET /Genres?IncludeItemTypes=Series`). Returns sorted genre names across
+  all TV libraries.
+- **`/api/genres`** JSON endpoint returning cached genre lists keyed by backend
+  name (`{"plex": [...], "jellyfin": [...]}`). Falls back to live fetch on
+  cache miss.
+- **Genre cache tables** (`genre_cache` + `genre_cache_meta`) with 7-day TTL
+  and `db.get_genre_cache` / `db.set_genre_cache` helpers.
+- **`scheduler._refresh_genre_cache()`** job: fires once at startup (date
+  trigger) and weekly thereafter to keep genre lists current.
+
+### Fixed
+
+- **Thumb poster cache reduced from 24 h to 1 h.** After a metadata refresh,
+  new poster images reach the browser within the hour instead of potentially
+  waiting a day.
+- **Exclusion picker backend/ID mismatch.** The per-episode exclusion widget
+  on the configure page was sending `show_rating_key` (the DB primary key) to
+  the episodes API even when the show only existed on the other backend.
+  Fixed to resolve the correct backend and ID for the show's actual side.
+  Also now shows a cross-backend note for 'both' playlists.
+- **Genre preview shows poster images.** `matched_shows` dicts now carry
+  `thumb` and `thumb_backend` fields so the genre preview renders posters
+  instead of empty placeholders.
+- **Genre preview section constrained** to max-width 560px (no controls column),
+  preventing it from stretching full page width.
+- **"Click Preview first" hint relocated** from inside the commit bar to a
+  separate `<p>` above it, visible only before the first preview.
+
+### Changed
+
+- **"Push to", "Filter", and "Auto-update" consolidated** into a single compact
+  options bar in both `new_genre.html` and `configure.html`. No more three
+  separate full-width bars with hints.
+- **`new_genre.html` full rewrite** with the genre pill picker, consolidated
+  options, and clean commit bar.
+
+### Tests
+
+- **149 passing** (up from 143). 6 new tests covering genre cache store,
+  retrieve, expiry, overwrite, empty-list, and backend isolation.
+
+### Files touched
+
+`app.py` · `media_client.py` · `plex_client.py` · `jellyfin_client.py` ·
+`db.py` · `scheduler.py` · `templates/new_genre.html` ·
+`templates/configure.html` · `static/style.css` · `tests.py` ·
+`CHANGELOG.md` · `README.md` · `CLAUDE.md`.
+
 ## [1.6.3] - 2026-05-26
 
 ### Fixed
