@@ -499,7 +499,7 @@
     <section class="stats-section">
       <div class="section-head">
         <h2>Stats</h2>
-        <span class="hint">Updated each sync. Reflects {{ playlist.last_stats.backend }} side.</span>
+        <span class="hint">Updated each sync. Reflects {{ 'Plex' if playlist.last_stats.backend == 'plex' else 'Jellyfin' }} library state.</span>
       </div>
       {% set total = playlist.last_stats.total_episodes or 0 %}
       {% set watched = playlist.last_stats.watched_episodes or 0 %}
@@ -508,7 +508,7 @@
         <div class="stats-bar stats-bar-large">
           <div class="stats-bar-fill" style="width:{{ pct }}%"></div>
         </div>
-        <span class="stats-label">{{ watched }}/{{ total }} episodes watched ({{ pct }}%)</span>
+        <span class="stats-label">{{ total }} episodes in playlist · {{ watched }} watched ({{ pct }}%)</span>
       </div>
     </section>
   {% endif %}
@@ -526,7 +526,7 @@
       </form>
       <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
-        <span class="hint">Keeps the most recent watched episodes (WATCHED_KEEP); removes older watched ones.</span>
+        <span class="hint">Keeps the {{ watched_keep }} most recently watched episode{{ 's' if watched_keep != 1 else '' }} as a buffer; removes older watched ones.</span>
       </form>
       <form method="post" action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}"
             onsubmit="return confirm('Delete this rotating playlist (and its server-side playlists)?');">

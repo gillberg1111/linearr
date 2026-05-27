@@ -668,6 +668,7 @@ def create_app() -> Flask:
 
         selected = {k for k in request.args.get("selected", "").split(",") if k}
         rules = db.list_rules(playlist_id) if view.playlist_type == "genre" else []
+        import os as _os
         return render_template(
             "playlist.html",
             playlist=view,
@@ -676,6 +677,7 @@ def create_app() -> Flask:
             selected=selected,
             missing_on=missing_on,
             rules=rules,
+            watched_keep=max(0, int(_os.environ.get("WATCHED_KEEP", "2"))),
         )
 
     # ------------------------------------------------------------------ #
