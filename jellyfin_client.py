@@ -460,13 +460,20 @@ class JellyfinClient(MediaClient):
         end_season: int | None = None,
         include_specials: bool = False,
     ) -> list[EpisodeRef]:
+        # Ensure _user_id is populated before constructing params.
+        self._ensure_authenticated()
         # One call gets every episode for the show; we filter and order in Python.
         resp = self._request("GET", f"/Shows/{rating_key}/Episodes", params={
             "userId": self._user_id,
             "fields": _EPISODE_FIELDS,
             "enableUserData": "true",
         })
-        raw = resp.json().get("Items") or []
+        if not resp.ok:
+            return []
+        try:
+            raw = resp.json().get("Items") or []
+        except Exception:
+            return []
 
         # Show name comes from any episode (or we'd have to GET /Items/{id}).
         show_title = (raw[0].get("SeriesName") if raw else None) or ""

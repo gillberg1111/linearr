@@ -697,6 +697,19 @@ a { color: var(--accent); }
   margin: 0.5rem 0 1.2rem;
 }
 .sort-mode-bar-inline { margin-top: 0.5rem; }
+/* Wrap pills + hint hint so the hint sits BELOW the pills, not beside them */
+.sort-mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+}
+.sort-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
 .sort-mode-inherited {
   display: block;
   background: var(--bg-elev);
@@ -831,6 +844,13 @@ a { color: var(--accent); }
 /* ---------- genre picker ---------- */
 .genre-picker-bar { align-items: flex-start; }
 .genre-picker { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
+/* Prevent the filter input from stretching vertically in a column-flex container */
+.genre-picker .filter-input {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 200px;
+  max-width: 100%;
+}
 
 .genre-tags-row {
   display: flex;
@@ -865,15 +885,55 @@ a { color: var(--accent); }
   border-radius: 999px;
 }
 
-/* Genre preview: constrain width, no controls column */
-.genre-preview-section { max-width: 560px; }
-.genre-preview-section .rotation-row { grid-template-columns: 60px 1fr; }
+/* Genre preview: 2-col layout (matched shows left, order preview right) */
+.genre-preview-section { max-width: 100%; }
+.genre-preview-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+.genre-preview-section .rotation-row { grid-template-columns: 56px 1fr; }
+/* Episode order preview panel */
+.genre-order-preview {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  position: sticky;
+  top: 60px;
+}
+.genre-order-preview-head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  margin-bottom: 0.55rem;
+}
+.order-preview-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.order-preview-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.order-preview-item:last-child { border-bottom: none; }
+.order-preview-show { color: var(--fg); font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-preview-ep { color: var(--muted); flex-shrink: 0; font-size: 0.8rem; }
+.order-preview-msg { font-size: 0.85rem; color: var(--fg-dim); }
 
 /* ---------- options bar (Push to / Filter / Auto-update row) ---------- */
 .options-bar {
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 1.2rem 2rem;
+  gap: 1rem 2rem;
 }
 .options-group {
   display: flex;
@@ -903,6 +963,8 @@ a { color: var(--accent); }
 .rule-remove { flex-shrink: 0; }
 
 .rules-add-bar { margin-top: 0.5rem; }
+.rules-add-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.rules-add-value-text { width: 150px; max-width: 100%; }
 .rules-add-select {
   background: var(--bg-elev-2);
   color: var(--fg);

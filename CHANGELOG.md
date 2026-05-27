@@ -3,6 +3,46 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.1] - 2026-05-27
+
+### Fixed
+
+- **Genre playlist filter input** was rendering as a full-height stretched box
+  (CSS `flex-grow:1` expanded it vertically inside the column-flex genre picker).
+  Overridden to `flex: 0 0 auto; width: 200px`.
+- **"Push to / Filter / Auto-update" options bar** was top-aligned instead of
+  vertically centred. Fixed `align-items: flex-start → center` in `.options-bar`.
+- **Episode order description** in the genre playlist builder now always appears
+  below the sort-mode pills (not beside them). Wrapped pills + hint in a
+  `.sort-mode-content` column-flex div — same change applied to configure page.
+- **Block size / Weighted controls** in genre playlist now appear inline inside
+  the Episode order card and are always accessible without scrolling.
+- **Smart Rules add UI** replaced `window.prompt()` dialogs with an inline
+  add-row: type dropdown + value input (or status select) + "Add" button.
+  Enter key commits the rule.
+- **Simulated episode order preview** added to the right of the Matched Shows
+  column in genre playlist creation — shows fictional `S01E01`-style sequence
+  based on selected sort mode and block size so the effect is visible before
+  committing.
+- **Genre playlist preview** no longer requires a playlist name to be set;
+  the Preview button has `formnovalidate` to skip HTML5 required-field
+  validation.
+- **Jellyfin episode exclusion** was always returning "Couldn't load episodes
+  from the backend" because `_user_id` could be `None` when the request params
+  were constructed. Added explicit `_ensure_authenticated()` call at the start
+  of `episodes_for_show`, plus `resp.ok` guard and `try/except` on JSON parse.
+  JS error message now includes the backend name and HTTP status code.
+- **Smart rule changes** (`/rules/add`, `/rules/<id>/delete`) now call
+  `service.sync_playlist(force=True)` instead of only `_rebuild_playlist_tails`,
+  so newly matching shows are discovered immediately after a rule is added or
+  removed.
+
+### Files touched
+
+`app.py` · `jellyfin_client.py` · `templates/new_genre.html` ·
+`templates/configure.html` · `static/style.css` · `CHANGELOG.md` ·
+`README.md` · `CLAUDE.md`.
+
 ## [1.8.0] - 2026-05-26
 
 ### Added

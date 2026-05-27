@@ -16,9 +16,10 @@
 
     {# ── Toolbar: name + preview button ────────────────────────────────── #}
     <div class="builder-toolbar">
-      <input type="text" name="name" required placeholder="Playlist name"
+      <input type="text" name="name" placeholder="Playlist name"
              class="name-input" autofocus value="{{ prev_name or '' }}">
-      <button type="submit" name="action" value="preview" class="btn">
+      <button type="submit" name="action" value="preview"
+              class="btn" formnovalidate>
         Preview matches
       </button>
     </div>
@@ -26,21 +27,23 @@
     {# ── Rule mode toggle ──────────────────────────────────────────────── #}
     <div class="sort-mode-bar">
       <span class="sort-mode-label">Mode</span>
-      <div class="pill-toggle" id="ruleModeToggle">
-        <label class="pill {% if prev_rule_mode != 'rules' %}is-active{% endif %}" data-mode="genre">
-          <input type="radio" name="rule_mode" value="genre"
-                 {% if prev_rule_mode != 'rules' %}checked{% endif %}>
-          <span>Genre mode</span>
-        </label>
-        <label class="pill {% if prev_rule_mode == 'rules' %}is-active{% endif %}" data-mode="rules">
-          <input type="radio" name="rule_mode" value="rules"
-                 {% if prev_rule_mode == 'rules' %}checked{% endif %}>
-          <span>Smart rules</span>
-        </label>
+      <div class="sort-mode-content">
+        <div class="pill-toggle" id="ruleModeToggle">
+          <label class="pill {% if prev_rule_mode != 'rules' %}is-active{% endif %}" data-mode="genre">
+            <input type="radio" name="rule_mode" value="genre"
+                   {% if prev_rule_mode != 'rules' %}checked{% endif %}>
+            <span>Genre mode</span>
+          </label>
+          <label class="pill {% if prev_rule_mode == 'rules' %}is-active{% endif %}" data-mode="rules">
+            <input type="radio" name="rule_mode" value="rules"
+                   {% if prev_rule_mode == 'rules' %}checked{% endif %}>
+            <span>Smart rules</span>
+          </label>
+        </div>
+        <span class="hint" id="ruleModeHint">
+          Pick one or more genres; all matching shows are added to the playlist.
+        </span>
       </div>
-      <span class="hint" id="ruleModeHint">
-        Pick one or more genres; all matching shows are added to the playlist.
-      </span>
     </div>
 
     {# ── Genre picker (visible in genre mode) ──────────────────────────── #}
@@ -51,7 +54,7 @@
         <div id="genreSelectedTags" class="genre-tags-row"></div>
         <input type="text" id="genreFilterInput"
                placeholder="Filter genres…"
-               class="filter-input" style="max-width:220px; margin-top:0.4rem">
+               class="filter-input" style="margin-top:0.4rem">
         <div id="genrePillGrid" class="genre-pill-grid">
           <span class="hint">Loading genres…</span>
         </div>
@@ -68,17 +71,27 @@
       <div class="rules-builder">
         <div id="rulesList"></div>
         <div class="rules-add-bar">
-          <select id="rulesAddType" class="rules-add-select">
-            <option value="">+ Add rule…</option>
-            <option value="genre">Genre</option>
-            <option value="year_min">Year (min)</option>
-            <option value="year_max">Year (max)</option>
-            <option value="status">Status</option>
-            <option value="content_rating">Content rating</option>
-            <option value="season_min">Season count (min)</option>
-            <option value="season_max">Season count (max)</option>
-            <option value="rating_min">Rating (min)</option>
-          </select>
+          <div class="rules-add-row">
+            <select id="rulesAddType" class="rules-add-select">
+              <option value="">+ Add rule…</option>
+              <option value="genre">Genre</option>
+              <option value="year_min">Year (min)</option>
+              <option value="year_max">Year (max)</option>
+              <option value="status">Status</option>
+              <option value="content_rating">Content rating</option>
+              <option value="season_min">Seasons (min)</option>
+              <option value="season_max">Seasons (max)</option>
+              <option value="rating_min">Rating (min)</option>
+            </select>
+            <input type="text" id="rulesAddValueText"
+                   class="number-input rules-add-value-text"
+                   placeholder="Value…" hidden>
+            <select id="rulesAddValueSelect" class="rules-add-select" hidden>
+              <option value="Ended">Ended</option>
+              <option value="Continuing">Continuing</option>
+            </select>
+            <button type="button" id="rulesAddBtn" class="btn btn-sm" hidden>Add</button>
+          </div>
         </div>
       </div>
     </div>
@@ -86,38 +99,36 @@
     {# ── Episode order ──────────────────────────────────────────────────── #}
     <div class="sort-mode-bar">
       <span class="sort-mode-label">Episode order</span>
-      <div class="pill-toggle pill-toggle-5">
-        {% for value, label in [
-          ('rotation', 'Rotation'),
-          ('rotation_blocks', 'Blocks'),
-          ('rotation_weighted', 'Weighted'),
-          ('air_date', 'Air Date'),
-          ('shuffle_chronological', 'Shuffle'),
-        ] %}
-          <label class="pill {% if prev_sort_mode == value %}is-active{% endif %}">
-            <input type="radio" name="sort_mode" value="{{ value }}"
-                   {% if prev_sort_mode == value %}checked{% endif %}>
-            <span>{{ label }}</span>
-          </label>
-        {% endfor %}
+      <div class="sort-mode-content">
+        <div class="pill-toggle pill-toggle-5">
+          {% for value, label in [
+            ('rotation', 'Rotation'),
+            ('rotation_blocks', 'Blocks'),
+            ('rotation_weighted', 'Weighted'),
+            ('air_date', 'Air Date'),
+            ('shuffle_chronological', 'Shuffle'),
+          ] %}
+            <label class="pill {% if prev_sort_mode == value %}is-active{% endif %}">
+              <input type="radio" name="sort_mode" value="{{ value }}"
+                     {% if prev_sort_mode == value %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <span class="hint" id="genreSortHint">Round-robin: Show A → Show B → Show A → … Air date is ignored.</span>
+        {# Block size — shown inline when Blocks mode is selected #}
+        <div class="sort-inline-row" id="genreBlockRow" {% if prev_sort_mode != 'rotation_blocks' %}hidden{% endif %}>
+          <span class="sort-mode-label" style="text-transform:none;font-size:0.82rem">Block size</span>
+          <input type="number" name="block_size" id="genreBlockSizeInput"
+                 min="1" max="20" step="1"
+                 value="{{ prev_block_size or 2 }}" class="number-input" style="width:64px">
+          <span class="hint">episodes per show before rotating.</span>
+        </div>
+        {# Weighted note — shown inline when Weighted mode is selected #}
+        <div class="sort-inline-row" id="genreWeightRow" {% if prev_sort_mode != 'rotation_weighted' %}hidden{% endif %}>
+          <span class="hint">Weights are set per-show from the playlist page after creation.</span>
+        </div>
       </div>
-      <span class="hint">All shows are added with default settings
-        (Season 1+, no specials). Tweak individual shows after creation.</span>
-    </div>
-
-    {# Block size — shown when "Blocks" mode is selected #}
-    <div class="sort-mode-bar" id="genreBlockSizeBar" hidden>
-      <span class="sort-mode-label">Block size</span>
-      <input type="number" name="block_size" id="genreBlockSizeInput"
-             min="1" max="20" step="1"
-             value="{{ prev_block_size or 2 }}" class="number-input">
-      <span class="hint">Episodes per block before rotating to the next show.</span>
-    </div>
-
-    {# Weighted note — shown when "Weighted" mode is selected #}
-    <div class="sort-mode-bar" id="genreWeightHintBar" hidden>
-      <span class="sort-mode-label">Weights</span>
-      <span class="hint">Set per-show weights from the playlist page after creation.</span>
     </div>
 
     {# ── Options: Push to + Filter + Auto-update ────────────────────────── #}
@@ -169,33 +180,43 @@
         <h2>Matched shows ({{ matched_shows|length }})</h2>
         {% if not matched_shows %}
           <p class="empty-state">
-            No shows in your library match those genres. Try different terms.
+            No shows in your library match. Try different genres or rules.
           </p>
         {% else %}
-          <ul class="rotation-list">
-            {% for s in matched_shows %}
-              <li class="rotation-row">
-                <div class="rotation-poster">
-                  {% if s.thumb %}
-                    <img loading="lazy"
-                         src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ s.thumb_backend }}&w=120&h=180"
-                         alt="{{ s.title }}">
-                  {% else %}
-                    <div class="poster-fallback">{{ s.title[:1] }}</div>
-                  {% endif %}
-                </div>
-                <div class="rotation-info">
-                  <div class="title">{{ s.title }}</div>
-                  <div class="sub">
-                    {% if s.plex and s.jellyfin %}On Plex + Jellyfin
-                    {% elif s.plex %}On Plex
-                    {% elif s.jellyfin %}On Jellyfin
-                    {% endif %}
-                  </div>
-                </div>
-              </li>
-            {% endfor %}
-          </ul>
+          <div class="genre-preview-layout">
+            {# Left: matched show tiles #}
+            <div>
+              <ul class="rotation-list" id="matchedShowsList">
+                {% for s in matched_shows %}
+                  <li class="rotation-row" data-show-title="{{ s.title|e }}">
+                    <div class="rotation-poster">
+                      {% if s.thumb %}
+                        <img loading="lazy"
+                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ s.thumb_backend }}&w=120&h=180"
+                             alt="{{ s.title }}">
+                      {% else %}
+                        <div class="poster-fallback">{{ s.title[:1] }}</div>
+                      {% endif %}
+                    </div>
+                    <div class="rotation-info">
+                      <div class="title">{{ s.title }}</div>
+                      <div class="sub">
+                        {% if s.plex and s.jellyfin %}On Plex + Jellyfin
+                        {% elif s.plex %}On Plex
+                        {% elif s.jellyfin %}On Jellyfin
+                        {% endif %}
+                      </div>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {# Right: simulated episode order preview #}
+            <div class="genre-order-preview">
+              <div class="genre-order-preview-head">Episode order preview</div>
+              <div id="genreOrderPreview"></div>
+            </div>
+          </div>
         {% endif %}
       </section>
     {% endif %}
@@ -209,7 +230,7 @@
     <div class="commit-bar">
       <button type="submit" name="action" value="create"
               class="btn btn-primary btn-large"
-              {% if matched_shows is none or not matched_shows %}disabled{% endif %}>
+              {% if not prev_name or matched_shows is none or not matched_shows %}disabled{% endif %}>
         Create playlist
       </button>
     </div>
@@ -218,11 +239,19 @@
 
   <script>
   (function () {
+    var SORT_HINTS = {
+      rotation:              'Round-robin: Show A → Show B → Show A → … Air date is ignored.',
+      rotation_blocks:       'Block scheduling: N episodes per show before rotating to the next.',
+      rotation_weighted:     'Weighted rotation — shows play more or less often based on their weight. Set weights after creation.',
+      air_date:              'Chronological by air date across all matched shows.',
+      shuffle_chronological: 'Shuffled — each show stays in episode order, no consecutive repeats. Seed is fixed until reshuffled.',
+    };
+
     // ── Rule mode toggle ───────────────────────────────────────────────
-    var modeRadios = document.querySelectorAll('input[name="rule_mode"]');
-    var genreSection = document.getElementById('genrePickerSection');
-    var rulesSection = document.getElementById('rulesSection');
-    var modeHint = document.getElementById('ruleModeHint');
+    var modeRadios    = document.querySelectorAll('input[name="rule_mode"]');
+    var genreSection  = document.getElementById('genrePickerSection');
+    var rulesSection  = document.getElementById('rulesSection');
+    var modeHint      = document.getElementById('ruleModeHint');
 
     function applyRuleMode() {
       var checked = document.querySelector('input[name="rule_mode"]:checked');
@@ -234,16 +263,18 @@
       if (rulesSection) rulesSection.hidden = (mode !== 'rules');
       if (modeHint) {
         modeHint.textContent = mode === 'rules'
-          ? 'Build a rule set. Genre rules narrow the candidate pool; other rules filter the results.'
+          ? 'Build a rule set. Genre rules narrow the candidate pool; other rules post-filter with AND logic.'
           : 'Pick one or more genres; all matching shows are added to the playlist.';
       }
     }
     modeRadios.forEach(function(r) { r.addEventListener('change', applyRuleMode); });
     applyRuleMode();
 
-    // ── Episode order pill toggle + sub-bar visibility ──────────────────
-    var blockBar   = document.getElementById('genreBlockSizeBar');
-    var weightHint = document.getElementById('genreWeightHintBar');
+    // ── Episode order + sort hint + inline sub-rows ─────────────────────
+    var blockRow   = document.getElementById('genreBlockRow');
+    var weightRow  = document.getElementById('genreWeightRow');
+    var sortHint   = document.getElementById('genreSortHint');
+    var blockInput = document.getElementById('genreBlockSizeInput');
     var pills      = document.querySelectorAll('input[name="sort_mode"]');
 
     function applySortMode() {
@@ -253,10 +284,13 @@
         var r = p.querySelector('input[name="sort_mode"]');
         if (r) p.classList.toggle('is-active', r.checked);
       });
-      if (blockBar)   blockBar.hidden   = (mode !== 'rotation_blocks');
-      if (weightHint) weightHint.hidden = (mode !== 'rotation_weighted');
+      if (sortHint)  sortHint.textContent  = SORT_HINTS[mode] || '';
+      if (blockRow)  blockRow.hidden  = (mode !== 'rotation_blocks');
+      if (weightRow) weightRow.hidden = (mode !== 'rotation_weighted');
+      updateOrderPreview();
     }
     pills.forEach(function(r) { r.addEventListener('change', applySortMode); });
+    if (blockInput) blockInput.addEventListener('input', updateOrderPreview);
     applySortMode();
 
     // ── Options-bar pill-toggle active state (Push to) ─────────────────
@@ -270,6 +304,81 @@
         });
       });
     });
+
+    // ── Episode order simulation ────────────────────────────────────────
+    var showTitles = Array.from(
+      document.querySelectorAll('#matchedShowsList [data-show-title]')
+    ).map(function(el) { return el.dataset.showTitle || el.querySelector('.title').textContent.trim(); });
+
+    function simulateOrder(shows, mode, blockSize) {
+      if (!shows.length) return null;
+      if (mode === 'air_date') return { text: 'Episodes appear chronologically by air date across all matched shows.' };
+      if (mode === 'shuffle_chronological') return { text: 'Episodes are shuffled — each show stays in episode order, same-show repeats are avoided.' };
+      if (mode === 'rotation_weighted') return { text: 'Shows rotate by weight. Set per-show weights from the playlist page after creation.' };
+
+      var items = [];
+      var N = 10;
+      if (mode === 'rotation') {
+        for (var ep = 1; items.length < N; ep++) {
+          for (var s = 0; s < shows.length && items.length < N; s++) {
+            items.push({ show: shows[s], ep: ep });
+          }
+        }
+      } else if (mode === 'rotation_blocks') {
+        var si = 0;
+        var epNums = shows.map(function() { return 1; });
+        while (items.length < N) {
+          var idx = si % shows.length;
+          for (var b = 0; b < blockSize && items.length < N; b++) {
+            items.push({ show: shows[idx], ep: epNums[idx]++ });
+          }
+          si++;
+        }
+      }
+      return { items: items };
+    }
+
+    function updateOrderPreview() {
+      var panel = document.getElementById('genreOrderPreview');
+      if (!panel || !showTitles.length) return;
+
+      var checked = document.querySelector('input[name="sort_mode"]:checked');
+      var mode = checked ? checked.value : 'rotation';
+      var bs = blockInput ? Math.max(1, parseInt(blockInput.value, 10) || 2) : 2;
+      var result = simulateOrder(showTitles, mode, bs);
+
+      panel.innerHTML = '';
+      if (!result) return;
+
+      if (result.text) {
+        var msg = document.createElement('p');
+        msg.className = 'order-preview-msg';
+        msg.textContent = result.text;
+        panel.appendChild(msg);
+        return;
+      }
+
+      var ol = document.createElement('ol');
+      ol.className = 'order-preview-list';
+      result.items.forEach(function(item) {
+        var li = document.createElement('li');
+        li.className = 'order-preview-item';
+        var ep = String(item.ep).padStart(2, '0');
+        li.innerHTML =
+          '<span class="order-preview-show">' + escHtml(item.show) + '</span>' +
+          '<span class="order-preview-ep">S01E' + ep + '</span>';
+        ol.appendChild(li);
+      });
+      panel.appendChild(ol);
+    }
+
+    function escHtml(s) {
+      return s.replace(/[&<>"']/g, function(c) {
+        return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+      });
+    }
+
+    updateOrderPreview();
 
     // ── Genre pill picker ───────────────────────────────────────────────
     var hidden      = document.getElementById('genresHidden');
@@ -295,7 +404,7 @@
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'genre-tag';
-        btn.textContent = genre + ' \u00d7';
+        btn.textContent = genre + ' ×';
         btn.addEventListener('click', function() {
           selected.delete(genre);
           renderTags();
@@ -336,7 +445,6 @@
     }
 
     if (filterInput) filterInput.addEventListener('input', renderPills);
-
     renderTags();
 
     fetch('/api/genres')
@@ -365,12 +473,30 @@
           '</span>';
       });
 
-    // ── Smart rules builder ─────────────────────────────────────────────
-    var rulesList = document.getElementById('rulesList');
-    var rulesAddType = document.getElementById('rulesAddType');
+    // ── Smart rules builder (inline — no browser prompts) ───────────────
+    var rulesList          = document.getElementById('rulesList');
+    var rulesAddType       = document.getElementById('rulesAddType');
+    var rulesAddValueText  = document.getElementById('rulesAddValueText');
+    var rulesAddValueSel   = document.getElementById('rulesAddValueSelect');
+    var rulesAddBtn        = document.getElementById('rulesAddBtn');
     if (!rulesList || !rulesAddType) return;
 
     var rules = [];
+
+    var TYPE_LABELS = {
+      genre: 'Genre', year_min: 'Year (min)', year_max: 'Year (max)',
+      status: 'Status', content_rating: 'Content rating',
+      season_min: 'Seasons (min)', season_max: 'Seasons (max)',
+      rating_min: 'Rating (min)'
+    };
+    var TYPE_PLACEHOLDERS = {
+      genre: 'e.g. Science Fiction',
+      year_min: 'e.g. 2010', year_max: 'e.g. 2023',
+      content_rating: 'e.g. TV-MA',
+      season_min: 'e.g. 3', season_max: 'e.g. 10',
+      rating_min: 'e.g. 7.5'
+    };
+    var SELECT_TYPES = new Set(['status']);
 
     function renderRules() {
       rulesList.innerHTML = '';
@@ -385,14 +511,14 @@
         var row = document.createElement('div');
         row.className = 'rule-row';
         row.innerHTML =
-          '<span class="rule-type-label">' + rule.type_label + '</span>' +
-          '<span class="rule-value">' + (rule.display_value || rule.value) + '</span>' +
+          '<span class="rule-type-label">' + (TYPE_LABELS[rule.type] || rule.type) + '</span>' +
+          '<span class="rule-value">' + escHtml(rule.value) + '</span>' +
           '<button type="button" class="btn btn-sm btn-ghost-danger rule-remove" data-idx="' + i + '">×</button>';
         rulesList.appendChild(row);
       });
       rulesList.querySelectorAll('.rule-remove').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          rules.splice(parseInt(btn.dataset.idx), 1);
+          rules.splice(parseInt(btn.dataset.idx, 10), 1);
           renderRules();
         });
       });
@@ -400,45 +526,43 @@
 
     rulesAddType.addEventListener('change', function() {
       var type = rulesAddType.value;
-      if (!type) return;
-
-      var typeLabels = {
-        genre: 'Genre', year_min: 'Year (min)', year_max: 'Year (max)',
-        status: 'Status', content_rating: 'Content rating',
-        season_min: 'Seasons (min)', season_max: 'Seasons (max)',
-        rating_min: 'Rating (min)'
-      };
-
-      var value = '';
-      if (type === 'genre') {
-        value = prompt('Genre name (exact match, e.g. "Science Fiction"):', '');
-      } else if (type === 'year_min' || type === 'year_max') {
-        value = prompt('Year:', '');
-      } else if (type === 'status') {
-        value = prompt('Status ("Ended" or "Continuing"):', 'Ended');
-      } else if (type === 'content_rating') {
-        value = prompt('Content rating (e.g. "TV-MA", "TV-14"):', '');
-      } else if (type === 'season_min' || type === 'season_max') {
-        value = prompt('Season count:', '');
-      } else if (type === 'rating_min') {
-        value = prompt('Minimum rating (0.0–10.0):', '7.0');
-      }
-
-      if (value === null || value.trim() === '') {
-        rulesAddType.value = '';
+      if (!type) {
+        rulesAddValueText.hidden = true;
+        rulesAddValueSel.hidden  = true;
+        rulesAddBtn.hidden       = true;
         return;
       }
+      var useSelect = SELECT_TYPES.has(type);
+      rulesAddValueText.hidden = useSelect;
+      rulesAddValueSel.hidden  = !useSelect;
+      rulesAddBtn.hidden       = false;
+      if (!useSelect) {
+        rulesAddValueText.placeholder = TYPE_PLACEHOLDERS[type] || 'Value…';
+        rulesAddValueText.value = '';
+        rulesAddValueText.focus();
+      }
+    });
 
-      var operator = 'include';
-      rules.push({
-        type: type,
-        type_label: typeLabels[type] || type,
-        operator: operator,
-        value: value.trim(),
-        display_value: value.trim()
-      });
+    function commitRule() {
+      var type = rulesAddType.value;
+      if (!type) return;
+      var value = SELECT_TYPES.has(type)
+        ? rulesAddValueSel.value
+        : rulesAddValueText.value.trim();
+      if (!value) return;
+      rules.push({ type: type, operator: 'include', value: value });
       renderRules();
-      rulesAddType.value = '';
+      // Reset
+      rulesAddType.value       = '';
+      rulesAddValueText.value  = '';
+      rulesAddValueText.hidden = true;
+      rulesAddValueSel.hidden  = true;
+      rulesAddBtn.hidden       = true;
+    }
+
+    rulesAddBtn.addEventListener('click', commitRule);
+    rulesAddValueText.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitRule(); }
     });
 
     // Serialize rules to hidden inputs before form submit.
@@ -449,8 +573,8 @@
         [['rule_type[]', rule.type], ['rule_operator[]', rule.operator], ['rule_value[]', rule.value]]
           .forEach(function(pair) {
             var inp = document.createElement('input');
-            inp.type = 'hidden';
-            inp.name = pair[0];
+            inp.type  = 'hidden';
+            inp.name  = pair[0];
             inp.value = pair[1];
             builderForm.appendChild(inp);
           });
