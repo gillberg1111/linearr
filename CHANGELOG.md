@@ -3,6 +3,24 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.2] - 2026-05-26
+
+### Changed
+
+- **Sort mode pill order** updated to Rotation → Blocks → Weighted → Air Date
+  → Shuffle across all three templates (`playlist.html`, `configure.html`,
+  `new_genre.html`). Blocks is a direct extension of Rotation (same concept,
+  N episodes per cycle instead of 1); Weighted adds per-show asymmetry on top;
+  Air Date and Shuffle break from the rotation paradigm entirely. The new order
+  reflects increasing conceptual distance from plain round-robin.
+- **Banner image** updated.
+
+### Files touched
+
+`app.py` · `templates/playlist.html` · `templates/configure.html` ·
+`templates/new_genre.html` · `images/banner.png` · `CHANGELOG.md` ·
+`README.md` · `CLAUDE.md`.
+
 ## [1.6.1] - 2026-05-26
 
 Bug-fix and polish release.

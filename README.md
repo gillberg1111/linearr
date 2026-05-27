@@ -27,11 +27,11 @@ Show A S01E02
 Show B S01E02
 ```
 
-**Weighted Rotation** — give heavy shows more slots per cycle ("The Simpsons
-gets 3 episodes for every 1 of Firefly").
-
 **Block Scheduling** — N consecutive episodes per show before rotating
 ("3 Simpsons, then 3 Futuramas, then 3 South Parks...").
+
+**Weighted Rotation** — give heavy shows more slots per cycle ("The Simpsons
+gets 3 episodes for every 1 of Firefly").
 
 **Air Date** — chronological across every show, like Tuesday-night TV from
 2008. **Multi-part crossovers stay aligned** across different shows via
@@ -137,10 +137,10 @@ fall-asleep buffer.
     the titles differ enough that auto-matching fails.
 - **Five sort modes per playlist:**
   - **Rotation** — round-robin in the order you picked shows.
-  - **Weighted Rotation** — per-show weight (1–20); heavier shows get more
-    episodes per cycle. Edit weights inline on the playlist page.
   - **Block Scheduling** — N consecutive episodes from each show before
     rotating. Single playlist-wide block size.
+  - **Weighted Rotation** — per-show weight (1–20); heavier shows get more
+    episodes per cycle. Edit weights inline on the playlist page.
   - **Air Date** — chronological across every show; multi-part crossovers
     stay in order via `Part 1` / `Pt. 2` / `(N)` title parsing, with
     **manual crossover grouping** for linking specific episodes across shows
