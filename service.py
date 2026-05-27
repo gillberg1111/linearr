@@ -899,16 +899,18 @@ def _resolve_genre_shows(
             log.exception("genre resolve failed on %s", tb)
             per_backend[tb] = []
 
-    # Aggregate, deduplicate via title+year (same logic as _aggregated_shows).
+    # Aggregate, deduplicate via title+year then TVDB ID fallback.
     out: list[ShowConfig] = []
     seen_keys: dict[str, list[int]] = {}
+    tvdb_seen: dict[str, int] = {}   # tvdb_id -> index in out
     _years: dict[int, int | None] = {}  # year per output index (ShowConfig has no year field)
     for tb in target_backends:
         for s in per_backend[tb]:
             nk = normalize_title(s.title)
-            candidates = seen_keys.get(nk, [])
-            merged = False
-            for idx in candidates:
+
+            # 1. Title+year match.
+            match_idx: int | None = None
+            for idx in seen_keys.get(nk, []):
                 existing_year = _years.get(idx)
                 if (
                     existing_year is not None
@@ -916,18 +918,28 @@ def _resolve_genre_shows(
                     and existing_year != s.year
                 ):
                     continue
-                if tb == "plex" and out[idx].plex_rating_key is None:
-                    out[idx].plex_rating_key = s.rating_key
-                if tb == "jellyfin" and out[idx].jellyfin_rating_key is None:
-                    out[idx].jellyfin_rating_key = s.rating_key
-                if _years.get(idx) is None and s.year is not None:
-                    _years[idx] = s.year
-                if not out[idx].thumb and s.thumb:
-                    out[idx].thumb = s.thumb
-                merged = True
+                match_idx = idx
                 break
-            if merged:
+
+            # 2. TVDB ID fallback.
+            if match_idx is None and s.tvdb_id:
+                match_idx = tvdb_seen.get(s.tvdb_id)
+
+            if match_idx is not None:
+                if tb == "plex" and out[match_idx].plex_rating_key is None:
+                    out[match_idx].plex_rating_key = s.rating_key
+                if tb == "jellyfin" and out[match_idx].jellyfin_rating_key is None:
+                    out[match_idx].jellyfin_rating_key = s.rating_key
+                if _years.get(match_idx) is None and s.year is not None:
+                    _years[match_idx] = s.year
+                if not out[match_idx].thumb and s.thumb:
+                    out[match_idx].thumb = s.thumb
+                if nk not in seen_keys or match_idx not in seen_keys[nk]:
+                    seen_keys.setdefault(nk, []).append(match_idx)
+                if s.tvdb_id and s.tvdb_id not in tvdb_seen:
+                    tvdb_seen[s.tvdb_id] = match_idx
                 continue
+
             cfg = ShowConfig(
                 rating_key=s.rating_key,
                 title=s.title,
@@ -935,9 +947,11 @@ def _resolve_genre_shows(
                 plex_rating_key=s.rating_key if tb == "plex" else None,
                 jellyfin_rating_key=s.rating_key if tb == "jellyfin" else None,
             )
-            idx = len(out)
-            seen_keys.setdefault(nk, []).append(idx)
-            _years[idx] = s.year
+            new_idx = len(out)
+            seen_keys.setdefault(nk, []).append(new_idx)
+            _years[new_idx] = s.year
+            if s.tvdb_id:
+                tvdb_seen[s.tvdb_id] = new_idx
             out.append(cfg)
     # Cross-backend completion: for 'both' setups, fill in missing IDs.
     if "plex" in target_backends and "jellyfin" in target_backends:

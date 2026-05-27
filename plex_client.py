@@ -190,7 +190,7 @@ class PlexClient(MediaClient):
     def list_all_shows(self) -> list[ShowSummary]:
         out: list[ShowSummary] = []
         for section in self._tv_sections():
-            for show in section.all():
+            for show in section.all(includeGuids=1):
                 out.append(
                     ShowSummary(
                         rating_key=str(show.ratingKey),
@@ -217,7 +217,7 @@ class PlexClient(MediaClient):
                 if not g:
                     continue
                 try:
-                    results = section.search(genre=g)
+                    results = section.search(genre=g, includeGuids=1)
                 except Exception:
                     continue
                 for show in results:

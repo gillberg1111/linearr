@@ -98,7 +98,7 @@
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="toggle-label">Auto-add new shows matching these genres &amp; new episodes</span>
       </label>
-      <span class="hint">When on, the background sweep re-queries your library every PRUNE_INTERVAL_MINUTES.</span>
+      <span class="hint">When on, the background sweep re-queries your library every {{ "10" }} minutes.</span>
     </div>
 
     {% if matched_shows is not none %}
@@ -110,6 +110,7 @@
           <ul class="rotation-list">
             {% for s in matched_shows %}
               <li class="rotation-row">
+                <div class="rotation-poster"></div>
                 <div class="rotation-info">
                   <div class="title">{{ s.title }}</div>
                   <div class="sub">

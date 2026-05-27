@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__version__ = "1.6.0"
+
 import logging
 import os
 
@@ -54,10 +56,11 @@ def _aggregated_shows() -> list[dict]:
     """
     backends = available_backends()
     out: list[dict] = []
-    # Key on normalized title; year only disambiguates when both sides have
-    # non-None years that differ (e.g. reboots). If one backend omits the
-    # year, we merge — same logic as titles_match().
+    # Primary key: normalized title (year disambiguates reboots).
+    # Secondary key: TVDB ID — catches title discrepancies between backends
+    # (e.g. "Yellowstone (2018)" on Plex ↔ "Yellowstone" on Jellyfin).
     seen: dict[str, list[int]] = {}  # normalized title -> indices in out
+    tvdb_seen: dict[str, int] = {}   # tvdb_id -> index in out
 
     for backend in backends:
         try:
@@ -67,9 +70,10 @@ def _aggregated_shows() -> list[dict]:
             continue
         for s in shows:
             nk = normalize_title(s.title)
-            candidates = seen.get(nk, [])
-            merged = False
-            for idx in candidates:
+
+            # 1. Try title+year match (existing logic).
+            match_idx: int | None = None
+            for idx in seen.get(nk, []):
                 existing = out[idx]
                 # Only split into separate entries when both sides carry a
                 # non-None year and they differ.
@@ -79,7 +83,15 @@ def _aggregated_shows() -> list[dict]:
                     and existing["year"] != s.year
                 ):
                     continue
-                # Compatible — merge into this row.
+                match_idx = idx
+                break
+
+            # 2. Fall back to TVDB ID if titles didn't match.
+            if match_idx is None and s.tvdb_id:
+                match_idx = tvdb_seen.get(s.tvdb_id)
+
+            if match_idx is not None:
+                existing = out[match_idx]
                 existing[f"{backend}_rating_key"] = s.rating_key
                 existing["backends"].add(backend)
                 if not existing["year"] and s.year:
@@ -87,10 +99,15 @@ def _aggregated_shows() -> list[dict]:
                 if not existing["thumb"] and s.thumb:
                     existing["thumb"] = s.thumb
                     existing["thumb_backend"] = backend
-                merged = True
-                break
-            if merged:
+                # Index this backend's title too, and record tvdb_id if new.
+                if nk not in seen or match_idx not in seen[nk]:
+                    seen.setdefault(nk, []).append(match_idx)
+                if s.tvdb_id and s.tvdb_id not in tvdb_seen:
+                    tvdb_seen[s.tvdb_id] = match_idx
                 continue
+
+            # New entry.
+            new_idx = len(out)
             row = {
                 "rating_key": s.rating_key,
                 "title": s.title,
@@ -102,7 +119,9 @@ def _aggregated_shows() -> list[dict]:
                 "jellyfin_rating_key": s.rating_key if backend == "jellyfin" else None,
                 "backends": {backend},
             }
-            seen.setdefault(nk, []).append(len(out))
+            seen.setdefault(nk, []).append(new_idx)
+            if s.tvdb_id:
+                tvdb_seen[s.tvdb_id] = new_idx
             out.append(row)
 
     out.sort(key=lambda r: r["title"].lower())
@@ -288,7 +307,7 @@ def create_app() -> Flask:
     # and badges to decide what to render).
     @app.context_processor
     def _inject_backends():
-        return {"AVAILABLE_BACKENDS": available_backends()}
+        return {"AVAILABLE_BACKENDS": available_backends(), "APP_VERSION": __version__}
 
     # ------------------------------------------------------------------ #
     # Thumb proxy — dispatches by thumb reference shape

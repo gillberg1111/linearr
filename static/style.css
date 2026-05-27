@@ -811,6 +811,13 @@ a { color: var(--accent); }
   gap: 0.7rem;
 }
 .support-footer .hint { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.app-version-footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--fg-dim, #555);
+  padding: 1.5rem 0 1rem;
+  opacity: 0.5;
+}
 .btn-coffee {
   font-family: 'Inter', inherit;
   font-size: 0.9rem;
