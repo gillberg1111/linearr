@@ -189,11 +189,14 @@ fall-asleep buffer.
   edit them.
 - **Dynamic genre playlists** — hit **+ Genre** instead of **+ New playlist**
   to create a playlist that auto-populates from your library by genre
-  (e.g. "Sci-Fi, Drama"). Background sync re-queries your library every
-  sweep and auto-adds new shows matching the chosen genres. Exclude
+  (e.g. "Science Fiction, Drama"). Background sync re-queries your library
+  every sweep and auto-adds new shows matching the chosen genres. Exclude
   individual shows and they stay excluded across syncs. When creating, the
   block-size and weight fields appear and hide automatically as you toggle
-  between sort modes — matching the configure-page behaviour.
+  between sort modes — matching the configure-page behaviour. Genre names
+  must match exactly what your media server uses (Plex uses "Science
+  Fiction", not "Sci-Fi" — check the genre browser in your library if you
+  get zero results).
 - **Metadata refresh** — a **Refresh metadata** button in the maintenance
   section of each playlist page asks every configured backend to re-fetch
   metadata for all shows in the playlist (Plex: `PUT /library/metadata/{id}/refresh`;

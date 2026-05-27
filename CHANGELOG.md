@@ -3,6 +3,50 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.1] - 2026-05-26
+
+Bug-fix and polish release.
+
+### Fixed
+
+- **Genre preview layout broken.** `.rotation-row` is a CSS grid with
+  `60px 1fr auto` columns. The preview only rendered `.rotation-info` with
+  no leading `.rotation-poster` div, so the text landed in the 60px slot
+  and the row stretched incorrectly. Fixed by adding an empty placeholder
+  poster div.
+- **TVDB IDs always empty on Plex.** `PlexClient.list_all_shows()` and
+  `list_shows_by_genres()` called `section.all()` / `section.search()`
+  without `includeGuids=1`. Plex's abbreviated list response omits `<Guid>`
+  elements unless that parameter is present, so `show.guids` was always
+  `[]` and `_tvdb_id_from_guids()` always returned `None`. TVDB-based
+  cross-backend matching (introduced in v1.6.0) was therefore entirely
+  inert — title-mismatched shows like "Yellowstone (2018)" on Plex vs
+  "Yellowstone" on Jellyfin were never auto-linked.
+- **Picker and genre deduplication missed TVDB-only matches.** Both
+  `_aggregated_shows` (show picker) and `_resolve_genre_shows` (genre
+  playlist creation) deduplicated solely by normalized title+year. Shows
+  with different titles on each backend appeared as two separate "Plex only"
+  / "Jellyfin only" entries. Both functions now fall back to TVDB ID
+  equality after title+year fails to match.
+- **Auto-update hint showed literal `PRUNE_INTERVAL_MINUTES`** instead of
+  the configured value. Fixed to `{{ "10" }}`, matching the pattern already
+  used in the page description above it.
+- **Genre placeholder suggested "Sci-Fi"** — an input that returns zero
+  results on Plex, which tags the genre as "Science Fiction". Changed to
+  "Science Fiction, Drama".
+
+### Added
+
+- **Genre hint** explaining that genre names must match exactly what the
+  media server uses, with the Plex "Science Fiction" vs "Sci-Fi" example.
+- **Version footer** on every page (`v1.6.1`). Defined as `__version__` in
+  `app.py`, injected via context processor, rendered in `base.html`.
+
+### Files touched
+
+`app.py` · `plex_client.py` · `service.py` · `templates/new_genre.html` ·
+`templates/base.html` · `static/style.css` · `CHANGELOG.md` · `README.md`.
+
 ## [1.6.0] - 2026-05-26
 
 ### Added
