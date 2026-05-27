@@ -222,6 +222,20 @@ fall-asleep buffer.
 - **Never destructive** — two-layer safety guard refuses any backend API
   call that could delete media or library items (Plex's monkey-patch on
   `Episode/Show/Season/Movie.delete` + Jellyfin's HTTP-layer DELETE allow-list).
+- **Playlist analytics** — after every sync, watched/total episode counts are
+  stored for each playlist. Index cards show a progress bar; each playlist's
+  detail page shows a larger stats bar with watched percentage.
+- **REST API** (`/api/v1/`) — JSON endpoints for external integrations
+  (Home Assistant, Sonarr webhooks, shell scripts). All routes require a
+  bearer token or `?api_key=` query param. The API key is auto-generated on
+  first boot and shown on the new **Settings** page (`/settings`, linked in
+  the top bar); pin it across restarts with `LINEARR_API_KEY`. Endpoints:
+  list all playlists, get playlist detail + rules, trigger a sync, list
+  configured backends with health checks, get genre cache, get playlist stats.
+- **Mobile-responsive layout** — breakpoints at 768 px (tablet) and 480 px
+  (phone). Poster grids narrow, config cards stack, the builder toolbar wraps,
+  commit button goes full-width, and secondary topbar buttons hide on small
+  screens.
 
 ---
 
@@ -484,6 +498,7 @@ Jellyfin) must be configured.** Both backends, both, or either alone all work.
 | `AUTO_SYNC`              | no       | `true`                 | When true, newly-aired episodes and new seasons are spliced into managed playlists every sweep. Set `false` to lock playlists at creation. |
 | `TV_LIBRARIES`           | no       | *(all show libs)*      | Comma-separated library names to source shows from. Blank = every "show" library. Applies to BOTH backends when set. |
 | `FLASK_SECRET`           | no       | `dev-secret-change-me` | Random secret for Flask session cookies. `openssl rand -hex 32`.                               |
+| `LINEARR_API_KEY`        | no       | *(auto-generated)*     | PIN the REST API key across container restarts. If unset, a random key is generated on first boot and stored in the DB. View it at `/settings`. |
 
 The app searches every **movie** library on every configured backend when
 looking for associated movies — that isn't currently filterable.
