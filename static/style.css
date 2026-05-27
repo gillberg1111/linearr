@@ -1487,7 +1487,7 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .builder-toolbar .name-input,
   .builder-toolbar .filter-input { flex: 0 0 auto; height: auto; width: 100%; }
 
-  .commit-bar .btn { width: 100%; }
+  .commit-bar .btn { width: min(100%, 320px); border-radius: 999px; justify-content: center; }
 
   .genre-preview-section { max-width: 100%; }
   .genre-preview-section .rotation-row { grid-template-columns: 48px 1fr; }

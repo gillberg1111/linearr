@@ -3,6 +3,15 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.4] - 2026-05-27
+
+### Fixed
+
+- **Mobile commit button pill shape.** On phones the "Create Playlist" /
+  "Configure →" button is now `min(100%, 320px)` wide with `border-radius:
+  999px` — a centered pill shape rather than edge-to-edge full-width. Text
+  is centered within the pill.
+
 ## [2.0.3] - 2026-05-27
 
 ### Fixed
