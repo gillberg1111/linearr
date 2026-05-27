@@ -19,3 +19,6 @@ JELLYFIN_RESEARCH.md
 # Local planning / design scratchpad files
 v*.*.md
 v*-plan.md
+
+# Local architecture reference
+ARCHITECTURE.md
