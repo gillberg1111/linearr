@@ -46,13 +46,6 @@
         {{ p.shows|length }} show{{ '' if p.shows|length == 1 else 's' }}
         · {{ p.item_count }} episode{{ '' if p.item_count == 1 else 's' }}
       </p>
-      {% if p.last_stats and p.last_stats.total_episodes %}
-        {% set pct = (p.last_stats.watched_episodes / p.last_stats.total_episodes * 100)|int %}
-        <div class="stats-bar" title="{{ p.last_stats.watched_episodes }}/{{ p.last_stats.total_episodes }} episodes watched">
-          <div class="stats-bar-fill" style="width:{{ pct }}%"></div>
-        </div>
-        <span class="stats-hint">{{ p.last_stats.watched_episodes }}/{{ p.last_stats.total_episodes }} watched</span>
-      {% endif %}
       <p class="show-names">
         {% for s in p.shows %}{{ s.show_title }}{% if not loop.last %} · {% endif %}{% endfor %}
       </p>

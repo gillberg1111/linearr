@@ -1093,21 +1093,6 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   color: var(--fg-dim);
 }
 
-.stats-bar {
-  height: 4px;
-  background: var(--border-strong);
-  border-radius: 2px;
-  width: 100%;
-  overflow: hidden;
-}
-.stats-bar-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width 0.3s;
-}
-.stats-bar-large { height: 8px; border-radius: 4px; max-width: 360px; }
-.stats-hint { font-size: 0.78rem; color: var(--fg-dim); }
 .stats-label { font-size: 0.9rem; color: var(--fg-dim); }
 
 /* ---------- v1.1.0 — backend badges + warning banner ---------- */
