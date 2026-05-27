@@ -3,6 +3,23 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.7] - 2026-05-27
+
+### Added
+
+- **Editable playlist name on configure page.** The "Playlist name" field now
+  appears as the first row on the configure page (new-playlist flow), pre-filled
+  from the show picker. No need to go back if you forgot to set a name or want
+  to change it before hitting Create.
+
+### Fixed
+
+- **Auto-name blocked by browser validation.** The `required` attribute on the
+  show picker name input caused the browser to show "Please fill out this field"
+  before the auto-name JS could run. Removed `required`; the JS submit handler
+  and the server-side route both auto-generate "Linearr 001" (first unused
+  increment) when the field is blank.
+
 ## [2.0.6] - 2026-05-27
 
 ### Fixed

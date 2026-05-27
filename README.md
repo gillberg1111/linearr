@@ -187,15 +187,15 @@ fall-asleep buffer.
   **Auto-update** pill on the playlist's detail page (defaults to Enabled).
   Disabled playlists are skipped on every sweep and stay locked until you
   edit them.
-- **Dynamic genre playlists** — hit **+ Genre** instead of **+ New playlist**
-  to create a playlist that auto-populates from your library by genre.
-  Background sync re-queries your library every sweep and auto-adds new shows
-  matching the chosen genres. Exclude individual shows and they stay excluded
-  across syncs. Genre selection uses a **pill picker** — Linearr scrapes all
-  genres from your connected backends on first launch (and weekly thereafter)
-  and renders them as selectable buttons, so you don't have to type exact genre
-  names. When creating, the block-size and weight fields appear and hide
-  automatically as you toggle between sort modes.
+- **Dynamic genre playlists** — click **+ New playlist** and choose
+  **By Genre** to create a playlist that auto-populates from your library
+  by genre. Background sync re-queries your library every sweep and auto-adds
+  new shows matching the chosen genres. Exclude individual shows and they stay
+  excluded across syncs. Genre selection uses a **pill picker** — Linearr
+  scrapes all genres from your connected backends on first launch (and weekly
+  thereafter) and renders them as selectable buttons, so you don't have to type
+  exact genre names. When creating, the block-size and weight fields appear and
+  hide automatically as you toggle between sort modes.
 - **Smart playlist rules** — in **Genre mode**, select genres via pill
   buttons; in **Smart rules mode**, build a rule set from these types: Genre
   (include), Year min/max, Status (Ended/Continuing), Content rating,
@@ -509,11 +509,16 @@ looking for associated movies — that isn't currently filterable.
 
 ### Create a new playlist
 
-1. Click **+ New playlist** in the top-right.
-2. **Name it**, then click the posters of the shows you want. They jump
-   into the **Selected** tray pinned at the top. Filter or **Clear
-   selection** as needed. When ready: **Next: configure →**.
+1. Click **+ New playlist** in the top-right and choose **By Show** or
+   **By Genre**.
+2. **By Show:** click the posters of the shows you want. They jump into the
+   **Selected** tray pinned at the top. Filter or **Clear selection** as
+   needed. Optionally type a name — if you leave it blank, Linearr
+   auto-generates one ("Linearr 001", "Linearr 002", …). When ready:
+   **Configure →**.
 3. **Configure** each show:
+   - The **Playlist name** field at the top is editable — rename before
+     creating if you skipped it or want to change the auto-generated name.
    - For multi-season shows: pick a **Start from** season and an optional
      **End at** season (defaults to *Entire Series*).
    - If the show has a Season 0, toggle **Include specials** on/off.
@@ -521,14 +526,15 @@ looking for associated movies — that isn't currently filterable.
      show name, an **Include associated movies (N found)** toggle appears.
      Flip it on to reveal the matched movies with a **Select all** button
      and individual checkboxes.
-   - At the top of the page: choose **Rotation** or **Air Date** episode
-     order, and the **Only unwatched episodes** toggle.
+   - At the top of the page: choose episode order (Rotation, Blocks,
+     Weighted, Air Date, Shuffle), the **Only unwatched episodes** toggle,
+     and the **Auto-update** toggle.
 4. The **Preview** at the bottom updates automatically (no page reload) as
    you change settings. It shows every episode that would land in the
    playlist, paginated 10/25/50/100/All with Prev/Next buttons. Air dates
    are visible so you can sanity-check a chronological build.
-5. **Create playlist** commits — the result appears in every Plex client as
-   a native playlist.
+5. **Create Playlist** commits — the result appears in every targeted
+   Plex/Jellyfin client as a native playlist.
 
 ### Edit a playlist later
 
@@ -652,7 +658,7 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 187 passed, 0 failed, 187 total
+# expected: 187 passed, 0 failed, 187 total
 ```
 
 Covers:
@@ -794,7 +800,7 @@ db.py                        — SQLite schema, migrations, helpers.
                                 playlists.
 scheduler.py                 — APScheduler background prune + sync sweeps
 templates/
-  base.html                  — Layout + top bar (+ New playlist / + Genre buttons)
+  base.html                  — Layout + top bar (+ New playlist button)
   index.html                 — Playlist landing page (+ backend badges)
   new.html                   — Show picker (with tray + clear + per-show
                                 "Plex only" / "Jellyfin only" overlays)
@@ -817,7 +823,7 @@ static/
 images/                      — Logo, banner, favicons, Unraid icon (SVG + PNG)
 ca_profile.xml               — Repository-wide metadata for Unraid CA
 tests.py                     — Self-contained unit tests (rotation, safety
-                                guards, title matching, dispatch — 136 total)
+                                guards, title matching, dispatch — 187 total)
 ```
 
 Each backend's playlist is the source of truth for *its own* episode order.
