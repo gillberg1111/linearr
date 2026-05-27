@@ -127,6 +127,7 @@ a { color: var(--accent); }
 }
 .btn:hover { background: var(--bg-elev); border-color: var(--muted); }
 .btn:active { transform: translateY(1px); }
+.btn:disabled, .btn[disabled] { opacity: 0.42; cursor: not-allowed; pointer-events: none; }
 .btn-primary {
   background: linear-gradient(180deg, var(--accent) 0%, #3b7dd8 100%);
   border-color: rgba(0,0,0,0.2);
@@ -765,20 +766,35 @@ a { color: var(--accent); }
 }
 
 /* ---------- commit bar ---------- */
+/* .commit-bar: sticky positioning wrapper — handles alignment only,
+   no visual styling (avoids sticky+backdrop-filter compositing bug) */
 .commit-bar {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 1.1rem 0 0.6rem;
-  margin-top: 1.5rem;
-  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+  padding: 2rem 1.2rem 0;
   position: sticky;
-  bottom: 0;
+  bottom: 1.5rem;
   z-index: 4;
-  /* Solid background so content doesn't bleed through when sticky */
-  background: var(--bg);
+  pointer-events: none;  /* let content underneath stay clickable */
 }
-.btn-large { font-size: 1.05rem; padding: 0.8rem 1.6rem; box-shadow: var(--shadow-md); }
+/* .commit-card: frosted glass card — purely visual, no positioning */
+.commit-card {
+  display: inline-flex;
+  align-items: center;
+  padding: 1.2rem;
+  background: rgba(14,15,19,0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+}
+/* Blue glow on the primary action inside the commit card */
+.commit-card .btn-primary {
+  box-shadow: 0 0 18px rgba(77,150,255,0.38), 0 3px 8px rgba(0,0,0,0.28);
+}
+.btn-large { font-size: 1.05rem; padding: 0.8rem 1.6rem; }
 
 /* ---------- playlist type picker (/new interstitial) ---------- */
 .type-picker {
@@ -1487,7 +1503,9 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .builder-toolbar .name-input,
   .builder-toolbar .filter-input { flex: 0 0 auto; height: auto; width: 100%; }
 
-  .commit-bar .btn { width: min(100%, 320px); border-radius: 999px; justify-content: center; }
+  /* Mobile: tighter margin, pill button */
+  .commit-bar { padding-right: 0.75rem; bottom: 1rem; }
+  .commit-card .btn { border-radius: 999px; justify-content: center; }
 
   .genre-preview-section { max-width: 100%; }
   .genre-preview-section .rotation-row { grid-template-columns: 48px 1fr; }

@@ -243,11 +243,14 @@
       </p>
     {% endif %}
     <div class="commit-bar">
-      <button type="submit" name="action" value="create"
-              class="btn btn-primary btn-large"
-              {% if not prev_name or matched_shows is none or not matched_shows %}disabled{% endif %}>
-        Create Playlist
-      </button>
+      <div class="commit-card">
+        <button type="submit" name="action" value="create"
+                class="btn btn-primary btn-large"
+                {% if not prev_name or matched_shows is none or not matched_shows %}disabled{% endif %}>
+          <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9;">
+          Create Playlist
+        </button>
+      </div>
     </div>
 
   </form>

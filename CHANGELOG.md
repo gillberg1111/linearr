@@ -3,6 +3,27 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.5] - 2026-05-27
+
+### Changed
+
+- **Commit card redesign.** The "Create Playlist" / "Configure →" / "Add to
+  Playlist" action is now a frosted-glass card (`rgba(14,15,19,0.78)` +
+  `backdrop-filter: blur(14px)`) matching the topbar treatment, right-aligned
+  with equal inner padding (`1.2rem` all sides) and a matching right margin so
+  button-to-card-edge equals card-to-section-edge. A blue glow
+  (`box-shadow: 0 0 18px rgba(77,150,255,0.38)`) highlights the primary button
+  inside the card. Sticky positioning is isolated in a transparent `.commit-bar`
+  wrapper so the frosted glass `.commit-card` inner element sizes naturally to
+  its content (avoids sticky+backdrop-filter browser compositing bug). On mobile
+  the card is right-aligned with a tighter `0.75rem` margin and the button uses
+  a pill shape (`border-radius: 999px`).
+- **Disabled button style.** Buttons with the `disabled` attribute render at
+  `opacity: 0.42` — the "Configure →" card on the show picker dims until a
+  show is selected, giving clear affordance that the action is not yet available.
+- **Linearr logo on create buttons.** A 16px favicon icon prefixes "Create
+  Playlist" on the configure and genre playlist pages.
+
 ## [2.0.4] - 2026-05-27
 
 ### Fixed

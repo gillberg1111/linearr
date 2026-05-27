@@ -352,9 +352,12 @@
     </section>
 
     <div class="commit-bar">
-      <button type="submit" name="action" value="commit" class="btn btn-primary btn-large">
-        {% if mode == 'new' %}Create Playlist{% else %}Add to Playlist{% endif %}
-      </button>
+      <div class="commit-card">
+        <button type="submit" name="action" value="commit" class="btn btn-primary btn-large">
+          <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9;">
+          {% if mode == 'new' %}Create Playlist{% else %}Add to Playlist{% endif %}
+        </button>
+      </div>
     </div>
   </form>
 
