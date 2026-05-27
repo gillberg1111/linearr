@@ -359,7 +359,7 @@
     function weightedItems(shows, weights, N) {
       var items = [], si = 0, safety = 0;
       var epNums = shows.map(function() { return 1; });
-      while (items.length < N && safety++ < 600) {
+      while (items.length < N && safety++ < 1000) {
         var idx = si % shows.length;
         var w = Math.max(1, (weights && weights[idx]) || 1);
         for (var b = 0; b < w && items.length < N; b++) {
@@ -373,7 +373,7 @@
     function shuffleItems(shows, N) {
       var items = [], last = -1, safety = 0;
       var epNums = shows.map(function() { return 1; });
-      while (items.length < N && safety++ < 600) {
+      while (items.length < N && safety++ < 1000) {
         var pool = shows.map(function(_, i) { return i; })
           .filter(function(i) { return i !== last || shows.length === 1; });
         var pick = pool[(items.length * 3 + 7) % pool.length];
@@ -383,12 +383,30 @@
       return items;
     }
 
+    function airDateItems(shows, N) {
+      // Generate illustrative items where each show's episodes are 7 days apart,
+      // shows staggered by (showIndex * 3) days so they interleave realistically.
+      var BASE_MS = Date.UTC(2020, 0, 1); // 2020-01-01
+      var all = [];
+      shows.forEach(function(show, si) {
+        for (var ep = 1; ep <= Math.ceil(N / Math.max(1, shows.length)) + 3; ep++) {
+          var dayOffset = si * 3 + (ep - 1) * 7;
+          var d = new Date(BASE_MS + dayOffset * 86400000);
+          var ds = d.toISOString().slice(0, 10); // YYYY-MM-DD
+          all.push({ show: show, ep: ep, date: ds, _sort: dayOffset });
+        }
+      });
+      all.sort(function(a, b) { return a._sort - b._sort; });
+      return all.slice(0, N);
+    }
+
     function simulateOrder(shows, mode, blockSize, weights) {
       if (!shows.length) return null;
-      var N = 15, note = null, items = [];
+      var N = 25;
+      var note = null, items = [];
       if (mode === 'air_date') {
-        note = 'Actual order follows air date across all matched shows. Round-robin shown as stand-in.';
-        items = rotationItems(shows, N);
+        note = 'Illustrative dates — actual playlist uses real air dates from your library.';
+        items = airDateItems(shows, N);
       } else if (mode === 'shuffle_chronological') {
         note = 'Shuffled — each show stays in episode order, same-show consecutive plays avoided.';
         items = shuffleItems(shows, N);
@@ -434,15 +452,18 @@
           var li = document.createElement('li');
           li.className = 'order-preview-item';
           var ep = String(item.ep).padStart(2, '0');
+          var rightSpan = item.date
+            ? '<span class="order-preview-date">' + item.date + '</span>'
+            : '<span class="order-preview-ep">S01E' + ep + '</span>';
           li.innerHTML =
             '<span class="order-preview-show">' + escHtml(item.show) + '</span>' +
-            '<span class="order-preview-ep">S01E' + ep + '</span>';
+            (item.date ? '<span class="order-preview-ep" style="margin-right:0.25rem">S01E' + ep + '</span>' : '') +
+            rightSpan;
           ol.appendChild(li);
         });
         panel.appendChild(ol);
       }
     }
-
     function escHtml(s) {
       return s.replace(/[&<>"']/g, function(c) {
         return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];

@@ -3,6 +3,36 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.4] - 2026-05-27
+
+### Fixed
+
+- **Smart rules value input still too narrow** — `input.rules-add-value-text`
+  now uses element+class specificity (0,1,1) so it wins over `.number-input`
+  (0,1,0 — defined later in the CSS file), which was silently clamping the
+  width back to 5 rem. Also adds `text-align: left` (`.number-input` centers
+  text, wrong for a freeform text field).
+- **Episode order preview: Air Date now shows illustrative dates** — instead
+  of a round-robin stand-in with no dates, each item now shows an illustrative
+  `YYYY-MM-DD` (shows staggered by 3 days, episodes weekly) so the
+  chronological interleaving is visually obvious. A note reads "Illustrative
+  dates — actual playlist uses real air dates from your library."
+- **Episode order preview count raised to 25** (was 15 / 10 in earlier
+  patches).
+
+### Note on Air Date sorting accuracy
+
+Air dates **are** fetched from both backends (`originallyAvailableAt` for
+Plex, `PremiereDate` for Jellyfin). If a playlist appears out-of-order in Air
+Date mode, the most likely cause is missing air-date metadata on those
+episodes in your media server — Plex/Jellyfin must have the `Originally
+Available At` / `Premiere Date` field populated for sorting to work.
+
+### Files touched
+
+`app.py` · `templates/new_genre.html` · `static/style.css` ·
+`CHANGELOG.md` · `CLAUDE.md`.
+
 ## [1.8.3] - 2026-05-27
 
 ### Fixed / Improved

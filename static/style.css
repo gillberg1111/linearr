@@ -927,7 +927,8 @@ a { color: var(--accent); }
 .order-preview-item:last-child { border-bottom: none; }
 .order-preview-show { color: var(--fg); font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .order-preview-ep { color: var(--muted); flex-shrink: 0; font-size: 0.8rem; }
-.order-preview-msg { font-size: 0.85rem; color: var(--fg-dim); }
+.order-preview-date { color: var(--accent-2); flex-shrink: 0; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.order-preview-msg { font-size: 0.82rem; color: var(--fg-dim); margin: 0 0 0.4rem; font-style: italic; }
 
 /* ---------- options bar (Push to / Filter / Auto-update row) ---------- */
 .options-bar {
@@ -964,7 +965,8 @@ a { color: var(--accent); }
 
 .rules-add-bar { margin-top: 0.5rem; }
 .rules-add-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.rules-add-value-text { width: 320px; max-width: 100%; }
+/* element+class specificity beats .number-input (class-only, defined later in file) */
+input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 .rules-add-select {
   background: var(--bg-elev-2);
   color: var(--fg);
