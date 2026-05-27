@@ -499,7 +499,11 @@
     <section class="stats-section">
       <div class="section-head">
         <h2>Stats</h2>
-        <span class="hint">Updated each sync. Reflects {{ 'Plex' if playlist.last_stats.backend == 'plex' else 'Jellyfin' }} library state.</span>
+        <span class="hint">Updated each sync. Reflects
+          {%- if playlist.backend == 'both' %} Plex and Jellyfin
+          {%- elif playlist.backend == 'jellyfin' %} Jellyfin
+          {%- else %} Plex
+          {%- endif %} library state.</span>
       </div>
       {% set total = playlist.last_stats.total_episodes or 0 %}
       <p class="stats-label" style="margin-top:0.8rem">{{ total }} episode{{ 's' if total != 1 else '' }} in playlist</p>
