@@ -964,7 +964,7 @@ a { color: var(--accent); }
 
 .rules-add-bar { margin-top: 0.5rem; }
 .rules-add-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.rules-add-value-text { width: 150px; max-width: 100%; }
+.rules-add-value-text { width: 220px; max-width: 100%; }
 .rules-add-select {
   background: var(--bg-elev-2);
   color: var(--fg);
@@ -973,6 +973,7 @@ a { color: var(--accent); }
   padding: 0.35rem 0.5rem;
   font-family: inherit;
   font-size: 0.85rem;
+  min-width: 160px;
 }
 
 .rules-section { margin-top: 2rem; }

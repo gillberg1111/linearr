@@ -183,11 +183,12 @@
             No shows in your library match. Try different genres or rules.
           </p>
         {% else %}
+          {% set preview_cap = 50 %}
           <div class="genre-preview-layout">
-            {# Left: matched show tiles #}
+            {# Left: matched show tiles (capped at preview_cap for performance) #}
             <div>
               <ul class="rotation-list" id="matchedShowsList">
-                {% for s in matched_shows %}
+                {% for s in matched_shows[:preview_cap] %}
                   <li class="rotation-row" data-show-title="{{ s.title|e }}">
                     <div class="rotation-poster">
                       {% if s.thumb %}
@@ -210,6 +211,12 @@
                   </li>
                 {% endfor %}
               </ul>
+              {% if matched_shows|length > preview_cap %}
+                <p class="hint" style="margin-top:0.4rem">
+                  … and {{ matched_shows|length - preview_cap }} more show{{ 's' if matched_shows|length - preview_cap != 1 else '' }}
+                  ({{ matched_shows|length }} total will be added to the playlist).
+                </p>
+              {% endif %}
             </div>
             {# Right: simulated episode order preview #}
             <div class="genre-order-preview">
@@ -270,6 +277,11 @@
     modeRadios.forEach(function(r) { r.addEventListener('change', applyRuleMode); });
     applyRuleMode();
 
+    // ── Episode order simulation data (must be defined before applySortMode) ─
+    var showTitles = Array.from(
+      document.querySelectorAll('#matchedShowsList [data-show-title]')
+    ).map(function(el) { return el.dataset.showTitle || el.querySelector('.title').textContent.trim(); });
+
     // ── Episode order + sort hint + inline sub-rows ─────────────────────
     var blockRow   = document.getElementById('genreBlockRow');
     var weightRow  = document.getElementById('genreWeightRow');
@@ -305,11 +317,6 @@
       });
     });
 
-    // ── Episode order simulation ────────────────────────────────────────
-    var showTitles = Array.from(
-      document.querySelectorAll('#matchedShowsList [data-show-title]')
-    ).map(function(el) { return el.dataset.showTitle || el.querySelector('.title').textContent.trim(); });
-
     function simulateOrder(shows, mode, blockSize) {
       if (!shows.length) return null;
       if (mode === 'air_date') return { text: 'Episodes appear chronologically by air date across all matched shows.' };
@@ -340,7 +347,7 @@
 
     function updateOrderPreview() {
       var panel = document.getElementById('genreOrderPreview');
-      if (!panel || !showTitles.length) return;
+      if (!panel || !showTitles || !showTitles.length) return;
 
       var checked = document.querySelector('input[name="sort_mode"]:checked');
       var mode = checked ? checked.value : 'rotation';

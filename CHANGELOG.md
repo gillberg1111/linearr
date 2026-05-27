@@ -3,6 +3,34 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.2] - 2026-05-27
+
+### Fixed
+
+- **Genre playlist JS crash after "Preview Matches"** — `var showTitles` was
+  declared after `applySortMode()` was called, so `showTitles.length` threw a
+  TypeError that silently killed the entire `<script>` IIFE. The genre pill
+  fetch never started (stuck at "Loading genres…"), and no event listeners
+  were attached. Fixed by moving `showTitles` initialization before
+  `applySortMode()` and adding a `!showTitles` null guard in
+  `updateOrderPreview()`.
+- **Matched shows preview capped at 50** — genres with large libraries
+  (50+ shows) now render only the first 50 tiles with an "… and N more"
+  note; all shows are still added to the playlist.
+- **Episode exclusion `scheduleUpdate is not defined`** — `scheduleUpdate`
+  was defined inside the config-change IIFE and was not visible to the
+  episode-exclusion IIFE. Pulled `scheduleUpdate` / `_debounceTimer` out to
+  outer script scope so both sections share it.
+- **Smart rules value input too narrow** — `.rules-add-value-text` widened
+  from 150 px to 220 px so placeholders like "e.g. Science Fiction" and year
+  values are not clipped. `.rules-add-select` gets `min-width: 160px` for the
+  same reason.
+
+### Files touched
+
+`app.py` · `templates/new_genre.html` · `templates/configure.html` ·
+`static/style.css` · `CHANGELOG.md` · `CLAUDE.md`.
+
 ## [1.8.1] - 2026-05-27
 
 ### Fixed

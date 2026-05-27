@@ -429,13 +429,15 @@
       }
     }
 
-    // ---------- Auto-update on config change (debounced) ----------
+    // ---------- Shared debounce (used by config + exclusion pickers) ----------
+    let _debounceTimer;
+    function scheduleUpdate() {
+      clearTimeout(_debounceTimer);
+      _debounceTimer = setTimeout(fetchAndRenderPreview, 600);
+    }
+
+    // ---------- Auto-update on config change ----------
     (() => {
-      let debounceTimer;
-      function scheduleUpdate() {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(fetchAndRenderPreview, 600);
-      }
 
       // Toggle the .is-active class on pills when any radio inside them changes,
       // then trigger a preview update. Covers sort_mode AND backend pickers
