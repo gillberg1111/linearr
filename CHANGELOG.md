@@ -3,6 +3,45 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] - 2026-05-26
+
+### Added
+
+- **Block-size and Weight fields in genre playlist creation.** `new_genre.html`
+  now shows a block-size input when "Blocks" is selected and a hint row when
+  "Weighted" is selected — matching the existing `configure.html` behaviour.
+  JS `applyMode()` toggles visibility on pill change. `new_genre_action` reads
+  and forwards `block_size` to `service.create_genre_playlist`.
+- **Refresh metadata button** on the playlist detail page (maintenance section,
+  alongside Sync Now). Sends `POST /playlist/<id>/refresh-metadata`. On Plex
+  calls `show.refresh()` (PUT `/library/metadata/{id}/refresh`); on Jellyfin
+  calls `POST /Items/{id}/Refresh` with `FullRefresh` mode. Both backends are
+  fire-and-forget — flash message says "queued". Excluded shows are skipped.
+  New `MediaClient.refresh_show_metadata(rating_key)` abstract method
+  implemented in both `PlexClient` and `JellyfinClient`.
+- **TVDB ID cross-backend matching.** `ShowSummary` gains `tvdb_id: str | None`.
+  Plex populates it via `show.guids` (`"tvdb://12345"` prefix); Jellyfin via
+  `ProviderIds.Tvdb` (added `ProviderIds` to the `GET /Items` field list). At
+  add-time (`_enrich_configs_with_matches`) and heal-on-sync
+  (`_heal_missing_ids`), TVDB ID is tried first and title+year is the fallback.
+  Fixes cases like "Stargirl" ↔ "DC's Stargirl" that title normalization
+  could not bridge.
+- **Manual show-link UI.** When a show appears in the warning banner as "not
+  on Jellyfin / Plex", a `▸ Link manually…` disclosure widget offers a
+  `<select>` of all shows on the missing backend. Submitting writes
+  `plex_show_item_id` or `jellyfin_show_item_id` directly on the playlist row
+  via `service.link_show_backend()` and triggers a tail rebuild. New route:
+  `POST /playlist/<id>/shows/<key>/link`. `all_shows` (the full aggregated
+  list, not the filtered-available list) is passed to the playlist template as
+  the picker source. `missing_on` entries now carry `rating_key` for URL
+  construction.
+
+### Files touched
+
+`media_client.py` · `plex_client.py` · `jellyfin_client.py` · `service.py` ·
+`app.py` · `templates/new_genre.html` · `templates/playlist.html` ·
+`CHANGELOG.md` · `CLAUDE.md`.
+
 ## [1.5.2] - 2026-05-26
 
 Bug-fix release from a post-v1.5.1 code review.
