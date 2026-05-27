@@ -427,13 +427,23 @@ def test_normalize_title_basic():
     check("normalize: collapses whitespace", normalize_title("  Foo   Bar  ") == "foo bar")
     check("normalize: empty -> empty", normalize_title("") == "")
     check("normalize: None -> empty", normalize_title(None) == "")
+    # Trailing disambiguation suffixes are stripped before normalizing
+    check("normalize: strips country code (US)", normalize_title("Whose Line Is It Anyway? (US)") == "whose line is it anyway")
+    check("normalize: strips country code (UK)", normalize_title("The Office (UK)") == "the office")
+    check("normalize: strips year suffix", normalize_title("Yellowstone (2018)") == "yellowstone")
+    check("normalize: strips year then country", normalize_title("Some Show (US) (2020)") == "some show")
+    check("normalize: strips country then year", normalize_title("Some Show (2020) (US)") == "some show")
 
 
 def test_titles_match_case_and_punctuation():
     from media_client import titles_match
     check("match: case-insensitive", titles_match("Breaking Bad", "breaking bad"))
     check("match: punctuation ignored", titles_match("Mr. Robot", "Mr Robot"))
-    check("match: different shows reject", not titles_match("The Office", "The Office (US)"))
+    # Country-code suffix is stripped before comparing — Plex adds (US)/(UK) that Jellyfin omits
+    check("match: (US) suffix stripped for cross-backend match", titles_match("Whose Line Is It Anyway? (US)", "Whose Line Is It Anyway?"))
+    check("match: base title matches with stripped suffix", titles_match("The Office", "The Office (US)"))
+    # When both years are known and different, different-country versions are correctly rejected
+    check("match: different country versions rejected via year", not titles_match("The Office (US)", "The Office (UK)", 2005, 2001))
 
 
 def test_titles_match_year_disambiguation():

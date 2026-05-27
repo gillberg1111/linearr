@@ -291,14 +291,22 @@ def available_backends() -> list[str]:
 def normalize_title(title: str | None) -> str:
     """Lowercase, strip punctuation, collapse whitespace.
 
-    Used to match the same show across Plex and Jellyfin. Conservative on
-    purpose — two shows with the same normalized title and the same year are
-    considered the same show.
+    Also strips trailing disambiguation suffixes Plex appends but Jellyfin
+    often omits — country codes like (US), (UK), (AU) and premiere years
+    like (2018), or combinations in any order.  Two shows with the same
+    stripped title and the same year are considered the same show; year
+    disagreement (when both years are known) distinguishes e.g. US vs UK
+    versions of the same franchise.
     """
     import re as _re
     if not title:
         return ""
-    s = _re.sub(r"[^\w\s]", " ", title.lower())
+    # Strip any trailing disambiguation suffixes before lowercasing.
+    # Handles country codes (US), (UK), (AU), etc. and years (2018), in any
+    # combination/order — e.g. "Whose Line Is It Anyway? (US)" → "Whose Line
+    # Is It Anyway?" or "Yellowstone (2018)" → "Yellowstone".
+    s = _re.sub(r'(\s*\(\d{4}\)|\s*\([A-Z]{2,3}\))+\s*$', '', title)
+    s = _re.sub(r"[^\w\s]", " ", s.lower())
     s = _re.sub(r"\s+", " ", s).strip()
     return s
 

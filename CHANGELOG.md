@@ -3,6 +3,34 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.3] - 2026-05-26
+
+### Fixed
+
+- **Title normalization now strips trailing disambiguation suffixes** that
+  Plex appends but Jellyfin often omits — country codes like `(US)`, `(UK)`,
+  `(AU)` and premiere years like `(2018)`, in any combination or order.
+  Examples fixed automatically on the next sync:
+  - "Whose Line Is It Anyway? (US)" (Plex) ↔ "Whose Line Is It Anyway?"
+    (Jellyfin)
+  - "Yellowstone (2018)" (Plex) ↔ "Yellowstone" (Jellyfin)
+  - Any similar suffixed-vs-plain mismatch where the TVDB ID alone didn't
+    resolve it.
+  Year disagreement (when both sides report different years) still
+  distinguishes genuinely different shows (e.g. US vs UK versions).
+  No action needed — existing mismatches auto-heal on the next background
+  sync or "Sync now".
+
+### Tests
+
+- **5 new tests** for `normalize_title` suffix stripping and updated
+  `titles_match` cases to match the new behavior (143 total, all passing).
+
+### Files touched
+
+`media_client.py` · `tests.py` · `app.py` · `CHANGELOG.md` · `README.md` ·
+`CLAUDE.md`.
+
 ## [1.6.2] - 2026-05-26
 
 ### Changed

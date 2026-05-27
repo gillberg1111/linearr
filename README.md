@@ -632,7 +632,7 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# 136 passed, 0 failed, 136 total
+# 143 passed, 0 failed, 143 total
 ```
 
 Covers:
@@ -645,9 +645,10 @@ Covers:
   every dangerous Jellyfin DELETE endpoint refused by the HTTP-layer guard,
   the one allow-listed Jellyfin DELETE pattern accepted, lookalike paths
   rejected.
-- **Cross-backend matching** (15 tests): title normalization, case
-  insensitivity, punctuation handling, year disambiguation, year-known-on-
-  one-side permissiveness, None/empty handling.
+- **Cross-backend matching** (20 tests): title normalization, country-code and
+  year suffix stripping (`(US)`, `(UK)`, `(2018)` etc.), case insensitivity,
+  punctuation handling, year disambiguation, year-known-on-one-side
+  permissiveness, None/empty handling.
 - **Service-layer dispatch** (8 tests): `ShowConfig` back-compat,
   `id_for(backend)` routing, `movie_ids_for(backend)`, `_backends_for`
   expansion, `_find_match` with year tiebreak.
