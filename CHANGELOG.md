@@ -3,6 +3,31 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.1] - 2026-05-27
+
+### Fixed
+
+- **Mobile: huge input boxes on show picker** — `flex: 1 1 220px` in a
+  column-flex `.builder-toolbar` grew single-line text inputs to viewport
+  height on phones. Overridden to `flex: 0 0 auto; height: auto` in 480px
+  block; applies to both Playlist name and Filter shows inputs.
+- **Mobile: Episode Order pills broken layout** — `pill-toggle { flex-wrap:
+  wrap }` at ≤768px caused the 5-pill group to spill across 2–3 rows, each
+  pill losing the outer container's connected border-radius styling. Changed
+  to `flex-wrap: nowrap; overflow-x: auto` so pills scroll horizontally in
+  a single connected row. Applied to all `pill-toggle` variants including
+  `pill-toggle-5`.
+- **Mobile: date + title overlap in episode preview** — `.preview-list-with-
+  date li` had a higher-specificity 5-column grid that wasn't collapsed by
+  the 768px media-query override for `.preview-list li`. Added explicit
+  `preview-list-with-date li` collapse to 2 columns and mapped `.pl-date`
+  to `grid-column: 2` (stacks below show/se, above title).
+- **Mobile: commit bar button text not centered** — `.commit-bar .btn {
+  width: 100% }` made the button span full-width but left text left-aligned.
+  Added `justify-content: center`.
+- **Capitalization:** "Create playlist" → "Create Playlist" on configure
+  and genre-playlist pages; "+ New playlist" → "+ New Playlist" in topbar.
+
 ## [2.0.0] - 2026-05-27
 
 ### Added

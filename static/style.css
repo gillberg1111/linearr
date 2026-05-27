@@ -1407,7 +1407,10 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .config-stack { grid-template-columns: 1fr 1fr; }
 
   .sort-mode-bar { flex-wrap: wrap; gap: 0.5rem 1rem; }
-  .pill-toggle { flex-wrap: wrap; }
+  /* Keep pills in a single scrollable row — wrapping breaks the connected border-radius group */
+  .pill-toggle { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .pill-toggle::-webkit-scrollbar { display: none; }
+  .pill-toggle.pill-toggle-5 { flex-wrap: nowrap; }  /* override global wrap rule */
 
   .options-bar { flex-direction: column; align-items: flex-start; }
 
@@ -1415,8 +1418,10 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 
   .season-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
   .config-poster { width: 64px; }
-  .preview-list li { grid-template-columns: 24px 1fr; }
-  .preview-list .pl-se, .preview-list .pl-title { grid-column: 2; }
+  /* Collapse preview list to 2 columns (num + detail); stack all detail cells */
+  .preview-list li,
+  .preview-list-with-date li { grid-template-columns: 24px 1fr; }
+  .preview-list .pl-se, .preview-list .pl-title, .preview-list .pl-date { grid-column: 2; }
   .preview-list .pl-show { grid-column: 2; }
   .exclude-episode-grid { grid-template-columns: 1fr; }
 }
@@ -1429,9 +1434,13 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .config-stack { grid-template-columns: 1fr; }
 
   .builder-toolbar { flex-direction: column; align-items: stretch; gap: 0.5rem; }
-  .builder-toolbar .name-input { width: 100%; }
+  /* flex: 1 1 220px in a column-flex container grows inputs to full viewport height;
+     override to natural single-line height */
+  .builder-toolbar .name-input,
+  .builder-toolbar .filter-input { flex: 0 0 auto; height: auto; width: 100%; }
 
-  .commit-bar .btn { width: 100%; }
+  /* Center button text when button spans full width */
+  .commit-bar .btn { width: 100%; justify-content: center; }
 
   .genre-preview-section { max-width: 100%; }
   .genre-preview-section .rotation-row { grid-template-columns: 48px 1fr; }
