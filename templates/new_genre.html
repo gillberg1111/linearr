@@ -20,6 +20,7 @@
              class="filter-input" style="flex: 2;" value="{{ prev_genres or '' }}">
       <button type="submit" name="action" value="preview" class="btn">Preview matches</button>
     </div>
+    <p class="hint" style="margin-top:0.4rem">Genre names must match exactly what your media server uses. Check the genre browser in Plex or Jellyfin if you get zero results — e.g. Plex uses "Science Fiction", not "Sci-Fi".</p>
 
     {% if backends|length > 1 %}
       <div class="sort-mode-bar">
