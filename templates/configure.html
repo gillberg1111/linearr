@@ -8,7 +8,7 @@
   {% endif %}
 
   <div class="page-head">
-    <h1>{% if mode == 'new' %}Configure “{{ name }}”{% else %}Add shows to “{{ name }}”{% endif %}</h1>
+    <h1>{% if mode == 'new' %}Configure{% else %}Add shows to “{{ name }}”{% endif %}</h1>
     <p class="subtitle">
       Pick which seasons to include for each show. Specials only appear here for shows
       that actually have a Season 0.
@@ -24,6 +24,12 @@
     {% endfor %}
 
     {% if mode == 'new' %}
+
+      <div class="sort-mode-bar">
+        <span class="sort-mode-label">Playlist name</span>
+        <input type="text" name="name" value="{{ name }}" placeholder="Playlist name"
+               class="name-input" id="configNameInput" style="flex:1;max-width:400px;">
+      </div>
 
       <div class="sort-mode-bar">
         <span class="sort-mode-label">Episode order</span>
@@ -733,5 +739,22 @@
 
     // Initial pagination wiring on first page render
     initPreviewPagination();
+
+    // Auto-name on submit if name input is blank (mode == 'new' only)
+    (function () {
+      var nameInput = document.getElementById('configNameInput');
+      if (!nameInput) return;
+      var EXISTING_NAMES = new Set({{ existing_names | default([]) | tojson }});
+      function nextAutoName() {
+        for (var i = 1; i <= 999; i++) {
+          var n = 'Linearr ' + String(i).padStart(3, '0');
+          if (!EXISTING_NAMES.has(n)) return n;
+        }
+        return 'Linearr Playlist';
+      }
+      document.getElementById('configForm').addEventListener('submit', function () {
+        if (!nameInput.value.trim()) nameInput.value = nextAutoName();
+      });
+    })();
   </script>
 {% endblock %}

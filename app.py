@@ -513,14 +513,26 @@ def create_app() -> Flask:
 
     @app.route("/new/configure", methods=["POST"])
     def new_configure():
-        name = (request.form.get("name") or "").strip()
         show_keys = request.form.getlist("shows")
-        if not name:
-            flash("Playlist name is required.", "error")
-            return redirect(url_for("new_show_playlist"))
         if not show_keys:
             flash("Pick at least one show.", "error")
             return redirect(url_for("new_show_playlist"))
+
+        with db.connection() as _conn:
+            existing_names = [r[0] for r in _conn.execute(
+                "SELECT name FROM managed_playlists").fetchall()]
+        existing_names_set = set(existing_names)
+
+        raw_name = (request.form.get("name") or "").strip()
+        if not raw_name:
+            for _i in range(1, 1000):
+                candidate = f"Linearr {_i:03d}"
+                if candidate not in existing_names_set:
+                    raw_name = candidate
+                    break
+            else:
+                raw_name = "Linearr Playlist"
+        name = raw_name
 
         action = request.form.get("action", "preview")
         sort_mode = request.form.get("sort_mode", "rotation")
@@ -561,7 +573,7 @@ def create_app() -> Flask:
                     "configure.html",
                     mode="new",
                     form_action=url_for("new_configure"),
-                    hidden={"name": name},
+                    hidden={},
                     show_keys=show_keys,
                     meta=meta,
                     configs={c.rating_key: c for c in configs},
@@ -574,6 +586,7 @@ def create_app() -> Flask:
                     backend=backend_choice,
                     missing_shows=missing_shows,
                     preview_api_url=url_for("api_preview"),
+                    existing_names=existing_names,
                 )
             flash(f"Created '{name}'.", "ok")
             return redirect(url_for("view_playlist", playlist_id=pid))
@@ -591,7 +604,7 @@ def create_app() -> Flask:
             "configure.html",
             mode="new",
             form_action=url_for("new_configure"),
-            hidden={"name": name},
+            hidden={},
             show_keys=show_keys,
             meta=meta,
             configs={c.rating_key: c for c in configs},
@@ -604,6 +617,7 @@ def create_app() -> Flask:
             backend=backend_choice,
             missing_shows=missing_shows,
             preview_api_url=url_for("api_preview"),
+            existing_names=existing_names,
         )
 
     # ------------------------------------------------------------------ #
