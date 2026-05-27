@@ -3,6 +3,17 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.3] - 2026-05-27
+
+### Fixed
+
+- **Commit bar visual treatment.** The "Create Playlist" / "Configure →" button
+  now sits in a clearly defined action zone: centered (was right-flush),
+  with a `border-top` separator and a solid `var(--bg)` background so content
+  no longer bleeds through when the bar is sticky at the bottom of the
+  viewport. On mobile the button remains full-width; on desktop it sizes to
+  its content and is centered.
+
 ## [2.0.2] - 2026-05-27
 
 ### Changed
