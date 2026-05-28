@@ -3,6 +3,105 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.0] - 2026-05-28
+
+### Added
+
+- **Franchise Playlists.** A third playlist creation path alongside
+  By Show and By Genre. Build a chronologically ordered playlist of movies,
+  full series, individual seasons, and individual episodes — mixed in any
+  order. Items not yet in your library are tracked in the playlist
+  definition and added automatically on the next sync once you add them
+  to Plex/Jellyfin. 17 pre-baked franchises ship with the app sourced from
+  curated community Trakt.tv lists: MCU, Star Wars, DCEU, DCU (James
+  Gunn's new universe), Arrowverse, Star Trek, Stargate, Doctor Who, Buffy
+  & Angel, X-Men, Mission: Impossible, Jurassic Park, MonsterVerse, John
+  Wick, Alien & Predator, Conjuring Universe, James Bond. Each pre-baked
+  franchise can be overridden with a custom Trakt list URL per-playlist,
+  or fully customized via the Franchise Playlist Maker (see below).
+- **Franchise Playlist Maker** (`/franchise-maker`). In-app visual builder
+  for creating fully custom franchise watch orders. Search TMDB for movies
+  and TV shows, browse seasons and episodes inline, add items individually
+  or with **+ Add Series** to add all seasons of a show at once. Drag to
+  reorder. **Import from Trakt URL** populates the editor with any public
+  Trakt list as a starting point. Save creates the playlist on
+  Plex/Jellyfin and the franchise definition persists in the DB for future
+  edits.
+- **Edit & Restore for franchise playlists.** Every franchise playlist
+  has an **Edit franchise** button on its detail page that opens the
+  Maker pre-loaded with the current items. Pre-baked franchises that get
+  edited are forked into a user-owned copy — the bundled list stays
+  untouched. A **Restore default** button on forked playlists reverts to
+  the original bundled list.
+- **Trakt API client.** Read-only access to public Trakt.tv lists.
+  Bundled `TRAKT_CLIENT_ID` so users don't have to configure anything;
+  override via env var for self-hosters who prefer their own Trakt app
+  registration. Automatic pagination handles lists of any size.
+  Five-minute cache on fetched lists keeps the franchise picker snappy.
+- **TMDB API client.** Powers the Franchise Playlist Maker. Supports both
+  v3 API Key and v4 Read Access Token formats. Configured via the
+  Settings page (`/settings`); also reads `TMDB_API_KEY` env var as a
+  fallback. The Maker shows a clear prompt linking to Settings if no key
+  is configured.
+- **Per-playlist pruning toggle.** Every playlist now has a Pruning
+  on/off toggle on the configure page (default on for show/genre, off
+  for franchise). Disabling pruning keeps every episode in the playlist
+  regardless of watch state.
+- **Playlist type badges on the home page.** Each playlist card now
+  carries a small **Show**, **Genre**, or **Franchise** tag next to its
+  backend badge so the playlist type is obvious at a glance.
+- **Smarter playlist card stats.** The home page now reports `X shows`,
+  `X movies`, and `X episodes` separately, and only shows non-zero
+  counts. A franchise playlist made of three movies shows "3 movies"
+  instead of "0 shows · 3 episodes".
+
+### Changed
+
+- **New tagline.** The home page and project description now read:
+  *"The missing show sequencer for Plex and Jellyfin. Shows, genres,
+  franchises — Automated. Sequenced. Yours."* — reflecting the expanded
+  scope of the app.
+- **Frosted-glass styling pass.** The Maintenance card, franchise item
+  lists, franchise picker cards, Maker panels, and the topbar Settings
+  button all use a translucent dark background with backdrop-blur. Hover
+  states lift slightly with a stronger shadow.
+- **Maintenance section layout.** Buttons in the Maintenance card now
+  stack vertically with consistent widths and centered text. For
+  franchise playlists, irrelevant buttons (Refresh metadata, Prune
+  watched) are hidden so the section is clean.
+- **Replaced "Custom" card on the franchise picker** with **"Build Your
+  Own"** linking directly to the Maker. Custom Trakt URLs are still
+  supported — paste a URL inside the Maker's Trakt import field.
+- **Status labels in the franchise preview.** Items now show **In
+  library** (green), **Plex only** / **Jellyfin only** (amber), or
+  **Not in library** (red) instead of a single in/out badge.
+
+### Fixed
+
+- **Trakt API pagination bug.** `fetch_list_items` was only reading the
+  first 100 items of any Trakt list, silently truncating large
+  franchises (Doctor Who's 1,092 episodes, Arrowverse's 808 episodes,
+  etc.). Now follows pagination headers to fetch every page.
+- **`sqlite3.Row.get()` regression in `sync_franchise_playlist`.**
+  Several `row.get(...)` calls would silently fail because `sqlite3.Row`
+  doesn't implement `.get()`. Replaced with `_row_get(...)` helper or
+  `dict(row).get(...)`. Pre-existing bug since v2.2.0 development.
+- **Franchise preview cross-backend matching.** Previewing a "both"
+  playlist always failed to find anything because `get_client("both")`
+  raised, leaving the lookup dicts empty. Now iterates over each
+  configured backend.
+- **UNIQUE constraint on duplicate edit-and-save.** Editing the same
+  pre-baked franchise twice in a row (without renaming) would crash on
+  insert. Maker now auto-disambiguates the imported name on load and
+  the service layer pre-checks name uniqueness with a clear error
+  message.
+
+### Notes
+
+- Caching: 60-second in-memory cache for per-backend library lookups and
+  5-minute cache for fetched Trakt lists keep the franchise picker fast
+  even with a large Plex library.
+
 ## [2.1.0] - 2026-05-27
 
 ### Added

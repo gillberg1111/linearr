@@ -1,0 +1,137 @@
+{
+  "_info": {
+    "name": "Franchise Name",
+    "description": "Brief description of watch order logic (e.g. chronological, release order)",
+    "maintained_by": "linearrapp",
+    "last_updated": "2026-05-28"
+  },
+  "items": [
+
+    {
+      "rank": 1,
+      "item_type": "movie",
+      "title": "First Movie",
+      "year": 2001,
+      "tmdb_id": 11111,
+      "imdb_id": "tt0000001",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null
+    },
+
+    {
+      "rank": 2,
+      "item_type": "season",
+      "title": "First Show — Season 1",
+      "year": 2003,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": 22222,
+      "season_number": 1,
+      "episode_number": null,
+      "show_title": "First Show",
+      "show_tvdb_id": 22222
+    },
+
+    {
+      "rank": 3,
+      "item_type": "movie",
+      "title": "Second Movie",
+      "year": 2005,
+      "tmdb_id": 33333,
+      "imdb_id": "tt0000003",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null
+    },
+
+    {
+      "rank": 4,
+      "item_type": "episode",
+      "title": "Pilot",
+      "year": 2007,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": 2,
+      "episode_number": 1,
+      "show_title": "First Show",
+      "show_tvdb_id": 22222
+    },
+
+    {
+      "rank": 5,
+      "item_type": "episode",
+      "title": "Second Episode",
+      "year": 2007,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": 2,
+      "episode_number": 2,
+      "show_title": "First Show",
+      "show_tvdb_id": 22222
+    },
+
+    {
+      "rank": 6,
+      "item_type": "movie",
+      "title": "Third Movie",
+      "year": 2008,
+      "tmdb_id": 44444,
+      "imdb_id": "tt0000004",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null
+    },
+
+    {
+      "rank": 7,
+      "item_type": "episode",
+      "title": "Season Opener",
+      "year": 2009,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": 3,
+      "episode_number": 1,
+      "show_title": "Second Show",
+      "show_tvdb_id": 55555
+    },
+
+    {
+      "rank": 8,
+      "item_type": "episode",
+      "title": "Follow-Up",
+      "year": 2009,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": 3,
+      "episode_number": 2,
+      "show_title": "Second Show",
+      "show_tvdb_id": 55555
+    },
+
+    {
+      "rank": 9,
+      "item_type": "episode",
+      "title": "Finale",
+      "year": 2009,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": 3,
+      "episode_number": 3,
+      "show_title": "Second Show",
+      "show_tvdb_id": 55555
+    }
+
+  ]
+}

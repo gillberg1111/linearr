@@ -1,0 +1,37 @@
+{% if error %}
+  <p class="hint" style="color: var(--warn)">{{ error }}</p>
+{% else %}
+  <div class="franchise-preview-summary">
+    Found <strong>{{ found_count }}</strong> of <strong>{{ total_count }}</strong>
+    items in your library.
+    {% if missing_count %}
+      <span style="color: var(--warn)">{{ missing_count }} not in library.</span>
+    {% endif %}
+  </div>
+  <ul class="franchise-item-list">
+    {% for item in items %}
+      <li class="franchise-item {% if not item.found %}franchise-item-missing{% endif %}">
+        <span class="franchise-item-rank">{{ loop.index }}</span>
+        <span class="franchise-item-type-badge franchise-type-{{ item.item_type }}">
+          {{ item.item_type | capitalize }}
+        </span>
+        <span class="franchise-item-title">
+          {{ item.display_title }}
+          {% if item.year %}<span class="franchise-item-year">({{ item.year }})</span>{% endif %}
+        </span>
+        {% if item.show_title and item.item_type == 'episode' %}
+          <span class="franchise-item-show">{{ item.show_title }}</span>
+        {% endif %}
+        {% if item.lib_status == 'found' %}
+          <span class="franchise-status-badge franchise-status-found">In library</span>
+        {% elif item.lib_status == 'plex_only' %}
+          <span class="franchise-status-badge franchise-status-partial">Plex only</span>
+        {% elif item.lib_status == 'jellyfin_only' %}
+          <span class="franchise-status-badge franchise-status-partial">Jellyfin only</span>
+        {% else %}
+          <span class="franchise-status-badge franchise-status-missing">Not in library</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}

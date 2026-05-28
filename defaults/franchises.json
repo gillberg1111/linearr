@@ -1,0 +1,138 @@
+[
+  {
+    "key": "mcu",
+    "name": "Marvel (MCU)",
+    "source": "trakt",
+    "trakt_user": "ggthev",
+    "trakt_slug": "marvel-cinematic-universe-chronological-order",
+    "chronolists_id": null
+  },
+  {
+    "key": "star_wars",
+    "name": "Star Wars",
+    "source": "trakt",
+    "trakt_user": "notahtoomah",
+    "trakt_slug": "star-wars-chronological-order-of-canon-media",
+    "chronolists_id": null
+  },
+  {
+    "key": "dceu",
+    "name": "DC (DCEU)",
+    "source": "trakt",
+    "trakt_user": "gratiskeder",
+    "trakt_slug": "dc-extended-universe-dceu",
+    "chronolists_id": null
+  },
+  {
+    "key": "dcu",
+    "name": "DC (DCU)",
+    "source": "trakt",
+    "trakt_user": "FistyTristy",
+    "trakt_slug": "dc-universe-james-gunn-s-dcu",
+    "chronolists_id": null
+  },
+  {
+    "key": "arrowverse",
+    "name": "DC Arrowverse",
+    "source": "trakt",
+    "trakt_user": "the_t-man",
+    "trakt_slug": "arrowverse-ultimate-watching-order",
+    "chronolists_id": null
+  },
+  {
+    "key": "star_trek",
+    "name": "Star Trek",
+    "source": "trakt",
+    "trakt_user": "puhran",
+    "trakt_slug": "star-trek-chronological",
+    "chronolists_id": null
+  },
+  {
+    "key": "stargate",
+    "name": "Stargate",
+    "source": "trakt",
+    "trakt_user": "baarpeter79",
+    "trakt_slug": "stargate-recommended-viewing-order",
+    "chronolists_id": null
+  },
+  {
+    "key": "doctor_who",
+    "name": "Doctor Who",
+    "source": "trakt",
+    "trakt_user": "grendelcrusher",
+    "trakt_slug": "watching-order-doctor-who-universe",
+    "chronolists_id": null
+  },
+  {
+    "key": "buffy_angel",
+    "name": "Buffy & Angel",
+    "source": "trakt",
+    "trakt_user": "stoneyclan",
+    "trakt_slug": "buffy-angel-viewing-order",
+    "chronolists_id": null
+  },
+  {
+    "key": "x_men",
+    "name": "X-Men",
+    "source": "trakt",
+    "trakt_user": "AraChn0id",
+    "trakt_slug": "x-men-movies",
+    "chronolists_id": null
+  },
+  {
+    "key": "mission_impossible",
+    "name": "Mission: Impossible",
+    "source": "trakt",
+    "trakt_user": "jjjonesjr33",
+    "trakt_slug": "mission-impossible-cinematic-universe-in-timeline-order",
+    "chronolists_id": null
+  },
+  {
+    "key": "jurassic",
+    "name": "Jurassic Park",
+    "source": "trakt",
+    "trakt_user": "Strangerer",
+    "trakt_slug": "jurassic-park-jurassic-world-trilogies",
+    "chronolists_id": null
+  },
+  {
+    "key": "monsterverse",
+    "name": "MonsterVerse",
+    "source": "trakt",
+    "trakt_user": "superfabio",
+    "trakt_slug": "monsterverse",
+    "chronolists_id": null
+  },
+  {
+    "key": "john_wick",
+    "name": "John Wick",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": null
+  },
+  {
+    "key": "alien_predator",
+    "name": "Alien & Predator",
+    "source": "trakt",
+    "trakt_user": "prey33",
+    "trakt_slug": "alien-predator-timeline",
+    "chronolists_id": null
+  },
+  {
+    "key": "conjuring",
+    "name": "Conjuring Universe",
+    "source": "trakt",
+    "trakt_user": "zviznemte",
+    "trakt_slug": "the-conjuring-universe-timeline",
+    "chronolists_id": null
+  },
+  {
+    "key": "james_bond",
+    "name": "James Bond",
+    "source": "trakt",
+    "trakt_user": "Trakt",
+    "trakt_slug": "james-bond-collection",
+    "chronolists_id": null
+  }
+]

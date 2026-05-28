@@ -77,7 +77,8 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 VALID_BACKENDS = ("plex", "jellyfin", "both")
-VALID_PLAYLIST_TYPES = ("manual", "genre")
+VALID_PLAYLIST_TYPES = ("manual", "genre", "franchise")
+VALID_FRANCHISE_SOURCES = ("trakt", "local", "user")
 
 
 def init_db() -> None:
@@ -93,7 +94,7 @@ def init_db() -> None:
                 backend              TEXT NOT NULL DEFAULT 'plex'
                     CHECK(backend IN ('plex','jellyfin','both')),
                 playlist_type        TEXT NOT NULL DEFAULT 'manual'
-                    CHECK(playlist_type IN ('manual','genre')),
+                    CHECK(playlist_type IN ('manual','genre','franchise')),
                 genre_filter         TEXT,
                 created_at           TEXT NOT NULL,
                 sort_mode            TEXT NOT NULL DEFAULT 'rotation',
@@ -278,6 +279,17 @@ def init_db() -> None:
                 "ALTER TABLE managed_playlists ADD COLUMN rule_mode TEXT NOT NULL DEFAULT 'genre'"
             )
 
+        # v2.2.0 — franchise playlists + per-playlist pruning toggle
+        pl_cols3 = _columns(conn, "managed_playlists")
+        if "franchise_definition_id" not in pl_cols3:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN franchise_definition_id INTEGER"
+            )
+        if "pruning_enabled" not in pl_cols3:
+            conn.execute(
+                "ALTER TABLE managed_playlists ADD COLUMN pruning_enabled INTEGER NOT NULL DEFAULT 1"
+            )
+
         # v2.0.0 — settings store for API key
         if "managed_settings" not in existing_tables:
             conn.execute(
@@ -301,6 +313,68 @@ def init_db() -> None:
                     url   TEXT NOT NULL,
                     label TEXT NOT NULL DEFAULT ''
                 )"""
+            )
+
+        # v2.2.0 — franchise definitions cache
+        if "franchise_definitions" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE franchise_definitions (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key          TEXT NOT NULL UNIQUE,
+                    name         TEXT NOT NULL,
+                    source       TEXT NOT NULL DEFAULT 'trakt',
+                    trakt_user   TEXT,
+                    trakt_slug   TEXT,
+                    fetched_at   TEXT,
+                    content_hash TEXT,
+                    item_count   INTEGER NOT NULL DEFAULT 0
+                )"""
+            )
+
+        if "franchise_items" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE franchise_items (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    definition_id    INTEGER NOT NULL,
+                    rank             INTEGER NOT NULL,
+                    item_type        TEXT NOT NULL,
+                    title            TEXT NOT NULL,
+                    year             INTEGER,
+                    tmdb_id          INTEGER,
+                    tvdb_id          INTEGER,
+                    imdb_id          TEXT,
+                    season_number    INTEGER,
+                    episode_number   INTEGER,
+                    show_title       TEXT,
+                    show_tvdb_id     INTEGER,
+                    FOREIGN KEY (definition_id) REFERENCES franchise_definitions(id)
+                        ON DELETE CASCADE
+                )"""
+            )
+
+        if "franchise_match_state" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE franchise_match_state (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    franchise_item_id INTEGER NOT NULL,
+                    playlist_id       INTEGER NOT NULL,
+                    plex_found        INTEGER NOT NULL DEFAULT 0,
+                    plex_item_id      TEXT,
+                    jellyfin_found    INTEGER NOT NULL DEFAULT 0,
+                    jellyfin_item_id  TEXT,
+                    UNIQUE(franchise_item_id, playlist_id),
+                    FOREIGN KEY (franchise_item_id) REFERENCES franchise_items(id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id)
+                        ON DELETE CASCADE
+                )"""
+            )
+
+        # v2.3.0 — fork-on-edit for franchise definitions
+        fd_cols = _columns(conn, "franchise_definitions")
+        if "forked_from_key" not in fd_cols:
+            conn.execute(
+                "ALTER TABLE franchise_definitions ADD COLUMN forked_from_key TEXT"
             )
 
 
@@ -821,3 +895,212 @@ def add_webhook(url: str, label: str = "") -> int:
 def delete_webhook(webhook_id: int) -> None:
     with connection() as conn:
         conn.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+
+
+# ── v2.2.0 — Franchise definitions ────────────────────────────────────────────
+
+def get_franchise_definition(key: str) -> dict | None:
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM franchise_definitions WHERE key = ?", (key,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_franchise_definition(
+    key: str,
+    name: str,
+    source: str,
+    trakt_user: str | None,
+    trakt_slug: str | None,
+    fetched_at: str,
+    content_hash: str,
+    item_count: int,
+) -> int:
+    with connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM franchise_definitions WHERE key = ?", (key,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE franchise_definitions
+                   SET name=?, source=?, trakt_user=?, trakt_slug=?,
+                       fetched_at=?, content_hash=?, item_count=?
+                   WHERE key=?""",
+                (name, source, trakt_user, trakt_slug,
+                 fetched_at, content_hash, item_count, key),
+            )
+            return existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO franchise_definitions
+                   (key, name, source, trakt_user, trakt_slug,
+                    fetched_at, content_hash, item_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (key, name, source, trakt_user, trakt_slug,
+                 fetched_at, content_hash, item_count),
+            )
+            return cur.lastrowid
+
+
+def list_franchise_definitions() -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute("SELECT * FROM franchise_definitions").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_playlists_by_franchise_definition(definition_id: int) -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM managed_playlists WHERE franchise_definition_id = ?",
+            (definition_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── v2.2.0 — Franchise items ─────────────────────────────────────────────────
+
+def replace_franchise_items(definition_id: int, items: list[dict]) -> None:
+    with connection() as conn:
+        conn.execute(
+            "DELETE FROM franchise_items WHERE definition_id = ?", (definition_id,)
+        )
+        conn.executemany(
+            """INSERT INTO franchise_items
+               (definition_id, rank, item_type, title, year,
+                tmdb_id, tvdb_id, imdb_id,
+                season_number, episode_number, show_title, show_tvdb_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    definition_id,
+                    item["rank"],
+                    item["item_type"],
+                    item["title"],
+                    item.get("year"),
+                    item.get("tmdb_id"),
+                    item.get("tvdb_id"),
+                    item.get("imdb_id"),
+                    item.get("season_number"),
+                    item.get("episode_number"),
+                    item.get("show_title"),
+                    item.get("show_tvdb_id"),
+                )
+                for item in items
+            ],
+        )
+
+
+def list_franchise_items(definition_id: int) -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM franchise_items WHERE definition_id = ? ORDER BY rank ASC",
+            (definition_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── v2.2.0 — Franchise match state ────────────────────────────────────────────
+
+def upsert_franchise_match_state(
+    franchise_item_id: int,
+    playlist_id: int,
+    plex_found: bool,
+    plex_item_id: str | None,
+    jellyfin_found: bool,
+    jellyfin_item_id: str | None,
+) -> None:
+    with connection() as conn:
+        conn.execute(
+            """INSERT INTO franchise_match_state
+               (franchise_item_id, playlist_id,
+                plex_found, plex_item_id,
+                jellyfin_found, jellyfin_item_id)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(franchise_item_id, playlist_id) DO UPDATE SET
+                 plex_found=excluded.plex_found,
+                 plex_item_id=excluded.plex_item_id,
+                 jellyfin_found=excluded.jellyfin_found,
+                 jellyfin_item_id=excluded.jellyfin_item_id""",
+            (franchise_item_id, playlist_id,
+             int(plex_found), plex_item_id,
+             int(jellyfin_found), jellyfin_item_id),
+        )
+
+
+def list_franchise_match_state(playlist_id: int) -> dict[int, dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM franchise_match_state WHERE playlist_id = ?",
+            (playlist_id,),
+        ).fetchall()
+        return {r["franchise_item_id"]: dict(r) for r in rows}
+
+
+def get_franchise_definition_by_id(definition_id: int) -> dict | None:
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM franchise_definitions WHERE id = ?", (definition_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def delete_franchise_definition(definition_id: int) -> None:
+    with connection() as conn:
+        conn.execute(
+            "DELETE FROM franchise_items WHERE definition_id = ?", (definition_id,)
+        )
+        conn.execute(
+            "DELETE FROM franchise_definitions WHERE id = ?", (definition_id,)
+        )
+
+
+def insert_franchise_definition(
+    key: str,
+    name: str,
+    source: str,
+    forked_from_key: str | None = None,
+    content_hash: str = "",
+    item_count: int = 0,
+) -> int:
+    from datetime import datetime, timezone
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO franchise_definitions
+               (key, name, source, forked_from_key, fetched_at, content_hash, item_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (key, name, source, forked_from_key, fetched_at, content_hash, item_count),
+        )
+        return cur.lastrowid
+
+
+def count_playlists_by_franchise_definition(definition_id: int) -> int:
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM managed_playlists WHERE franchise_definition_id = ?",
+            (definition_id,),
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def update_franchise_definition_metadata(
+    definition_id: int, *, content_hash: str, item_count: int
+) -> None:
+    from datetime import datetime, timezone
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connection() as conn:
+        conn.execute(
+            """UPDATE franchise_definitions
+               SET content_hash = ?, item_count = ?, fetched_at = ?
+               WHERE id = ?""",
+            (content_hash, item_count, fetched_at, definition_id),
+        )
+
+
+def rebind_playlist_franchise(playlist_id: int, definition_id: int) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET franchise_definition_id = ? WHERE id = ?",
+            (definition_id, playlist_id),
+        )

@@ -22,3 +22,9 @@ v*-plan.md
 
 # Local architecture reference
 ARCHITECTURE.md
+
+# Local TMDB key for franchise builder
+.tmdb_key
+
+# Franchise builder spec
+franchise_builder_spec.md

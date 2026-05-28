@@ -4,7 +4,7 @@
   <h1>Your playlists</h1>
   <p class="subtitle">
     <strong>The missing show sequencer for Plex and Jellyfin.</strong>
-    Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
+    Shows, genres, franchises — Automated. Sequenced. Yours.
   </p>
 </div>
 
@@ -41,10 +41,24 @@
           {% else %}Plex{% endif %}
         </span>
         {% endif %}
+        <span class="type-badge type-badge-inline is-{{ p.playlist_type }}">
+          {% if p.playlist_type == 'franchise' %}Franchise
+          {% elif p.playlist_type == 'genre' %}Genre
+          {% else %}Show{% endif %}
+        </span>
       </h3>
       <p class="meta">
-        {{ p.shows|length }} show{{ '' if p.shows|length == 1 else 's' }}
-        · {{ p.item_count }} episode{{ '' if p.item_count == 1 else 's' }}
+        {% set parts = [] %}
+        {% if p.shows|length > 0 and p.playlist_type != 'franchise' %}
+          {% set _ = parts.append((p.shows|length|string) + ' show' + ('' if p.shows|length == 1 else 's')) %}
+        {% endif %}
+        {% if p.movies_count > 0 %}
+          {% set _ = parts.append((p.movies_count|string) + ' movie' + ('' if p.movies_count == 1 else 's')) %}
+        {% endif %}
+        {% if p.episodes_count > 0 %}
+          {% set _ = parts.append((p.episodes_count|string) + ' episode' + ('' if p.episodes_count == 1 else 's')) %}
+        {% endif %}
+        {{ parts|join(' · ') if parts else 'Empty' }}
       </p>
       <p class="show-names">
         {% for s in p.shows %}{{ s.show_title }}{% if not loop.last %} · {% endif %}{% endfor %}

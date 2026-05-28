@@ -80,6 +80,8 @@
     </div>
   {% endif %}
 
+  {% if playlist.playlist_type != 'franchise' %}
+
   <form method="post" action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Sort</span>
     <div class="pill-toggle pill-toggle-5">
@@ -139,6 +141,7 @@
     </form>
   {% endif %}
 
+  {% if playlist.playlist_type != 'franchise' %}
   <form method="post" action="{{ url_for('change_unwatched_only', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Filter</span>
     <div class="pill-toggle">
@@ -159,6 +162,7 @@
       {% endif %}
     </span>
   </form>
+  {% endif %}
 
   <form method="post" action="{{ url_for('change_auto_sync', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Auto-update</span>
@@ -177,6 +181,27 @@
         Newly-aired episodes and seasons are spliced into this playlist on the background sweep.
       {% else %}
         Playlist is locked. New episodes won't be added automatically until you re-enable or edit it manually.
+      {% endif %}
+    </span>
+  </form>
+
+  <form method="post" action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+    <span class="sort-mode-label">Pruning</span>
+    <div class="pill-toggle">
+      <button type="submit" name="enabled" value="1"
+              class="pill {% if playlist.pruning_enabled %}is-active{% endif %}">
+        On
+      </button>
+      <button type="submit" name="enabled" value=""
+              class="pill {% if not playlist.pruning_enabled %}is-active{% endif %}">
+        Off
+      </button>
+    </div>
+    <span class="hint">
+      {% if playlist.pruning_enabled %}
+        Watched episodes beyond your {{ watched_keep }}-episode buffer are removed on each sync.
+      {% else %}
+        All episodes are kept regardless of watch state.
       {% endif %}
     </span>
   </form>
@@ -510,6 +535,53 @@
     </section>
   {% endif %}
 
+  {% else %}
+
+  <section class="franchise-playlist-section">
+    <div class="section-head">
+      <h2>Franchise watch order</h2>
+    </div>
+    {% set found = franchise_items | selectattr('found') | list | length %}
+    {% set total = franchise_items | length %}
+    <div class="franchise-playlist-header">
+      <p class="stats-label">{{ found }} of {{ total }} franchise items in your library</p>
+      {% if found < total %}
+        <p class="hint" style="color: var(--warn)">
+          {{ total - found }} item{{ 's' if (total - found) != 1 else '' }}
+          not found — they will be added automatically if you add them to your library
+          and sync.
+        </p>
+      {% endif %}
+    </div>
+    <ul class="franchise-item-list">
+      {% for item in franchise_items %}
+        <li class="franchise-item {% if not item.found %}franchise-item-missing{% endif %}">
+          <span class="franchise-item-rank">{{ loop.index }}</span>
+          <span class="franchise-item-type-badge franchise-type-{{ item.item_type }}">
+            {{ item.item_type | capitalize }}
+          </span>
+          <span class="franchise-item-title">
+            {{ item.display_title }}
+            {% if item.year %}
+              <span class="franchise-item-year">({{ item.year }})</span>
+            {% endif %}
+          </span>
+          {% if item.lib_status == 'found' %}
+            <span class="franchise-status-badge franchise-status-found">In library</span>
+          {% elif item.lib_status == 'plex_only' %}
+            <span class="franchise-status-badge franchise-status-partial">Plex only</span>
+          {% elif item.lib_status == 'jellyfin_only' %}
+            <span class="franchise-status-badge franchise-status-partial">Jellyfin only</span>
+          {% else %}
+            <span class="franchise-status-badge franchise-status-missing">Not in library</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {% endif %}
+
   <section class="maintenance">
     <h2>Maintenance</h2>
     <div class="maintenance-row">
@@ -517,14 +589,32 @@
         <button type="submit" class="btn btn-primary">Sync now</button>
         <span class="hint">Re-checks every backend for new episodes / seasons and updates the playlist immediately (otherwise this runs on the background sweep).</span>
       </form>
+      {% if playlist.playlist_type == 'franchise' %}
+      <form method="get" action="{{ url_for('franchise_maker_edit', playlist_id=playlist.id) }}">
+        <button type="submit" class="btn">Edit franchise</button>
+        <span class="hint">Open the Maker to add, remove, or reorder items.
+          {% if is_forked %}This playlist is a custom copy of "{{ bundled_origin_name }}".{% endif %}</span>
+      </form>
+      {% if is_forked %}
+      <form method="post" action="{{ url_for('restore_default', playlist_id=playlist.id) }}"
+            onsubmit="return confirm('Restore the original {{ bundled_origin_name }} watch order? Your custom edits will be discarded.');">
+        <button type="submit" class="btn">Restore default</button>
+        <span class="hint">Revert this playlist back to the bundled "{{ bundled_origin_name }}" watch order.</span>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if playlist.playlist_type != 'franchise' %}
       <form method="post" action="{{ url_for('refresh_metadata', playlist_id=playlist.id) }}">
         <button type="submit" class="btn btn-ghost">Refresh metadata</button>
         <span class="hint">Ask Plex/Jellyfin to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
       </form>
+      {% endif %}
+      {% if playlist.playlist_type != 'franchise' %}
       <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
         <span class="hint">Keeps the {{ watched_keep }} most recently watched episode{{ 's' if watched_keep != 1 else '' }} as a buffer; removes older watched ones.</span>
       </form>
+      {% endif %}
       <form method="post" action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}"
             onsubmit="return confirm('Delete this rotating playlist (and its server-side playlists)?');">
         <button type="submit" class="btn btn-danger">Delete playlist</button>

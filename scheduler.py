@@ -8,6 +8,7 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import service
+from service import refresh_franchise_definitions as _refresh_franchise_definitions
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,14 @@ def _refresh_genre_cache() -> None:
             )
         except Exception:
             log.exception("Genre cache refresh failed for %s", backend)
+
+
+def _refresh_franchise_definitions_job() -> None:
+    try:
+        _refresh_franchise_definitions()
+        log.info("Franchise definitions refreshed")
+    except Exception:
+        log.warning("Franchise definition refresh failed", exc_info=True)
 
 
 def start() -> BackgroundScheduler:
@@ -73,6 +82,14 @@ def start() -> BackgroundScheduler:
         id="genre_cache_weekly",
         max_instances=1,
         coalesce=True,
+    )
+    # v2.2.0 — weekly franchise definition refresh
+    sched.add_job(
+        _refresh_franchise_definitions_job,
+        "interval",
+        weeks=1,
+        id="refresh_franchise_definitions",
+        replace_existing=True,
     )
     sched.start()
     log.info(

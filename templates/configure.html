@@ -128,6 +128,25 @@
           <span class="hint">(Every {{ "10" }} min)</span>
         </div>
 
+        <div class="options-group">
+          <span class="sort-mode-label">Pruning</span>
+          <div class="pill-toggle" id="pruningToggle">
+            <button type="button"
+                    class="pill {% if pruning_enabled | default(1) %}pill-active is-active{% endif %}"
+                    data-val="1">Pruning: On</button>
+            <button type="button"
+                    class="pill {% if not (pruning_enabled | default(1)) %}pill-active is-active{% endif %}"
+                    data-val="0">Pruning: Off</button>
+          </div>
+          <input type="hidden" name="pruning_enabled" id="pruningEnabledInput"
+                 value="{{ 1 if (pruning_enabled | default(1)) else 0 }}">
+        </div>
+        <span class="hint" style="width:100%;margin-top:0.3rem">
+          When on, watched episodes beyond your
+          WATCHED_KEEP buffer are removed on each sync.
+          Turn off to keep all episodes regardless of watch state.
+        </span>
+
       </div>
     {% else %}
       <input type="hidden" name="sort_mode" value="{{ sort_mode }}">

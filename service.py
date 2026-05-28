@@ -35,6 +35,7 @@ from media_client import (
     titles_match,
 )
 from rotation import PlaylistItem
+from trakt_client import get_trakt_client
 
 log = logging.getLogger(__name__)
 
@@ -587,6 +588,11 @@ class PlaylistView:
     rule_mode: str = "genre"
     # v2.0.0 — analytics
     last_stats: dict | None = None
+    # v2.2.0 — per-playlist pruning toggle
+    pruning_enabled: int = 1
+    # v2.3.0 — counts for index card stats
+    movies_count: int = 0
+    episodes_count: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -604,6 +610,7 @@ def create_managed_playlist(
     *,
     block_size: int = 1,
     shuffle_seed: int | None = None,
+    pruning_enabled: int = 1,
 ) -> int:
     if not configs:
         raise ValueError("Need at least one show to create a playlist")
@@ -681,6 +688,12 @@ def create_managed_playlist(
         db.set_shuffle_seed(playlist_id, shuffle_seed)
 
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in configs])
+    if not pruning_enabled:
+        with db.connection() as conn:
+            conn.execute(
+                "UPDATE managed_playlists SET pruning_enabled=0 WHERE id=?",
+                (playlist_id,),
+            )
     log.info(
         "Created playlist '%s' (backend=%s, sides created: %s)",
         name, backend, ",".join(sorted(created_ids.keys())) or "none",
@@ -1100,6 +1113,7 @@ def create_genre_playlist(
     block_size: int = 1,
     shuffle_seed: int | None = None,
     weights: dict[str, int] | None = None,
+    pruning_enabled: int = 1,
 ) -> int:
     """Create a playlist whose member shows are determined by a genre query
     rather than hand-picked. Future syncs re-query the backend and auto-add
@@ -1132,6 +1146,7 @@ def create_genre_playlist(
         backend=backend,
         block_size=block_size,
         shuffle_seed=shuffle_seed,
+        pruning_enabled=pruning_enabled,
     )
     # Mark the playlist as genre type + persist the filter.
     with db.connection() as conn:
@@ -1238,6 +1253,10 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
         # Reload after potential adds.
         show_rows = db.list_shows(playlist_id)
         full_configs = [_config_from_row(r) for r in show_rows]
+
+    # v2.2.0: franchise playlists have their own sync logic.
+    if _row_get(row, "playlist_type", "manual") == "franchise":
+        return sync_franchise_playlist(playlist_id, force=force)
 
     if not full_configs:
         return (0, 0)
@@ -1361,6 +1380,721 @@ def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig
     )
 
 
+# ── v2.2.0 — Franchise playlists ──────────────────────────────────────────
+
+
+def _load_prebaked_franchises() -> list[dict]:
+    path = os.path.join(os.path.dirname(__file__), "defaults", "franchises.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _normalize_for_match(title: str) -> str:
+    import re as _re
+    t = title.lower()
+    t = _re.sub(r"[^\w\s]", " ", t)
+    t = _re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _build_backend_cache(backend: str, client: MediaClient) -> dict:
+    all_movies = client.list_all_movies()
+    all_shows = client.list_all_shows()
+    return {
+        "client": client,
+        "movie_by_tmdb": {m.tmdb_id: m for m in all_movies if m.tmdb_id},
+        "movie_by_title_year": {
+            (_normalize_for_match(m.title), m.year): m for m in all_movies
+        },
+        "show_by_tvdb": {
+            int(s.tvdb_id): s for s in all_shows if s.tvdb_id
+        },
+        "show_by_title_year": {
+            (_normalize_for_match(s.title), s.year): s for s in all_shows
+        },
+        "episode_cache": {},
+    }
+
+
+def _fetch_and_store_franchise(
+    key: str,
+    name: str,
+    source: str = "trakt",
+    trakt_user: str | None = None,
+    trakt_slug: str | None = None,
+) -> int:
+    if source == "local":
+        return _fetch_and_store_franchise_local(key, name)
+
+    if source == "user":
+        defn = db.get_franchise_definition(key)
+        if defn:
+            return defn["id"]
+        raise ValueError(f"User franchise '{key}' not found in DB")
+
+    if source != "trakt":
+        raise ValueError(f"Unknown franchise source: {source}")
+
+    if not trakt_user or not trakt_slug:
+        raise ValueError("trakt_user and trakt_slug are required for source='trakt'")
+
+    from datetime import datetime, timezone
+
+    trakt = get_trakt_client()
+    items = trakt.fetch_list_items(trakt_user, trakt_slug)
+    new_hash = trakt.content_hash(items)
+
+    existing = db.get_franchise_definition(key)
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    definition_id = db.upsert_franchise_definition(
+        key=key,
+        name=name,
+        source="trakt",
+        trakt_user=trakt_user,
+        trakt_slug=trakt_slug,
+        fetched_at=fetched_at,
+        content_hash=new_hash,
+        item_count=len(items),
+    )
+
+    if existing is None or existing.get("content_hash") != new_hash:
+        db.replace_franchise_items(definition_id, items)
+        log.info("Franchise '%s': stored %d items (hash changed)", name, len(items))
+    else:
+        log.debug("Franchise '%s': no changes (hash match)", name)
+
+    return definition_id
+
+
+def _fetch_and_store_franchise_local(key: str, name: str) -> int:
+    from datetime import datetime, timezone
+
+    path = os.path.join(
+        os.path.dirname(__file__), "defaults", "franchise_data", f"{key}.json"
+    )
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Local franchise file not found: {path}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in franchise file {path}: {e}")
+
+    items = raw.get("items", [])
+    if not items:
+        raise ValueError(f"Franchise file {path} has no 'items' array")
+
+    normalised = []
+    for i, item in enumerate(items):
+        item = dict(item)
+        item.setdefault("rank", i + 1)
+        item.setdefault("tmdb_id", None)
+        item.setdefault("tvdb_id", None)
+        item.setdefault("imdb_id", None)
+        item.setdefault("year", None)
+        item.setdefault("season_number", None)
+        item.setdefault("episode_number", None)
+        item.setdefault("show_title", None)
+        item.setdefault("show_tvdb_id", None)
+        normalised.append(item)
+
+    new_hash = get_trakt_client().content_hash(normalised)
+    existing = db.get_franchise_definition(key)
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    definition_id = db.upsert_franchise_definition(
+        key=key,
+        name=name,
+        source="local",
+        trakt_user=None,
+        trakt_slug=None,
+        fetched_at=fetched_at,
+        content_hash=new_hash,
+        item_count=len(normalised),
+    )
+
+    if existing is None or existing.get("content_hash") != new_hash:
+        db.replace_franchise_items(definition_id, normalised)
+        log.info("Franchise '%s' (local): stored %d items", name, len(normalised))
+    else:
+        log.debug("Franchise '%s' (local): no changes", name)
+
+    return definition_id
+
+
+def _resolve_franchise_item(fi: dict, cache: dict) -> str | None:
+    item_type = fi["item_type"]
+    client: MediaClient = cache["client"]
+
+    if item_type == "movie":
+        if fi.get("tmdb_id"):
+            m = cache["movie_by_tmdb"].get(fi["tmdb_id"])
+            if m:
+                return m.rating_key
+        key = (_normalize_for_match(fi["title"]), fi.get("year"))
+        m = cache["movie_by_title_year"].get(key)
+        return m.rating_key if m else None
+
+    elif item_type == "episode":
+        show_tvdb = fi.get("show_tvdb_id")
+        if not show_tvdb:
+            return None
+        ep_cache = cache["episode_cache"]
+        if show_tvdb not in ep_cache:
+            show = cache["show_by_tvdb"].get(show_tvdb)
+            if show:
+                try:
+                    eps = client.episodes_for_show(
+                        show.rating_key, include_specials=True
+                    )
+                    ep_cache[show_tvdb] = {
+                        (e.season, e.episode): e for e in eps
+                    }
+                except Exception:
+                    ep_cache[show_tvdb] = {}
+            else:
+                ep_cache[show_tvdb] = {}
+        ep = ep_cache[show_tvdb].get(
+            (fi["season_number"], fi["episode_number"])
+        )
+        return ep.rating_key if ep else None
+
+    elif item_type in ("show", "season"):
+        return None
+
+    return None
+
+
+def _expand_franchise_show_item(fi: dict, cache: dict) -> list[str]:
+    client: MediaClient = cache["client"]
+    show_tvdb = fi.get("tvdb_id") or fi.get("show_tvdb_id")
+    if not show_tvdb:
+        return []
+
+    show = cache["show_by_tvdb"].get(show_tvdb)
+    if not show:
+        key = (_normalize_for_match(fi.get("show_title") or fi["title"]), fi.get("year"))
+        show = cache["show_by_title_year"].get(key)
+    if not show:
+        return []
+
+    try:
+        if fi["item_type"] == "show":
+            eps = client.episodes_for_show(show.rating_key)
+        else:
+            season_num = fi["season_number"]
+            eps = client.episodes_for_show(
+                show.rating_key,
+                start_season=season_num,
+                end_season=season_num,
+            )
+        return [e.rating_key for e in eps]
+    except Exception:
+        log.warning("Failed to expand show/season item '%s'", fi.get("title"), exc_info=True)
+        return []
+
+
+def _match_franchise_to_library(
+    definition_id: int,
+    playlist_id: int,
+    row: dict,
+) -> tuple[list[str], list[str], int]:
+    franchise_items = db.list_franchise_items(definition_id)
+    if not franchise_items:
+        return [], [], 0
+
+    backend_caches: dict[str, dict] = {}
+    for backend, client_q, _pl_id in _clients_for_playlist(row):
+        try:
+            backend_caches[backend] = _build_backend_cache(backend, client_q)
+        except Exception:
+            log.warning("Failed to build library cache for backend=%s", backend, exc_info=True)
+
+    plex_keys: list[str] = []
+    jellyfin_keys: list[str] = []
+    missing_count = 0
+
+    for fi in franchise_items:
+        plex_found = False
+        plex_item_id: str | None = None
+        jellyfin_found = False
+        jellyfin_item_id: str | None = None
+
+        item_type = fi["item_type"]
+        if item_type in ("show", "season"):
+            for backend, cache in backend_caches.items():
+                keys = _expand_franchise_show_item(fi, cache)
+                if keys:
+                    if backend == "plex":
+                        plex_found = True
+                        plex_item_id = keys[0]
+                        plex_keys.extend(keys)
+                    else:
+                        jellyfin_found = True
+                        jellyfin_item_id = keys[0]
+                        jellyfin_keys.extend(keys)
+
+            db.upsert_franchise_match_state(
+                franchise_item_id=fi["id"],
+                playlist_id=playlist_id,
+                plex_found=plex_found,
+                plex_item_id=plex_item_id,
+                jellyfin_found=jellyfin_found,
+                jellyfin_item_id=jellyfin_item_id,
+            )
+
+            if not plex_found and not jellyfin_found:
+                missing_count += 1
+        else:
+            for backend, cache in backend_caches.items():
+                found_key = _resolve_franchise_item(fi, cache)
+                if found_key:
+                    if backend == "plex":
+                        plex_found = True
+                        plex_item_id = found_key
+                        plex_keys.append(found_key)
+                    else:
+                        jellyfin_found = True
+                        jellyfin_item_id = found_key
+                        jellyfin_keys.append(found_key)
+
+            db.upsert_franchise_match_state(
+                franchise_item_id=fi["id"],
+                playlist_id=playlist_id,
+                plex_found=plex_found,
+                plex_item_id=plex_item_id,
+                jellyfin_found=jellyfin_found,
+                jellyfin_item_id=jellyfin_item_id,
+            )
+
+            if not plex_found and not jellyfin_found:
+                missing_count += 1
+
+    return plex_keys, jellyfin_keys, missing_count
+
+
+def _build_backend_ordered_keys(
+    backend: str,
+    client: MediaClient,
+    franchise_items: list[dict],
+    match_state: dict[int, dict],
+) -> list[str]:
+    keys = []
+    cache = _build_backend_cache(backend, client)
+    for fi in franchise_items:
+        ms = match_state.get(fi["id"], {})
+        found = ms.get(f"{backend}_found", 0)
+        if not found:
+            continue
+        if fi["item_type"] in ("show", "season"):
+            keys.extend(_expand_franchise_show_item(fi, cache))
+        else:
+            k = ms.get(f"{backend}_item_id")
+            if k:
+                keys.append(k)
+    return keys
+
+
+def create_franchise_playlist(
+    name: str,
+    backend: str,
+    franchise_key: str,
+    source: str = "trakt",
+    trakt_user: str | None = None,
+    trakt_slug: str | None = None,
+    franchise_name: str = "",
+) -> int:
+    from datetime import datetime, timezone
+
+    if backend not in db.VALID_BACKENDS:
+        raise ValueError(f"Invalid backend: {backend}")
+
+    definition_id = _fetch_and_store_franchise(
+        key=franchise_key,
+        name=franchise_name,
+        source=source,
+        trakt_user=trakt_user,
+        trakt_slug=trakt_slug,
+    )
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with db.connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO managed_playlists
+               (name, backend, playlist_type, franchise_definition_id,
+                sort_mode, block_size, unwatched_only, auto_sync,
+                pruning_enabled, created_at)
+               VALUES (?, ?, 'franchise', ?, 'franchise', 1, 0, 1, 0, ?)""",
+            (name, backend, definition_id, now),
+        )
+        playlist_id = cur.lastrowid
+
+    row = db.get_playlist(playlist_id)
+    plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+        definition_id, playlist_id, row
+    )
+
+    log.info(
+        "Creating franchise playlist '%s': %d plex keys, %d jellyfin keys, %d missing",
+        name, len(plex_keys), len(jellyfin_keys), missing_count,
+    )
+
+    for tb, client, pl_id in _clients_for_playlist(row):
+        backend_keys = plex_keys if tb == "plex" else jellyfin_keys
+        if backend_keys:
+            try:
+                new_pl_id = client.create_playlist(name, backend_keys)
+                if tb == "plex":
+                    with db.connection() as conn2:
+                        conn2.execute(
+                            "UPDATE managed_playlists SET plex_rating_key=? WHERE id=?",
+                            (new_pl_id, playlist_id),
+                        )
+                else:
+                    with db.connection() as conn2:
+                        conn2.execute(
+                            "UPDATE managed_playlists SET jellyfin_playlist_id=? WHERE id=?",
+                            (new_pl_id, playlist_id),
+                        )
+            except Exception:
+                log.warning("Failed to create franchise playlist on %s", tb, exc_info=True)
+
+    try:
+        _webhooks.fire(
+            "playlist.created",
+            playlist=_webhooks._playlist_info(dict(db.get_playlist(playlist_id))),
+        )
+    except Exception:
+        pass
+
+    return playlist_id
+
+
+def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
+    row = db.get_playlist(playlist_id)
+    if not row:
+        return (0, 0)
+    if not force and not bool(row["auto_sync"]):
+        return (0, 0)
+    row_d = dict(row)
+
+    definition_id = row_d.get("franchise_definition_id")
+    if not definition_id:
+        log.warning("Franchise playlist %d has no definition_id", playlist_id)
+        return (0, 0)
+
+    plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+        definition_id, playlist_id, row
+    )
+    log.debug(
+        "Franchise sync '%s': %d plex, %d jf, %d missing",
+        row["name"], len(plex_keys), len(jellyfin_keys), missing_count,
+    )
+
+    added = removed = 0
+    for tb, client, pl_id in _clients_for_playlist(row):
+        if not pl_id:
+            continue
+        try:
+            current = client.get_playlist_items(pl_id)
+            current_keys = [it.rating_key for it in current]
+            be_items = db.list_franchise_items(definition_id)
+            be_match = db.list_franchise_match_state(playlist_id)
+            be_keys = _build_backend_ordered_keys(tb, client, be_items, be_match)
+
+            added_keys = [k for k in be_keys if k not in set(current_keys)]
+            removed_keys = [k for k in current_keys if k not in set(be_keys)]
+            if added_keys or removed_keys:
+                client.replace_playlist_items(pl_id, be_keys)
+                added += len(added_keys)
+                removed += len(removed_keys)
+        except Exception:
+            log.warning(
+                "Franchise sync failed for backend=%s playlist=%d",
+                tb, playlist_id, exc_info=True
+            )
+
+    if added or removed:
+        try:
+            _webhooks.fire(
+                "playlist.synced",
+                playlist=_webhooks._playlist_info(dict(row)),
+                data={"added": added, "removed": removed},
+            )
+        except Exception:
+            pass
+
+    return added, removed
+
+
+def franchise_items_for_maker(definition_id: int) -> list[dict]:
+    rows = db.list_franchise_items(definition_id)
+    out = []
+    for r in rows:
+        out.append({
+            "rank": r["rank"],
+            "item_type": r["item_type"],
+            "title": r["title"],
+            "year": r.get("year"),
+            "tmdb_id": r.get("tmdb_id"),
+            "imdb_id": r.get("imdb_id"),
+            "tvdb_id": r.get("tvdb_id"),
+            "season_number": r.get("season_number"),
+            "episode_number": r.get("episode_number"),
+            "show_title": r.get("show_title"),
+            "show_tvdb_id": r.get("show_tvdb_id"),
+        })
+    return out
+
+
+def save_user_franchise_playlist(
+    *,
+    playlist_id: int | None,
+    name: str,
+    backend: str,
+    items: list[dict],
+    description: str = "",
+    forked_from_key: str | None = None,
+) -> int:
+    import time as _time
+    from datetime import datetime, timezone
+
+    if not name.strip():
+        raise ValueError("Playlist name is required")
+    if backend not in db.VALID_BACKENDS:
+        raise ValueError(f"Invalid backend: {backend!r}")
+    if not items:
+        raise ValueError("At least one franchise item is required")
+
+    normalised = []
+    for i, item in enumerate(items):
+        item = dict(item)
+        item.setdefault("rank", i + 1)
+        item.setdefault("item_type", "movie")
+        item.setdefault("title", "")
+        item.setdefault("year", None)
+        item.setdefault("tmdb_id", None)
+        item.setdefault("imdb_id", None)
+        item.setdefault("tvdb_id", None)
+        item.setdefault("season_number", None)
+        item.setdefault("episode_number", None)
+        item.setdefault("show_title", None)
+        item.setdefault("show_tvdb_id", None)
+        normalised.append(item)
+
+    new_hash = get_trakt_client().content_hash(normalised)
+
+    if playlist_id is not None:
+        row = db.get_playlist(playlist_id)
+        if not row:
+            raise ValueError(f"Playlist {playlist_id} not found")
+        row_d = dict(row)
+
+        old_defn_id = row_d.get("franchise_definition_id")
+        old_defn = db.get_franchise_definition_by_id(old_defn_id) if old_defn_id else None
+
+        if old_defn and old_defn.get("source") in ("trakt", "local"):
+            old_key = old_defn["key"]
+            new_key = f"user_{playlist_id}_{int(_time.time())}"
+            defn_id = db.insert_franchise_definition(
+                key=new_key,
+                name=name,
+                source="user",
+                forked_from_key=old_key,
+                content_hash=new_hash,
+                item_count=len(normalised),
+            )
+            db.replace_franchise_items(defn_id, normalised)
+            db.rebind_playlist_franchise(playlist_id, defn_id)
+            with db.connection() as conn:
+                conn.execute(
+                    "UPDATE managed_playlists SET name = ? WHERE id = ?",
+                    (name, playlist_id),
+                )
+            log.info(
+                "Forked franchise '%s' (from '%s') for playlist %d",
+                name, old_key, playlist_id,
+            )
+
+        elif old_defn and old_defn.get("source") == "user":
+            defn_id = old_defn_id
+            db.replace_franchise_items(defn_id, normalised)
+            db.update_franchise_definition_metadata(
+                defn_id, content_hash=new_hash, item_count=len(normalised)
+            )
+            with db.connection() as conn:
+                conn.execute(
+                    "UPDATE managed_playlists SET name = ? WHERE id = ?",
+                    (name, playlist_id),
+                )
+            log.info("Updated user franchise '%s' for playlist %d", name, playlist_id)
+
+        else:
+            raise ValueError("Playlist is not a franchise playlist")
+
+        row2 = db.get_playlist(playlist_id)
+        sync_franchise_playlist(playlist_id, force=True)
+        try:
+            _webhooks.fire(
+                "playlist.synced",
+                playlist=_webhooks._playlist_info(dict(row2)),
+            )
+        except Exception:
+            pass
+        return playlist_id
+
+    else:
+        # Pre-check name uniqueness for a clean user-facing error before SQLite raises.
+        with db.connection() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM managed_playlists WHERE name = ?", (name,),
+            ).fetchone()
+        if existing:
+            raise ValueError(
+                f"A playlist named {name!r} already exists. Pick a different name."
+            )
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with db.connection() as conn:
+            cur = conn.execute(
+                """INSERT INTO managed_playlists
+                   (name, backend, playlist_type, sort_mode,
+                    block_size, unwatched_only, auto_sync, pruning_enabled, created_at)
+                   VALUES (?, ?, 'franchise', 'franchise', 1, 0, 1, 0, ?)""",
+                (name, backend, now),
+            )
+            playlist_id = cur.lastrowid
+
+        defn_key = f"user_{playlist_id}"
+        defn_id = db.insert_franchise_definition(
+            key=defn_key,
+            name=name,
+            source="user",
+            forked_from_key=forked_from_key,
+            content_hash=new_hash,
+            item_count=len(normalised),
+        )
+        db.replace_franchise_items(defn_id, normalised)
+
+        with db.connection() as conn:
+            conn.execute(
+                "UPDATE managed_playlists SET franchise_definition_id = ? WHERE id = ?",
+                (defn_id, playlist_id),
+            )
+
+        row = db.get_playlist(playlist_id)
+        plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+            defn_id, playlist_id, row
+        )
+
+        log.info(
+            "Creating user franchise playlist '%s': %d plex keys, %d jellyfin keys, %d missing",
+            name, len(plex_keys), len(jellyfin_keys), missing_count,
+        )
+
+        for tb, client, pl_id in _clients_for_playlist(row):
+            backend_keys = plex_keys if tb == "plex" else jellyfin_keys
+            if backend_keys:
+                try:
+                    new_pl_id = client.create_playlist(name, backend_keys)
+                    if tb == "plex":
+                        with db.connection() as conn2:
+                            conn2.execute(
+                                "UPDATE managed_playlists SET plex_rating_key=? WHERE id=?",
+                                (new_pl_id, playlist_id),
+                            )
+                    else:
+                        with db.connection() as conn2:
+                            conn2.execute(
+                                "UPDATE managed_playlists SET jellyfin_playlist_id=? WHERE id=?",
+                                (new_pl_id, playlist_id),
+                            )
+                except Exception:
+                    log.warning("Failed to create franchise playlist on %s", tb, exc_info=True)
+
+        try:
+            _webhooks.fire(
+                "playlist.created",
+                playlist=_webhooks._playlist_info(dict(db.get_playlist(playlist_id))),
+            )
+        except Exception:
+            pass
+
+        return playlist_id
+
+
+def restore_bundled_franchise(playlist_id: int) -> bool:
+    row = db.get_playlist(playlist_id)
+    if not row:
+        return False
+    row_d = dict(row)
+
+    defn_id = row_d.get("franchise_definition_id")
+    if not defn_id:
+        return False
+
+    defn = db.get_franchise_definition_by_id(defn_id)
+    if not defn or defn.get("source") != "user":
+        return False
+
+    fork_key = defn.get("forked_from_key")
+    if not fork_key:
+        return False
+
+    bundled = db.get_franchise_definition(fork_key)
+    if not bundled:
+        return False
+
+    db.rebind_playlist_franchise(playlist_id, bundled["id"])
+
+    ref_count = db.count_playlists_by_franchise_definition(defn_id)
+    if ref_count <= 0:
+        db.delete_franchise_definition(defn_id)
+
+    sync_franchise_playlist(playlist_id, force=True)
+    return True
+
+
+def refresh_franchise_definitions() -> None:
+    definitions = db.list_franchise_definitions()
+    for defn in definitions:
+        if defn["source"] in ("local", "user"):
+            continue
+        if defn["source"] != "trakt":
+            continue
+        try:
+            old_hash = defn.get("content_hash")
+            definition_id = _fetch_and_store_franchise(
+                key=defn["key"],
+                name=defn["name"],
+                trakt_user=defn["trakt_user"],
+                trakt_slug=defn["trakt_slug"],
+            )
+            new_defn = db.get_franchise_definition(defn["key"])
+            if new_defn and new_defn.get("content_hash") != old_hash:
+                log.info(
+                    "Franchise '%s' changed, re-syncing dependent playlists",
+                    defn["name"],
+                )
+                for pl_row in db.get_playlists_by_franchise_definition(definition_id):
+                    try:
+                        sync_franchise_playlist(pl_row["id"], force=True)
+                    except Exception:
+                        log.warning(
+                            "Re-sync failed for franchise playlist %d",
+                            pl_row["id"], exc_info=True,
+                        )
+        except Exception:
+            log.warning(
+                "refresh_franchise_definitions failed for '%s'",
+                defn.get("key"), exc_info=True,
+            )
+
+
 def sync_all() -> None:
     for row in db.list_playlists():
         try:
@@ -1428,6 +2162,10 @@ def prune_playlist(playlist_id: int, keep_last_n: int | None = None) -> int:
 def prune_all() -> None:
     for row in db.list_playlists():
         try:
+            if _row_get(row, "playlist_type", "manual") == "franchise":
+                continue
+            if not _row_get(row, "pruning_enabled", 1):
+                continue
             prune_playlist(row["id"])
         except Exception:
             log.exception("Prune failed for playlist id=%s", row["id"])
@@ -1466,6 +2204,42 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
                 item_count = c
         except Exception:
             log.debug("item count failed on %s for '%s'", tb, row["name"])
+
+    # v2.3.0 — movie + episode counts for index card stats
+    playlist_type_val = _row_get(row, "playlist_type", "manual") or "manual"
+    movies_count = 0
+    if playlist_type_val == "franchise":
+        defn_id = _row_get(row, "franchise_definition_id", None)
+        if defn_id:
+            try:
+                for fi in db.list_franchise_items(defn_id):
+                    if fi.get("item_type") == "movie":
+                        movies_count += 1
+            except Exception:
+                pass
+    else:
+        for s in shows:
+            for csv_col in ("movie_rating_keys", "jellyfin_movie_item_ids"):
+                csv = (s.get(csv_col) or "").strip()
+                if csv:
+                    movies_count = max(
+                        movies_count,
+                        sum(1 for x in csv.split(",") if x.strip()),
+                    )
+            # Per-show movie counts add up across the playlist
+        # Simpler: count total non-empty CSV entries across shows on the
+        # primary backend's column (Plex's movie_rating_keys by default;
+        # jellyfin column mirrors it).
+        movies_count = 0
+        for s in shows:
+            csv = (s.get("movie_rating_keys") or "").strip()
+            if not csv:
+                csv = (s.get("jellyfin_movie_item_ids") or "").strip()
+            if csv:
+                movies_count += sum(1 for x in csv.split(",") if x.strip())
+
+    episodes_count = max(0, item_count - movies_count)
+
     return PlaylistView(
         id=row["id"],
         name=row["name"],
@@ -1490,6 +2264,9 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         rule_mode=_row_get(row, "rule_mode", "genre") or "genre",
         last_stats=(json.loads(_row_get(row, "last_stats", None) or ""
                               ) if _row_get(row, "last_stats", None) else None),
+        pruning_enabled=int(_row_get(row, "pruning_enabled", 1) or 1),
+        movies_count=movies_count,
+        episodes_count=episodes_count,
     )
 
 

@@ -547,6 +547,55 @@ class JellyfinClient(MediaClient):
 
     # ----- movies -----------------------------------------------------------
 
+    def list_all_movies(self) -> list[MovieSummary]:
+        try:
+            self._ensure_authenticated()
+            resp = self._request("GET", "/Items", params={
+                "IncludeItemTypes": "Movie",
+                "Recursive": "true",
+                "Fields": "ProviderIds,PremiereDate,UserData",
+                "UserId": self._user_id,
+            })
+            if not resp.ok:
+                return []
+            items = resp.json().get("Items", [])
+            movies = []
+            for item in items:
+                provider_ids = item.get("ProviderIds", {})
+                tmdb_id = None
+                raw_tmdb = provider_ids.get("Tmdb") or provider_ids.get("tmdb")
+                if raw_tmdb:
+                    try:
+                        tmdb_id = int(raw_tmdb)
+                    except ValueError:
+                        pass
+                premiere = item.get("PremiereDate", "")
+                air_date = premiere[:10] if premiere else None
+                user_data = item.get("UserData", {})
+                movies.append(MovieSummary(
+                    rating_key=item["Id"],
+                    title=item.get("Name", ""),
+                    year=item.get("ProductionYear"),
+                    thumb=item["Id"] if item.get("HasPrimaryImage") else None,
+                    air_date=air_date,
+                    view_count=user_data.get("PlayCount", 0) or 0,
+                    tmdb_id=tmdb_id,
+                ))
+            return movies
+        except Exception:
+            _log.warning("list_all_movies failed (Jellyfin)", exc_info=True)
+            return []
+
+    def find_show_by_tvdb_id(self, tvdb_id: int) -> ShowSummary | None:
+        try:
+            for show in self.list_all_shows():
+                if show.tvdb_id and int(show.tvdb_id) == tvdb_id:
+                    return show
+            return None
+        except Exception:
+            _log.warning("find_show_by_tvdb_id failed for %s", tvdb_id, exc_info=True)
+            return None
+
     def find_associated_movies(self, show_title: str) -> list[MovieSummary]:
         if not show_title:
             return []

@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}New Franchise Playlist{% endblock %}
+{% block content %}
+  <a href="{{ url_for('new_type') }}" class="back">← Choose type</a>
+  <div class="page-head">
+    <h1>New Franchise Playlist</h1>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.4rem;margin-bottom:1rem;font-size:0.8rem;color:var(--text-muted)">
+    <span>Franchise watch orders sourced from community-maintained lists on</span>
+    <a href="https://trakt.tv" target="_blank" rel="noopener" style="line-height:0">
+      <img src="{{ url_for('static', filename='trakt-logo-dark.svg') }}"
+           alt="Trakt.tv" height="14" style="opacity:0.85">
+    </a>
+  </div>
+
+  <div class="franchise-grid">
+    {% for f in franchises %}
+      <div class="franchise-card"
+           data-trakt-user="{{ f.trakt_user }}"
+           data-trakt-slug="{{ f.trakt_slug }}"
+           data-franchise-key="{{ f.key }}"
+           data-franchise-name="{{ f.name }}"
+           data-franchise-source="{{ f.source | default('trakt') }}">
+        <div class="franchise-card-name">{{ f.name }}</div>
+      </div>
+    {% endfor %}
+    <a href="{{ url_for('franchise_maker') }}" class="franchise-card franchise-card-custom" style="text-decoration:none">
+      <div class="franchise-card-name">Build Your Own</div>
+    </a>
+  </div>
+
+  <div class="franchise-selected-options" id="franchiseOptions" hidden>
+
+    <div id="presetOptions" hidden>
+      <div class="sort-mode-bar sort-mode-bar-inline">
+        <span class="sort-mode-label">List source</span>
+        <div class="pill-toggle" id="listSourceToggle">
+          <button type="button" class="pill is-active" data-val="0">Default</button>
+          <button type="button" class="pill" data-val="1">Use different list</button>
+        </div>
+      </div>
+      <div id="presetCustomUrlRow" class="franchise-custom-url-row" hidden>
+        <input type="url" id="presetCustomTraktUrl"
+               placeholder="https://trakt.tv/users/username/lists/list-slug"
+               class="name-input" style="flex:1">
+        <button type="button" class="btn btn-sm" id="presetLoadBtn">Load Preview</button>
+      </div>
+    </div>
+
+  </div>
+
+  <section class="preview-section" id="franchisePreviewSection" hidden>
+    <div class="page-head" style="margin-bottom:0.5rem">
+      <h2>Preview</h2>
+    </div>
+    <div id="franchisePreviewContainer"></div>
+  </section>
+
+  <form method="post" action="{{ url_for('new_franchise') }}" class="commit-bar" id="createForm" style="position:static;pointer-events:auto">
+    <div class="commit-card">
+      <input type="hidden" name="franchise_key" id="hiddenFranchiseKey">
+      <input type="hidden" name="franchise_name" id="hiddenFranchiseName">
+      <input type="hidden" name="franchise_source" id="hiddenFranchiseSource">
+      <input type="hidden" name="trakt_user" id="hiddenTraktUser">
+      <input type="hidden" name="trakt_slug" id="hiddenTraktSlug">
+
+      <input type="text" name="name" id="franchiseNameInput"
+             placeholder="Auto-named if blank" class="name-input" style="flex:1;max-width:280px">
+
+      {% if backends|length > 1 %}
+        <div class="pill-toggle pill-toggle-3" id="franchiseBackendPicker">
+          {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
+            <label class="pill {% if loop.first %}is-active{% endif %}">
+              <input type="radio" name="backend" value="{{ val }}" {% if loop.first %}checked{% endif %}>
+              <span>{{ lbl }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <input type="hidden" name="backend" value="{{ backends[0] }}">
+      {% endif %}
+
+      <button type="button" class="btn" id="editBtn" disabled
+              title="Open this list in the Franchise Playlist Maker to customize">
+        Edit
+      </button>
+
+      <button type="submit" class="btn btn-primary" id="createBtn" disabled>
+        <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9">
+        Create Playlist
+      </button>
+    </div>
+  </form>
+
+  <script>
+    var EXISTING_NAMES = new Set({{ existing_names | tojson }});
+
+    function nextAutoName() {
+      for (var i = 1; i <= 999; i++) {
+        var n = 'Linearr ' + String(i).padStart(3, '0');
+        if (!EXISTING_NAMES.has(n)) return n;
+      }
+      return 'Linearr Playlist';
+    }
+
+    var cards        = document.querySelectorAll('.franchise-card:not(.franchise-card-custom)');
+    var createBtn    = document.getElementById('createBtn');
+    var editBtn      = document.getElementById('editBtn');
+    var previewSect  = document.getElementById('franchisePreviewSection');
+    var previewCont  = document.getElementById('franchisePreviewContainer');
+    var franchiseOpts = document.getElementById('franchiseOptions');
+    var presetOpts   = document.getElementById('presetOptions');
+    var backendPicker = document.getElementById('franchiseBackendPicker');
+    var listToggle   = document.getElementById('listSourceToggle');
+    var presetUrlRow = document.getElementById('presetCustomUrlRow');
+
+    var defaultUser = '', defaultSlug = '';
+
+    function getBackend() {
+      if (!backendPicker) return 'plex';
+      var r = backendPicker.querySelector('input[name="backend"]:checked');
+      return r ? r.value : 'plex';
+    }
+
+    function setHidden(user, slug, key, name) {
+      document.getElementById('hiddenTraktUser').value = user;
+      document.getElementById('hiddenTraktSlug').value = slug;
+      document.getElementById('hiddenFranchiseKey').value = key;
+      document.getElementById('hiddenFranchiseName').value = name;
+    }
+
+    function fetchPreview(user, slug) {
+      previewSect.hidden = false;
+      previewCont.innerHTML = '<p class="hint franchise-preview-summary">Loading preview…</p>';
+      createBtn.disabled = true;
+      if (editBtn) editBtn.disabled = true;
+      var src = document.getElementById('hiddenFranchiseSource').value || 'trakt';
+      var fkey = document.getElementById('hiddenFranchiseKey').value || '';
+      fetch('/api/franchise/preview?trakt_user=' + encodeURIComponent(user)
+          + '&trakt_slug=' + encodeURIComponent(slug)
+          + '&backend=' + encodeURIComponent(getBackend())
+          + '&source=' + encodeURIComponent(src)
+          + '&franchise_key=' + encodeURIComponent(fkey))
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          previewCont.innerHTML = html;
+          createBtn.disabled = false;
+          if (editBtn) editBtn.disabled = false;
+        })
+        .catch(function() {
+          previewCont.innerHTML = '<p class="hint" style="color:var(--warn)">Failed to load preview.</p>';
+        });
+    }
+
+    if (editBtn) {
+      editBtn.addEventListener('click', function() {
+        var key = document.getElementById('hiddenFranchiseKey').value || '';
+        var traktUser = document.getElementById('hiddenTraktUser').value || '';
+        var traktSlug = document.getElementById('hiddenTraktSlug').value || '';
+
+        // Pre-baked franchise (key matches one of our defaults): pass
+        // import_local so the Maker preloads from the correct source AND
+        // sets forked_from_key for the Restore default button.
+        var params = new URLSearchParams();
+        var isCustom = key.indexOf('custom_') === 0 || key.indexOf('_override') >= 0;
+        if (key && !isCustom) {
+          params.set('import_local', key);
+        } else if (traktUser && traktSlug) {
+          params.set('import_trakt_user', traktUser);
+          params.set('import_trakt_slug', traktSlug);
+        }
+        window.location.href = '/franchise-maker' + (params.toString() ? '?' + params.toString() : '');
+      });
+    }
+
+    function parseTraktUrl(val) {
+      var m = val.match(/trakt\.tv\/users\/([^/]+)\/lists\/([^/?#]+)/);
+      return m ? { user: m[1], slug: m[2] } : null;
+    }
+
+    // Pre-set franchise card click
+    cards.forEach(function(card) {
+      card.addEventListener('click', function() {
+        cards.forEach(function(c) { c.classList.remove('selected'); });
+        card.classList.add('selected');
+
+        defaultUser = card.dataset.traktUser;
+        defaultSlug = card.dataset.traktSlug;
+
+        // Reset list-source toggle to Default
+        listToggle.querySelectorAll('.pill').forEach(function(p) {
+          p.classList.toggle('is-active', p.dataset.val === '0');
+        });
+        presetUrlRow.hidden = true;
+        document.getElementById('presetCustomTraktUrl').value = '';
+
+        setHidden(defaultUser, defaultSlug, card.dataset.franchiseKey, card.dataset.franchiseName);
+        document.getElementById('hiddenFranchiseSource').value = card.dataset.franchiseSource || 'trakt';
+
+        franchiseOpts.hidden = false;
+        presetOpts.hidden    = false;
+
+        fetchPreview(defaultUser, defaultSlug);
+      });
+    });
+
+    // List-source toggle (Default / Use different list)
+    listToggle.addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-val]');
+      if (!btn) return;
+      var useCustom = btn.dataset.val === '1';
+      listToggle.querySelectorAll('.pill').forEach(function(p) {
+        p.classList.toggle('is-active', p.dataset.val === btn.dataset.val);
+      });
+      presetUrlRow.hidden = !useCustom;
+      if (useCustom) {
+        document.getElementById('presetCustomTraktUrl').focus();
+        previewSect.hidden = true;
+        previewCont.innerHTML = '';
+        createBtn.disabled = true;
+      } else {
+        // Revert to default list
+        document.getElementById('presetCustomTraktUrl').value = '';
+        var activeCard = document.querySelector('.franchise-card.selected:not(.franchise-card-custom)');
+        if (activeCard) {
+          setHidden(defaultUser, defaultSlug, activeCard.dataset.franchiseKey, activeCard.dataset.franchiseName);
+          fetchPreview(defaultUser, defaultSlug);
+        }
+      }
+    });
+
+    // Preset custom load button
+    document.getElementById('presetLoadBtn').addEventListener('click', function() {
+      var parsed = parseTraktUrl(document.getElementById('presetCustomTraktUrl').value.trim());
+      if (!parsed) { alert('Could not parse Trakt URL.\nExpected: https://trakt.tv/users/username/lists/list-slug'); return; }
+      var activeCard = document.querySelector('.franchise-card.selected:not(.franchise-card-custom)');
+      var key  = (activeCard ? activeCard.dataset.franchiseKey : 'custom') + '_override';
+      var name = activeCard ? activeCard.dataset.franchiseName : 'Custom';
+      setHidden(parsed.user, parsed.slug, key, name);
+      document.getElementById('hiddenFranchiseSource').value = 'trakt';
+      fetchPreview(parsed.user, parsed.slug);
+    });
+
+    // Backend picker — refresh preview when backend changes
+    if (backendPicker) {
+      backendPicker.addEventListener('change', function(e) {
+        if (e.target.name !== 'backend') return;
+        backendPicker.querySelectorAll('.pill').forEach(function(p) {
+          var r = p.querySelector('input[name="backend"]');
+          if (r) p.classList.toggle('is-active', r.checked);
+        });
+        var tu = document.getElementById('hiddenTraktUser').value;
+        var ts = document.getElementById('hiddenTraktSlug').value;
+        if (tu && ts) fetchPreview(tu, ts);
+      });
+    }
+
+    // Auto-name on submit — use franchise name if blank, fall back to Linearr 001 style
+    document.getElementById('createForm').addEventListener('submit', function() {
+      var n = document.getElementById('franchiseNameInput');
+      if (!n.value.trim()) {
+        var base = document.getElementById('hiddenFranchiseName').value.trim() || null;
+        if (base && !EXISTING_NAMES.has(base)) {
+          n.value = base;
+        } else if (base) {
+          for (var i = 2; i <= 99; i++) {
+            var candidate = base + ' ' + i;
+            if (!EXISTING_NAMES.has(candidate)) { n.value = candidate; break; }
+          }
+          if (!n.value.trim()) n.value = nextAutoName();
+        } else {
+          n.value = nextAutoName();
+        }
+      }
+    });
+  </script>
+{% endblock %}

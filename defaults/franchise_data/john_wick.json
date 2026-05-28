@@ -1,0 +1,88 @@
+{
+  "_info": {
+    "name": "John Wick",
+    "description": "John Wick Chronological Order",
+    "maintained_by": "linearrapp",
+    "last_updated": "2026-05-28"
+  },
+  "items": [
+    {
+      "item_type": "season",
+      "title": "The Continental: From the World of John Wick — Season 1",
+      "year": null,
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": 414734,
+      "season_number": 1,
+      "episode_number": null,
+      "show_title": "The Continental: From the World of John Wick",
+      "show_tvdb_id": 414734,
+      "rank": 1
+    },
+    {
+      "item_type": "movie",
+      "title": "John Wick",
+      "year": 2014,
+      "tmdb_id": 245891,
+      "imdb_id": "tt2911666",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "rank": 2
+    },
+    {
+      "item_type": "movie",
+      "title": "John Wick: Chapter 2",
+      "year": 2017,
+      "tmdb_id": 324552,
+      "imdb_id": "tt4425200",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "rank": 3
+    },
+    {
+      "item_type": "movie",
+      "title": "John Wick: Chapter 3 - Parabellum",
+      "year": 2019,
+      "tmdb_id": 458156,
+      "imdb_id": "tt6146586",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "rank": 4
+    },
+    {
+      "item_type": "movie",
+      "title": "Ballerina",
+      "year": 2025,
+      "tmdb_id": 541671,
+      "imdb_id": "tt7181546",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "rank": 5
+    },
+    {
+      "item_type": "movie",
+      "title": "John Wick: Chapter 4",
+      "year": 2023,
+      "tmdb_id": 603692,
+      "imdb_id": "tt10366206",
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "rank": 6
+    }
+  ]
+}

@@ -87,6 +87,7 @@ class MovieSummary:
     thumb: str | None
     air_date: str | None
     view_count: int
+    tmdb_id: int | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -253,6 +254,23 @@ class MediaClient(ABC):
     ) -> tuple[bytes, str]:
         """Fetch a poster/thumb by the backend-specific reference returned in
         ShowSummary.thumb etc. Returns (bytes, content_type)."""
+
+    @abstractmethod
+    def list_all_movies(self) -> list[MovieSummary]:
+        """All movies across configured movie libraries.
+
+        `MovieSummary.tmdb_id` must be populated where available — it is used
+        for franchise matching. Returns empty list on error rather than raising.
+        """
+
+    @abstractmethod
+    def find_show_by_tvdb_id(self, tvdb_id: int) -> ShowSummary | None:
+        """Find a show in the library by its TVDB numeric ID.
+
+        Returns None if not found. Must NOT raise on miss.
+        Implementations should use the existing list_all_shows() cache where
+        possible rather than making a new API call per invocation.
+        """
 
     @abstractmethod
     def refresh_show_metadata(self, rating_key: str) -> None:

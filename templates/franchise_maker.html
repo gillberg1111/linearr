@@ -1,0 +1,565 @@
+{% extends "base.html" %}
+{% block title %}Franchise Playlist Maker{% endblock %}
+{% block content %}
+<a href="{{ url_for('index') }}" class="back">← All playlists</a>
+<div class="page-head">
+  <h1>Franchise Playlist Maker</h1>
+  {% if mode == 'edit' %}
+    <span class="hint" style="margin-left:0.5rem">Editing "{{ franchise_name | e }}"</span>
+  {% endif %}
+</div>
+
+{% if not has_tmdb_key %}
+<div class="warning-banner" style="margin-bottom:1rem">
+  <span>TMDB API key required.</span>
+  <a href="{{ url_for('settings') }}" style="margin-left:0.5rem; color:var(--accent); font-weight:500">Set it up in Settings →</a>
+</div>
+{% endif %}
+
+{% if is_bundled %}
+<div class="warning-banner" style="margin-bottom:1rem">
+  <span>Editing a bundled franchise. Your changes will be saved to a custom copy. The original stays untouched, and you can revert from the playlist page.</span>
+</div>
+{% endif %}
+
+<div class="maker-layout">
+  <div class="maker-panel" id="searchPanel">
+    <h2 class="maker-panel-title">Search &amp; Browse</h2>
+    <div class="pill-toggle" id="searchTypeToggle">
+      <button type="button" class="pill is-active" data-type="movie">Movie</button>
+      <button type="button" class="pill" data-type="tv">TV Show</button>
+    </div>
+    <input type="text" class="name-input" id="searchInput" placeholder="Search by title…" style="width:100%; margin-top:0.6rem" {% if not has_tmdb_key %}disabled{% endif %}>
+    <p class="hint" id="searchHint" style="text-align:center;margin-top:0.5rem">Start typing to search TMDB</p>
+    <div class="maker-results" id="resultsList"></div>
+    <div style="margin-top:1rem; padding-top:0.8rem; border-top:1px solid var(--border)">
+      <button type="button" class="btn btn-sm" id="importTraktBtn">Import from Trakt URL…</button>
+    </div>
+  </div>
+
+  <div class="maker-panel" id="orderPanel">
+    <h2 class="maker-panel-title">Watch Order</h2>
+    <div class="maker-meta">
+      <input type="text" id="nameInput" class="name-input"
+             placeholder="Playlist name (auto-named if blank)"
+             value="{{ franchise_name | e }}"
+             style="flex:1">
+      {% if backends|length > 1 %}
+      <div class="pill-toggle pill-toggle-3" id="backendPicker">
+        {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
+          <label class="pill {% if val == default_backend %}is-active{% endif %}">
+            <input type="radio" name="backend" value="{{ val }}" {% if val == default_backend %}checked{% endif %}>
+            <span>{{ lbl }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <input type="hidden" id="backendValue" value="{{ backends[0] }}">
+      {% endif %}
+    </div>
+    <p class="hint" style="margin-bottom:0.5rem" id="itemCountLabel">0 items</p>
+    <div class="maker-item-list" id="itemList"></div>
+    <div class="maker-save-row">
+      <button type="button" class="btn btn-primary" id="saveBtn" disabled>
+        <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9">
+        {{ 'Save Changes' if mode == 'edit' else 'Save Playlist' }}
+      </button>
+      <a href="{{ url_for('index') if mode == 'new' else url_for('view_playlist', playlist_id=playlist_id) }}" class="btn">Cancel</a>
+      <span class="status-msg" id="saveStatus"></span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="traktModal">
+  <div class="modal-card">
+    <h3>Import from Trakt</h3>
+    <p class="hint" style="margin-bottom:0.8rem">Paste a Trakt list URL to replace the current items.</p>
+    <input type="text" class="name-input" id="traktUrlInput"
+           placeholder="https://trakt.tv/users/username/lists/list-slug"
+           style="width:100%">
+    <div class="modal-actions" style="margin-top:1rem; display:flex; gap:0.5rem; justify-content:flex-end">
+      <button type="button" class="btn" id="traktCancelBtn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="traktImportBtn">Import</button>
+    </div>
+    <span class="hint" id="traktStatus" style="display:none; margin-top:0.5rem"></span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+var makerState = {
+  mode: {{ mode | tojson }},
+  playlistId: {{ playlist_id | tojson }},
+  isBundled: {{ is_bundled | tojson }},
+  bundledOriginName: {{ bundled_origin_name | tojson }},
+  forkedFromKey: {{ forked_from_key | tojson }},
+  items: {{ items | tojson }},
+  existingNames: new Set({{ existing_names | tojson }}),
+  defaultBackend: {{ default_backend | tojson }},
+};
+
+var searchType = 'movie';
+var timerId = null;
+var sortableInstance = null;
+
+function nextAutoName() {
+  for (var i = 1; i <= 999; i++) {
+    var n = 'Linearr ' + String(i).padStart(3, '0');
+    if (!makerState.existingNames.has(n)) return n;
+  }
+  return 'Linearr Playlist';
+}
+
+function uniqueVariation(base) {
+  if (!base) return base;
+  if (!makerState.existingNames.has(base)) return base;
+  for (var i = 2; i <= 999; i++) {
+    var candidate = base + ' ' + i;
+    if (!makerState.existingNames.has(candidate)) return candidate;
+  }
+  return base + ' ' + Date.now();
+}
+
+// On a pre-create import (mode='new' with items preloaded), if the input
+// name collides with an existing playlist, auto-disambiguate it. Edit mode
+// doesn't get this — the user is updating, not creating.
+(function disambiguateImportName() {
+  if (makerState.mode !== 'new') return;
+  var input = document.getElementById('nameInput');
+  if (!input) return;
+  var initial = input.value.trim();
+  if (!initial) return;
+  var fixed = uniqueVariation(initial);
+  if (fixed !== initial) input.value = fixed;
+})();
+
+function getBackend() {
+  var picker = document.getElementById('backendPicker');
+  if (!picker) {
+    var hidden = document.getElementById('backendValue');
+    return hidden ? hidden.value : 'plex';
+  }
+  var r = picker.querySelector('input[name="backend"]:checked');
+  return r ? r.value : 'plex';
+}
+
+function escapeHtml(str) {
+  var div = document.createElement('div');
+  div.appendChild(document.createTextNode(String(str)));
+  return div.innerHTML;
+}
+
+function showStatus(msg, cls) {
+  var el = document.getElementById('saveStatus');
+  el.textContent = msg;
+  el.className = 'status-msg ' + (cls || '');
+}
+
+function isAdded(type, tvdbId, seasonNum, episodeNum) {
+  for (var i = 0; i < makerState.items.length; i++) {
+    var item = makerState.items[i];
+    if (type === 'movie' && item.item_type === 'movie' && item.tmdb_id === tvdbId) return true;
+    if (type === 'season' && item.item_type === 'season' && item.show_tvdb_id === tvdbId && item.season_number === seasonNum) return true;
+    if (type === 'episode' && item.item_type === 'episode' && item.show_tvdb_id === tvdbId && item.season_number === seasonNum && item.episode_number === episodeNum) return true;
+  }
+  return false;
+}
+
+function updateSaveBtn() {
+  document.getElementById('saveBtn').disabled = makerState.items.length === 0;
+}
+
+function renderItems() {
+  var list = document.getElementById('itemList');
+  document.getElementById('itemCountLabel').textContent = makerState.items.length + ' item' + (makerState.items.length !== 1 ? 's' : '');
+  updateSaveBtn();
+  list.innerHTML = '';
+  makerState.items.forEach(function(item, idx) {
+    var row = document.createElement('div');
+    row.className = 'maker-item-row';
+    row.dataset.index = idx;
+
+    var summary = '', tagClass = '', tagText = '';
+    if (item.item_type === 'movie') {
+      summary = item.title + (item.year ? ' (' + item.year + ')' : '');
+      tagClass = 'movie-tag'; tagText = 'Movie';
+    } else if (item.item_type === 'season') {
+      summary = (item.show_title || '?') + ' — Season ' + item.season_number;
+      tagClass = 'season-tag'; tagText = 'Season';
+    } else if (item.item_type === 'episode') {
+      var code = 'S' + String(item.season_number).padStart(2,'0') + 'E' + String(item.episode_number).padStart(2,'0');
+      summary = (item.show_title || '?') + ' ' + code + ' — ' + item.title;
+      tagClass = 'episode-tag'; tagText = 'Ep';
+    }
+
+    row.innerHTML = '<span class="maker-drag-handle">⠿⠿</span>'
+      + '<span class="maker-item-rank">' + (idx + 1) + '.</span>'
+      + '<span class="maker-item-type-tag ' + tagClass + '">' + tagText + '</span>'
+      + '<span class="maker-item-summary">' + escapeHtml(summary) + '</span>'
+      + '<button class="maker-remove-btn" onclick="removeItem(' + idx + ')" title="Remove">'
+      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>'
+      + '</button>';
+
+    list.appendChild(row);
+  });
+
+  if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null; }
+  if (makerState.items.length > 1) {
+    sortableInstance = new Sortable(list, {
+      handle: '.maker-drag-handle',
+      animation: 150,
+      onEnd: function() {
+        var newItems = [];
+        list.querySelectorAll('.maker-item-row').forEach(function(row) {
+          newItems.push(makerState.items[parseInt(row.dataset.index)]);
+        });
+        makerState.items = newItems;
+        renderItems();
+      }
+    });
+  }
+}
+
+function removeItem(idx) {
+  makerState.items.splice(idx, 1);
+  renderItems();
+}
+
+function addMovie(tmdbId) {
+  fetch('/api/franchise-maker/movie/' + tmdbId)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { showStatus(data.error, 'err'); return; }
+      makerState.items.push({
+        item_type: 'movie', title: data.title,
+        year: data.year ? parseInt(data.year) : null,
+        tmdb_id: data.tmdb_id, imdb_id: data.imdb_id || null, tvdb_id: null,
+        season_number: null, episode_number: null, show_title: null, show_tvdb_id: null
+      });
+      renderItems();
+      doSearch();
+    });
+}
+
+function addSeason(tmdbId, seasonNum, showTitle, showTvdbId) {
+  makerState.items.push({
+    item_type: 'season', title: showTitle + ' — Season ' + seasonNum, year: null,
+    tmdb_id: null, imdb_id: null, tvdb_id: showTvdbId, season_number: seasonNum,
+    episode_number: null, show_title: showTitle, show_tvdb_id: showTvdbId
+  });
+  renderItems();
+  doSearch();
+}
+
+function addEpisode(tmdbId, seasonNum, episodeNum, epTitle, showTitle, showTvdbId) {
+  makerState.items.push({
+    item_type: 'episode', title: epTitle || 'Episode ' + episodeNum, year: null,
+    tmdb_id: null, imdb_id: null, tvdb_id: null, season_number: seasonNum,
+    episode_number: episodeNum, show_title: showTitle, show_tvdb_id: showTvdbId
+  });
+  renderItems();
+  doSearch();
+}
+
+function saveFranchise() {
+  var name = document.getElementById('nameInput').value.trim();
+  if (!name) {
+    if (makerState.mode === 'edit') {
+      name = '{{ franchise_name | e }}';
+    } else {
+      name = nextAutoName();
+      document.getElementById('nameInput').value = name;
+    }
+  }
+  if (!name) { showStatus('Enter a name.', 'err'); return; }
+  if (!makerState.items.length) { showStatus('Add at least one item.', 'err'); return; }
+
+  showStatus('Saving…', '');
+  var payload = {
+    playlist_id: makerState.playlistId,
+    name: name,
+    description: '',
+    backend: getBackend(),
+    items: makerState.items,
+    forked_from_key: makerState.forkedFromKey || null,
+  };
+  fetch('/api/franchise-maker/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        window.location.href = data.redirect_url;
+      } else {
+        showStatus(data.error || 'Save failed.', 'err');
+      }
+    })
+    .catch(function() { showStatus('Save failed.', 'err'); });
+}
+
+// Search type toggle
+document.getElementById('searchTypeToggle').addEventListener('click', function(e) {
+  var btn = e.target.closest('button[data-type]');
+  if (!btn) return;
+  this.querySelectorAll('.pill').forEach(function(p) { p.classList.remove('is-active'); });
+  btn.classList.add('is-active');
+  searchType = btn.dataset.type;
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchInput').focus();
+  doSearch();
+});
+
+// Search input
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(timerId);
+  timerId = setTimeout(doSearch, 300);
+});
+
+function doSearch() {
+  var q = document.getElementById('searchInput').value.trim();
+  var list = document.getElementById('resultsList');
+  if (!q) { list.innerHTML = ''; document.getElementById('searchHint').hidden = false; return; }
+  document.getElementById('searchHint').hidden = true;
+  list.innerHTML = '<p class="hint" style="text-align:center">Loading…</p>';
+
+  fetch('/api/franchise-maker/search?q=' + encodeURIComponent(q) + '&type=' + searchType)
+    .then(function(r) { return r.json(); })
+    .then(function(results) {
+      if (results.error) {
+        list.innerHTML = '<p class="hint" style="color:var(--accent-warn)">' + escapeHtml(results.error) + '</p>';
+        return;
+      }
+      list.innerHTML = '';
+      if (!results.length) {
+        list.innerHTML = '<p class="hint" style="text-align:center">No results</p>';
+        return;
+      }
+      results.forEach(function(item) {
+        var row = document.createElement('div');
+        row.className = 'maker-result-row';
+        row.id = 'result-' + item.type + '-' + item.tmdb_id;
+
+        var poster = item.poster
+          ? '<img class="maker-result-poster" src="' + escapeHtml(item.poster) + '" loading="lazy">'
+          : '<div class="maker-result-poster" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.6rem">N/A</div>';
+
+        var year = item.year || '\u2014';
+
+        if (item.type === 'movie') {
+          row.innerHTML = poster
+            + '<div class="maker-result-info"><div class="maker-result-title">' + escapeHtml(item.title) + '</div><div class="maker-result-year">' + escapeHtml(String(year)) + '</div></div>'
+            + '<div class="maker-result-actions">'
+            + (isAdded('movie', item.tmdb_id, null, null) ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="addMovie(' + item.tmdb_id + ')">+ Add</button>')
+            + '</div>';
+        } else {
+          row.innerHTML = poster
+            + '<div class="maker-result-info"><div class="maker-result-title">' + escapeHtml(item.title) + '</div><div class="maker-result-year">' + escapeHtml(String(year)) + '</div></div>'
+            + '<div class="maker-result-actions" style="gap:0.35rem">'
+            + '<button class="btn btn-sm series-toggle" onclick="loadTV(' + item.tmdb_id + ', this)" title="Show seasons">▶</button>'
+            + '<button class="btn btn-sm" onclick="addSeries(' + item.tmdb_id + ', this)">+ Add Series</button>'
+            + '</div>';
+        }
+        list.appendChild(row);
+      });
+    })
+    .catch(function() {
+      list.innerHTML = '<p class="hint" style="color:var(--accent-warn)">Search failed.</p>';
+    });
+}
+
+function loadTV(tmdbId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  var row = btn.closest('.maker-result-row');
+  var existingAcc = row.nextElementSibling;
+  if (existingAcc && existingAcc.classList.contains('maker-tv-accordion')) {
+    existingAcc.remove(); btn.disabled = false; btn.textContent = '▶'; return;
+  }
+
+  fetch('/api/franchise-maker/tv/' + tmdbId)
+    .then(function(r) { return r.json(); })
+    .then(function(show) {
+      btn.disabled = false;
+      btn.textContent = '▼';
+
+      var acc = document.createElement('div');
+      acc.className = 'maker-tv-accordion';
+
+      show.seasons.forEach(function(s) {
+        var seasonDiv = document.createElement('div');
+        var isSeasonAdded = isAdded('season', show.tvdb_id, s.season_number, null);
+
+        seasonDiv.innerHTML = '<div class="season-row">'
+          + '<span class="season-arrow">▶</span>'
+          + '<span style="flex:1">Season ' + s.season_number + (s.name ? ' — ' + escapeHtml(s.name) : '') + '</span>'
+          + '<span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">' + s.episode_count + ' eps</span>'
+          + (isSeasonAdded ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addSeason(' + tmdbId + ',' + s.season_number + ',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ')">+ Add Season</button>')
+          + '</div>';
+
+        var epList = document.createElement('div');
+        epList.className = 'maker-episode-list';
+
+        seasonDiv.querySelector('.season-row').addEventListener('click', function() {
+          var arrow = this.querySelector('.season-arrow');
+          if (epList.classList.contains('open')) {
+            epList.classList.remove('open');
+            if (arrow) arrow.textContent = '▶';
+            return;
+          }
+          if (arrow) arrow.textContent = '▼';
+          if (epList.dataset.loaded) { epList.classList.add('open'); return; }
+          fetch('/api/franchise-maker/tv/' + tmdbId + '/season/' + s.season_number)
+            .then(function(r) { return r.json(); })
+            .then(function(seasonData) {
+              epList.innerHTML = '';
+              seasonData.episodes.forEach(function(ep) {
+                var epRow = document.createElement('div');
+                epRow.className = 'maker-episode-row';
+                var epAdded = isAdded('episode', show.tvdb_id, ep.season_number, ep.episode_number);
+                epRow.innerHTML = '<span class="maker-episode-code">S' + String(ep.season_number).padStart(2,'0') + 'E' + String(ep.episode_number).padStart(2,'0') + '</span>'
+                  + '<span class="maker-episode-name">' + escapeHtml(ep.title || 'Episode ' + ep.episode_number) + '</span>'
+                  + '<span class="maker-episode-date">' + (ep.air_date ? (ep.air_date || '').substring(0,10) : '') + '</span>'
+                  + (epAdded ? '<span class="maker-added-badge">✓</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addEpisode(' + tmdbId + ',' + ep.season_number + ',' + ep.episode_number + ',\'' + escapeHtml(ep.title).replace(/'/g,"\\'") + '\',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ')">+</button>');
+                epList.appendChild(epRow);
+              });
+              epList.dataset.loaded = '1';
+              epList.classList.add('open');
+            });
+        });
+
+        seasonDiv.appendChild(epList);
+        acc.appendChild(seasonDiv);
+      });
+
+      row.insertAdjacentElement('afterend', acc);
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = '▶';
+    });
+}
+
+function addSeries(tmdbId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  fetch('/api/franchise-maker/tv/' + tmdbId)
+    .then(function(r) { return r.json(); })
+    .then(function(show) {
+      if (!show || !show.seasons || !show.seasons.length) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Add Series'; }
+        return;
+      }
+      var added = 0;
+      show.seasons.forEach(function(s) {
+        if (isAdded('season', show.tvdb_id, s.season_number, null)) return;
+        makerState.items.push({
+          item_type: 'season',
+          title: show.title + ' — Season ' + s.season_number,
+          year: null,
+          tmdb_id: null,
+          imdb_id: null,
+          tvdb_id: show.tvdb_id,
+          season_number: s.season_number,
+          episode_number: null,
+          show_title: show.title,
+          show_tvdb_id: show.tvdb_id,
+        });
+        added++;
+      });
+      renderItems();
+      doSearch();
+      if (btn) { btn.disabled = false; btn.textContent = added ? '✓ Added' : '+ Add Series'; }
+    })
+    .catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = '+ Add Series'; }
+    });
+}
+
+// Trakt import modal
+var traktModal = document.getElementById('traktModal');
+document.getElementById('importTraktBtn').addEventListener('click', function() {
+  traktModal.classList.add('show');
+  document.getElementById('traktUrlInput').focus();
+});
+document.getElementById('traktCancelBtn').addEventListener('click', function() {
+  traktModal.classList.remove('show');
+  document.getElementById('traktUrlInput').value = '';
+  document.getElementById('traktStatus').style.display = 'none';
+});
+document.getElementById('traktImportBtn').addEventListener('click', function() {
+  var url = document.getElementById('traktUrlInput').value.trim();
+  if (!url) return;
+  if (makerState.items.length && !confirm('This will replace the current ' + makerState.items.length + ' items. Continue?')) return;
+
+  var statusEl = document.getElementById('traktStatus');
+  statusEl.textContent = 'Importing…';
+  statusEl.style.display = '';
+  document.getElementById('traktImportBtn').disabled = true;
+
+  fetch('/api/franchise-maker/import-trakt', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: url})
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        statusEl.textContent = data.error;
+        statusEl.style.color = 'var(--accent-warn)';
+        document.getElementById('traktImportBtn').disabled = false;
+        return;
+      }
+      makerState.items = data.items.map(function(item) {
+        item = Object.assign({}, item);
+        item.tmdb_id = item.tmdb_id || null;
+        item.tvdb_id = item.tvdb_id || null;
+        item.imdb_id = item.imdb_id || null;
+        item.year = item.year || null;
+        item.season_number = item.season_number || null;
+        item.episode_number = item.episode_number || null;
+        item.show_title = item.show_title || null;
+        item.show_tvdb_id = item.show_tvdb_id || null;
+        return item;
+      });
+      renderItems();
+      traktModal.classList.remove('show');
+      document.getElementById('traktUrlInput').value = '';
+      statusEl.style.display = 'none';
+      document.getElementById('traktImportBtn').disabled = false;
+    })
+    .catch(function() {
+      statusEl.textContent = 'Import failed.';
+      statusEl.style.color = 'var(--accent-warn)';
+      document.getElementById('traktImportBtn').disabled = false;
+    });
+});
+
+// Backend picker
+var backendPicker = document.getElementById('backendPicker');
+if (backendPicker) {
+  backendPicker.addEventListener('change', function(e) {
+    if (e.target.name !== 'backend') return;
+    backendPicker.querySelectorAll('.pill').forEach(function(p) {
+      var r = p.querySelector('input[name="backend"]');
+      if (r) p.classList.toggle('is-active', r.checked);
+    });
+  });
+}
+
+// Save button
+document.getElementById('saveBtn').addEventListener('click', saveFranchise);
+
+// Click backdrop to close modal
+traktModal.addEventListener('click', function(e) {
+  if (e.target === traktModal) {
+    traktModal.classList.remove('show');
+    document.getElementById('traktUrlInput').value = '';
+    document.getElementById('traktStatus').style.display = 'none';
+  }
+});
+
+// Initial render
+renderItems();
+</script>
+{% endblock %}

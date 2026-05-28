@@ -30,6 +30,35 @@
 
   <section class="card" style="max-width:600px; margin-top:1.5rem">
     <div class="section-head">
+      <h2>TMDB API Key</h2>
+      <span class="hint">
+        Required to use the Franchise Playlist Maker. Get a free key at
+        <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
+          themoviedb.org
+        </a>. Both v3 API Key and v4 Read Access Token are supported.
+      </span>
+    </div>
+    <form method="post" style="margin-top:0.8rem">
+      <input type="password" name="tmdb_key"
+             value="{{ tmdb_key }}"
+             placeholder="Paste your TMDB API key or Read Access Token"
+             class="name-input"
+             autocomplete="off"
+             style="width:100%; font-family:monospace; font-size:0.85rem">
+      <div style="margin-top:0.6rem; display:flex; gap:0.5rem">
+        <button type="submit" name="action" value="tmdb_key_save"
+                class="btn btn-primary btn-sm">Save</button>
+        {% if tmdb_key %}
+        <button type="submit" name="action" value="tmdb_key_save"
+                onclick="document.querySelector('[name=tmdb_key]').value='';"
+                class="btn btn-sm btn-ghost-danger">Clear</button>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+
+  <section class="card" style="max-width:600px; margin-top:1.5rem">
+    <div class="section-head">
       <h2>Outbound Webhooks</h2>
       <span class="hint">
         Linearr will POST a JSON payload to these URLs when a playlist is

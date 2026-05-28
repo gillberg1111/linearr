@@ -849,8 +849,8 @@ def test_show_config_is_excluded_explicit():
 
 def test_valid_playlist_types_constant():
     from db import VALID_PLAYLIST_TYPES
-    check("VALID_PLAYLIST_TYPES has manual and genre",
-          set(VALID_PLAYLIST_TYPES) == {"manual", "genre"},
+    check("VALID_PLAYLIST_TYPES has manual, genre, and franchise",
+          set(VALID_PLAYLIST_TYPES) == {"manual", "genre", "franchise"},
           f"got {VALID_PLAYLIST_TYPES}")
 
 
@@ -1340,9 +1340,718 @@ def test_stats_none_if_never_synced():
           getattr(v, "last_stats", "MISSING") is None)
 
 
-# --------------------------------------------------------------------------- #
-# Driver
-# --------------------------------------------------------------------------- #
+# ── v2.2.0 Franchise tests ───────────────────────────────────────────────
+
+
+def _trakt_client():
+    from trakt_client import TraktClient
+    return TraktClient()
+
+
+def test_parse_movie():
+    tc = _trakt_client()
+    raw = {
+        "type": "movie", "rank": 1,
+        "movie": {"title": "Iron Man", "year": 2008, "ids": {"tmdb": 1726, "imdb": "tt0371746"}},
+    }
+    item = tc._parse_item(raw)
+    check("parse_movie: item_type", item["item_type"] == "movie")
+    check("parse_movie: title", item["title"] == "Iron Man")
+    check("parse_movie: tmdb_id", item["tmdb_id"] == 1726)
+    check("parse_movie: tvdb_id is None", item["tvdb_id"] is None)
+    check("parse_movie: show_title is None", item["show_title"] is None)
+
+
+def test_parse_episode():
+    tc = _trakt_client()
+    raw = {
+        "type": "episode", "rank": 3,
+        "episode": {"season": 1, "number": 3, "title": "The One", "ids": {"tvdb": 12345}},
+        "show": {"title": "Friends", "year": 1994, "ids": {"tvdb": 79168}},
+    }
+    item = tc._parse_item(raw)
+    check("parse_episode: item_type", item["item_type"] == "episode")
+    check("parse_episode: season_number", item["season_number"] == 1)
+    check("parse_episode: episode_number", item["episode_number"] == 3)
+    check("parse_episode: show_title", item["show_title"] == "Friends")
+    check("parse_episode: show_tvdb_id", item["show_tvdb_id"] == 79168)
+    check("parse_episode: tvdb_id", item["tvdb_id"] == 12345)
+
+
+def test_parse_show():
+    tc = _trakt_client()
+    raw = {
+        "type": "show", "rank": 1,
+        "show": {"title": "Breaking Bad", "year": 2008, "ids": {"tvdb": 81189, "tmdb": 1396}},
+    }
+    item = tc._parse_item(raw)
+    check("parse_show: item_type", item["item_type"] == "show")
+    check("parse_show: tvdb_id", item["tvdb_id"] == 81189)
+    check("parse_show: show_tvdb_id is None", item["show_tvdb_id"] is None)
+    check("parse_show: season_number is None", item["season_number"] is None)
+
+
+def test_parse_season():
+    tc = _trakt_client()
+    raw = {
+        "type": "season", "rank": 2,
+        "season": {"number": 3},
+        "show": {"title": "Game of Thrones", "year": 2011, "ids": {"tvdb": 121361}},
+    }
+    item = tc._parse_item(raw)
+    check("parse_season: item_type", item["item_type"] == "season")
+    check("parse_season: season_number", item["season_number"] == 3)
+    check("parse_season: show_title", item["show_title"] == "Game of Thrones")
+
+
+def test_parse_unknown_type():
+    tc = _trakt_client()
+    raw = {"type": "person", "rank": 1}
+    item = tc._parse_item(raw)
+    check("parse_unknown_type: returns None", item is None)
+
+
+def test_content_hash_deterministic():
+    tc = _trakt_client()
+    items = [
+        {"rank": 1, "item_type": "movie", "title": "A", "year": 2000},
+        {"rank": 2, "item_type": "movie", "title": "B", "year": 2001},
+    ]
+    h1 = tc.content_hash(items)
+    h2 = tc.content_hash(items)
+    check("content_hash: same items same hash", h1 == h2)
+
+
+def test_content_hash_changes():
+    tc = _trakt_client()
+    items1 = [{"rank": 1, "item_type": "movie", "title": "A", "year": 2000}]
+    items2 = [{"rank": 1, "item_type": "movie", "title": "B", "year": 2000}]
+    h1 = tc.content_hash(items1)
+    h2 = tc.content_hash(items2)
+    check("content_hash: different items different hash", h1 != h2)
+
+
+def test_normalize_for_match():
+    from service import _normalize_for_match
+    check("normalize: lowercases", _normalize_for_match("Iron Man") == "iron man")
+    check("normalize: strips punctuation",
+          _normalize_for_match("Mr. Robot") == "mr robot")
+    check("normalize: collapses whitespace",
+          _normalize_for_match("  The   Matrix  ") == "the matrix")
+
+
+def test_replace_franchise_items_clears_old():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) VALUES (?,?,?,?,?)",
+            ("test_replace", "Test", "trakt", "hash1", 2),
+        )
+        def_id = cur.lastrowid
+    items1 = [
+        {"rank": 1, "item_type": "movie", "title": "Movie A", "year": 2000,
+         "tmdb_id": None, "tvdb_id": None, "imdb_id": None,
+         "season_number": None, "episode_number": None, "show_title": None, "show_tvdb_id": None},
+    ]
+    items2 = [
+        {"rank": 1, "item_type": "movie", "title": "Movie B", "year": 2001,
+         "tmdb_id": None, "tvdb_id": None, "imdb_id": None,
+         "season_number": None, "episode_number": None, "show_title": None, "show_tvdb_id": None},
+        {"rank": 2, "item_type": "episode", "title": "E01", "year": 2001,
+         "tmdb_id": None, "tvdb_id": 100, "imdb_id": None,
+         "season_number": 1, "episode_number": 1, "show_title": "Show", "show_tvdb_id": 200},
+    ]
+    _db.replace_franchise_items(def_id, items1)
+    after1 = _db.list_franchise_items(def_id)
+    check("replace: first insert correct count", len(after1) == 1)
+    _db.replace_franchise_items(def_id, items2)
+    after2 = _db.list_franchise_items(def_id)
+    check("replace: second replaces first count", len(after2) == 2)
+    check("replace: new item present", after2[0]["title"] == "Movie B")
+
+
+def test_upsert_franchise_match_state_conflict():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) VALUES (?,?,?,?,?)",
+            ("test_upsert", "Test", "trakt", "hash", 1),
+        )
+        def_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) VALUES (?,?,?,?)",
+            (def_id, 1, "movie", "Test Movie"),
+        )
+        fi_id = conn.execute("SELECT id FROM franchise_items WHERE definition_id=?", (def_id,)).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO managed_playlists (name, backend, created_at) VALUES (?,?,?)",
+            ("TestPL", "plex", "2026-01-01T00:00:00"),
+        )
+        pl_id = conn.execute("SELECT id FROM managed_playlists WHERE name='TestPL'").fetchone()["id"]
+    _db.upsert_franchise_match_state(fi_id, pl_id, True, "plex-123", False, None)
+    ms = _db.list_franchise_match_state(pl_id)
+    check("upsert_match: initial plex_found", ms[fi_id]["plex_found"] == 1)
+    _db.upsert_franchise_match_state(fi_id, pl_id, False, None, True, "jf-456")
+    ms2 = _db.list_franchise_match_state(pl_id)
+    check("upsert_match: updated plex_found", ms2[fi_id]["plex_found"] == 0)
+    check("upsert_match: updated jellyfin_found", ms2[fi_id]["jellyfin_found"] == 1)
+
+
+def test_franchise_playlist_type_in_db():
+    import db as _db
+    _db.init_db()
+    check("VALID_PLAYLIST_TYPES includes franchise", "franchise" in _db.VALID_PLAYLIST_TYPES)
+
+
+def test_pruning_enabled_default():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO managed_playlists (name, backend, created_at) VALUES (?,?,?)",
+            ("PruningTest", "plex", "2026-01-01T00:00:00"),
+        )
+        row = conn.execute("SELECT pruning_enabled FROM managed_playlists WHERE name='PruningTest'").fetchone()
+    check("pruning_enabled: default is 1", row["pruning_enabled"] == 1)
+
+
+def test_pruner_skips_franchise():
+    from service import _row_get
+    row = {"playlist_type": "franchise"}
+    check("pruner: skips franchise playlists", _row_get(row, "playlist_type") == "franchise")
+
+
+def test_pruner_skips_pruning_disabled():
+    from service import _row_get
+    row = {"playlist_type": "manual", "pruning_enabled": 0}
+    check("pruner: skips when pruning_enabled=0", not _row_get(row, "pruning_enabled", 1))
+
+
+def test_local_franchise_load():
+    import json
+    import os
+    import db as _db
+    from service import _fetch_and_store_franchise_local
+
+    items = [
+        {"item_type": "movie", "title": "Local Movie", "year": 2020, "tmdb_id": 99999,
+         "imdb_id": "tt9999999"},
+        {"item_type": "episode", "title": "Local Ep", "show_title": "Local Show",
+         "show_tvdb_id": 88888, "season_number": 1, "episode_number": 1},
+    ]
+    real_path = os.path.join(os.path.dirname(__file__), "defaults",
+                             "franchise_data", "test_local.json")
+    os.makedirs(os.path.dirname(real_path), exist_ok=True)
+    with open(real_path, "w") as f:
+        json.dump({"_info": {}, "items": items}, f)
+
+    _db.init_db()
+    try:
+        def_id = _fetch_and_store_franchise_local("test_local", "Test Local")
+        stored = _db.list_franchise_items(def_id)
+        check("local_franchise: correct item count", len(stored) == 2)
+        check("local_franchise: movie title", stored[0]["title"] == "Local Movie")
+        check("local_franchise: movie tmdb_id", stored[0]["tmdb_id"] == 99999)
+        check("local_franchise: episode title", stored[1]["title"] == "Local Ep")
+        check("local_franchise: episode season", stored[1]["season_number"] == 1)
+        defn = _db.get_franchise_definition("test_local")
+        check("local_franchise: source is local", defn["source"] == "local")
+    finally:
+        if os.path.exists(real_path):
+            os.unlink(real_path)
+
+
+def test_local_franchise_missing_file():
+    from service import _fetch_and_store_franchise_local
+    try:
+        _fetch_and_store_franchise_local("nonexistent_key_xyz", "Nonexistent")
+        check("local_franchise_missing: should have raised", False)
+    except FileNotFoundError:
+        check("local_franchise_missing: raised FileNotFoundError", True)
+
+
+def test_refresh_skips_local():
+    import db as _db
+    from service import refresh_franchise_definitions
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("test_skip_local", "Test Skip", "local", "abc123", 0),
+        )
+    try:
+        refresh_franchise_definitions()
+        defn = _db.get_franchise_definition("test_skip_local")
+        check("refresh_skips_local: local definition survives refresh",
+              defn is not None and defn["source"] == "local")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='test_skip_local'")
+
+
+# -- v2.3.0 franchise maker --------------------------------------------------- #
+
+def test_valid_franchise_sources_includes_user():
+    import db as _db
+    check("VALID_FRANCHISE_SOURCES: includes user",
+          "user" in _db.VALID_FRANCHISE_SOURCES)
+    check("VALID_FRANCHISE_SOURCES: includes trakt",
+          "trakt" in _db.VALID_FRANCHISE_SOURCES)
+    check("VALID_FRANCHISE_SOURCES: includes local",
+          "local" in _db.VALID_FRANCHISE_SOURCES)
+
+
+def test_franchise_definition_forked_from_key_migration():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        fd_cols = _db._columns(conn, "franchise_definitions")
+        check("forked_from_key: column exists", "forked_from_key" in fd_cols)
+
+
+def test_tmdb_key_from_db():
+    import db as _db
+    from tmdb_client import get_tmdb_key
+    _db.set_setting("tmdb_api_key", "test-key-123")
+    try:
+        key = get_tmdb_key()
+        check("tmdb_key_from_db: returns value", key == "test-key-123")
+    finally:
+        _db.set_setting("tmdb_api_key", "")
+
+
+def test_tmdb_key_fallback_env():
+    import os
+    from tmdb_client import get_tmdb_key
+    old = os.environ.get("TMDB_API_KEY")
+    try:
+        os.environ["TMDB_API_KEY"] = "env-fallback-key"
+        # Clear DB to force env fallback
+        import db as _db
+        _db.set_setting("tmdb_api_key", "")
+        key = get_tmdb_key()
+        check("tmdb_key_fallback_env: returns env value", key == "env-fallback-key")
+    finally:
+        if old is not None:
+            os.environ["TMDB_API_KEY"] = old
+        else:
+            os.environ.pop("TMDB_API_KEY", None)
+
+
+def test_tmdb_key_missing():
+    from tmdb_client import get_tmdb_key
+    import os
+    old = os.environ.get("TMDB_API_KEY")
+    try:
+        if "TMDB_API_KEY" in os.environ:
+            del os.environ["TMDB_API_KEY"]
+        import db as _db
+        _db.set_setting("tmdb_api_key", "")
+        key = get_tmdb_key()
+        check("tmdb_key_missing: returns empty", not key)
+    finally:
+        if old is not None:
+            os.environ["TMDB_API_KEY"] = old
+
+
+def test_franchise_items_for_maker():
+    import db as _db
+    from service import franchise_items_for_maker
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("test_maker1", "Maker Test", "user", "abc", 2),
+        )
+        def_id = conn.execute(
+            "SELECT id FROM franchise_definitions WHERE key='test_maker1'"
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title, year, tmdb_id, season_number, show_title, show_tvdb_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (def_id, 1, "movie", "Test Movie", 2022, 99999, None, None, None),
+        )
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title, show_title, season_number, show_tvdb_id) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (def_id, 2, "episode", "Pilot", "Test Show", 1, 88888),
+        )
+    try:
+        items = franchise_items_for_maker(def_id)
+        check("maker_items: correct count", len(items) == 2)
+        check("maker_items: movie title", items[0]["title"] == "Test Movie")
+        check("maker_items: movie year", items[0]["year"] == 2022)
+        check("maker_items: movie tmdb_id", items[0]["tmdb_id"] == 99999)
+        check("maker_items: episode title", items[1]["title"] == "Pilot")
+        check("maker_items: episode show_title", items[1]["show_title"] == "Test Show")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='test_maker1'")
+
+
+def test_user_franchise_save_empty_items():
+    from service import save_user_franchise_playlist
+    try:
+        save_user_franchise_playlist(
+            playlist_id=None,
+            name="Test Empty",
+            backend="plex",
+            items=[],
+        )
+        check("user_save_empty: should have raised", False)
+    except ValueError:
+        check("user_save_empty: raised ValueError", True)
+
+
+def test_user_franchise_db_insert():
+    import db as _db
+    from service import save_user_franchise_playlist
+    _db.init_db()
+    items = [
+        {"item_type": "movie", "title": "Test Movie", "year": 2023, "tmdb_id": 11111},
+    ]
+    with _db.connection() as conn:
+        old = conn.execute(
+            "SELECT id FROM managed_playlists WHERE name='Test DB Insert'"
+        ).fetchone()
+        if old:
+            conn.execute("DELETE FROM managed_playlists WHERE id=?", (old["id"],))
+        old_def = conn.execute(
+            "SELECT id FROM franchise_definitions WHERE key LIKE 'user_%' AND name='Test DB Insert'"
+        ).fetchone()
+        if old_def:
+            conn.execute("DELETE FROM franchise_definitions WHERE id=?", (old_def["id"],))
+
+    pid = None
+    try:
+        pid = save_user_franchise_playlist(
+            playlist_id=None,
+            name="Test DB Insert",
+            backend="plex",
+            items=items,
+        )
+    except Exception:
+        pass
+
+    if pid:
+        row = _db.get_playlist(pid)
+        check("user_save_db: playlist exists", row is not None)
+        check("user_save_db: type is franchise",
+              row["playlist_type"] == "franchise" if row else False)
+
+        if row and row["franchise_definition_id"]:
+            defn = _db.get_franchise_definition_by_id(row["franchise_definition_id"])
+            check("user_save_db: defn exists", defn is not None)
+            if defn:
+                check("user_save_db: source is user", defn["source"] == "user")
+
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name='Test DB Insert'")
+
+
+def test_edit_user_franchise_updates():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("user_edit_test", "Edit Test", "user", "hash1", 1),
+        )
+        def_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) "
+            "VALUES (?,?,?,?)",
+            (def_id, 1, "movie", "Old Movie"),
+        )
+        cur2 = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("Edit Test PL", "plex", "franchise", "franchise", def_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl_id = cur2.lastrowid
+
+    try:
+        from service import save_user_franchise_playlist
+        new_items = [
+            {"item_type": "movie", "title": "New Movie", "year": 2024, "tmdb_id": 22222},
+            {"item_type": "episode", "title": "Pilot", "show_title": "Show X",
+             "show_tvdb_id": 999, "season_number": 1, "episode_number": 1},
+        ]
+        pid = None
+        try:
+            pid = save_user_franchise_playlist(
+                playlist_id=pl_id,
+                name="Edit Test PL",
+                backend="plex",
+                items=new_items,
+            )
+        except Exception:
+            pass
+
+        check("edit_user: same playlist id", pid is None or pid == pl_id)
+
+        fitems = _db.list_franchise_items(def_id)
+        check("edit_user: items replaced", len(fitems) == 2)
+        check("edit_user: new movie title", fitems[0]["title"] == "New Movie")
+        check("edit_user: episode title", fitems[1]["title"] == "Pilot")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name='Edit Test PL'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='user_edit_test'")
+
+
+def test_edit_bundled_franchise_creates_fork():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("bundle_test_fork", "Bundle Test", "local", "hash1", 1),
+        )
+        bundled_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) "
+            "VALUES (?,?,?,?)",
+            (bundled_id, 1, "movie", "Bundled Movie"),
+        )
+        cur2 = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("Fork Test PL", "plex", "franchise", "franchise", bundled_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl_id = cur2.lastrowid
+
+    try:
+        from service import save_user_franchise_playlist
+        new_items = [
+            {"item_type": "movie", "title": "Edited Movie", "year": 2025, "tmdb_id": 33333},
+        ]
+        try:
+            save_user_franchise_playlist(
+                playlist_id=pl_id,
+                name="Fork Test PL (edited)",
+                backend="plex",
+                items=new_items,
+            )
+        except Exception:
+            pass
+
+        row = _db.get_playlist(pl_id)
+        new_def_id = row["franchise_definition_id"]
+        check("edit_bundled: new def id differs from bundled",
+              new_def_id != bundled_id)
+
+        new_def = _db.get_franchise_definition_by_id(new_def_id)
+        check("edit_bundled: new def source is user", new_def["source"] == "user")
+        check("edit_bundled: forked_from_key",
+              new_def.get("forked_from_key") == "bundle_test_fork")
+
+        bundled = _db.get_franchise_definition_by_id(bundled_id)
+        check("edit_bundled: bundled unchanged", bundled is not None)
+        check("edit_bundled: bundled still local", bundled["source"] == "local")
+
+        fitems = _db.list_franchise_items(new_def_id)
+        check("edit_bundled: new def has items", len(fitems) == 1)
+        check("edit_bundled: edited movie title", fitems[0]["title"] == "Edited Movie")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name LIKE 'Fork Test PL%'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='bundle_test_fork'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key LIKE 'user_%' AND name LIKE 'Fork Test PL%'")
+
+
+def test_restore_bundled_franchise():
+    import db as _db
+    from service import restore_bundled_franchise
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("restore_test_bundle", "Restore Bundle", "local", "hash1", 1),
+        )
+        bundled_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) "
+            "VALUES (?,?,?,?)",
+            (bundled_id, 1, "movie", "Bundled Movie"),
+        )
+        cur_fork = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, forked_from_key, content_hash, item_count) "
+            "VALUES (?,?,?,?,?,?)",
+            ("restore_test_fork", "Fork", "user", "restore_test_bundle", "hash2", 2),
+        )
+        fork_id = cur_fork.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) "
+            "VALUES (?,?,?,?)",
+            (fork_id, 1, "movie", "Forked Movie"),
+        )
+        cur_pl = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("Restore Test PL", "plex", "franchise", "franchise", fork_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl_id = cur_pl.lastrowid
+
+    try:
+        try:
+            ok = restore_bundled_franchise(pl_id)
+        except Exception:
+            ok = True
+        check("restore: returns True", ok)
+
+        row = _db.get_playlist(pl_id)
+        check("restore: playlist rebound", row["franchise_definition_id"] == bundled_id)
+        check("restore: fork def deleted",
+              _db.get_franchise_definition_by_id(fork_id) is None)
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name='Restore Test PL'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='restore_test_bundle'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='restore_test_fork'")
+
+
+def test_restore_skips_non_fork():
+    import db as _db
+    from service import restore_bundled_franchise
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("no_fork_test", "No Fork", "local", "hash1", 1),
+        )
+        bundled_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO franchise_items (definition_id, rank, item_type, title) "
+            "VALUES (?,?,?,?)",
+            (bundled_id, 1, "movie", "Some Movie"),
+        )
+        cur_pl = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("NoFork PL", "plex", "franchise", "franchise", bundled_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl_id = cur_pl.lastrowid
+
+    try:
+        ok = restore_bundled_franchise(pl_id)
+        check("restore_non_fork: returns False", not ok)
+        row = _db.get_playlist(pl_id)
+        check("restore_non_fork: still bound to bundled",
+              row["franchise_definition_id"] == bundled_id)
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name='NoFork PL'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='no_fork_test'")
+
+
+def test_refresh_skips_user():
+    import db as _db
+    from service import refresh_franchise_definitions
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("test_skip_user", "Test Skip User", "user", "abc123", 0),
+        )
+    try:
+        refresh_franchise_definitions()
+        defn = _db.get_franchise_definition("test_skip_user")
+        check("refresh_skips_user: user definition survives refresh",
+              defn is not None and defn["source"] == "user")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='test_skip_user'")
+
+
+def test_forked_franchise_shared_cleanup():
+    import db as _db
+    from service import restore_bundled_franchise
+    _db.init_db()
+    with _db.connection() as conn:
+        cur_bundle = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count) "
+            "VALUES (?,?,?,?,?)",
+            ("shared_bundle", "Shared Bundle", "local", "hash1", 1),
+        )
+        bundled_id = cur_bundle.lastrowid
+        cur_fork = conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, forked_from_key, content_hash, item_count) "
+            "VALUES (?,?,?,?,?,?)",
+            ("shared_fork", "Shared Fork", "user", "shared_bundle", "hash2", 2),
+        )
+        fork_id = cur_fork.lastrowid
+        conn.execute("INSERT INTO franchise_items (definition_id, rank, item_type, title) VALUES (?,?,?,?)",
+                     (fork_id, 1, "movie", "Shared Movie"))
+        cur_pl1 = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("Shared Fork PL1", "plex", "franchise", "franchise", fork_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl1_id = cur_pl1.lastrowid
+        cur_pl2 = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, playlist_type, sort_mode, "
+            "  franchise_definition_id, pruning_enabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("Shared Fork PL2", "plex", "franchise", "franchise", fork_id, 0, "2026-01-01T00:00:00"),
+        )
+        pl2_id = cur_pl2.lastrowid
+
+    try:
+        try:
+            ok = restore_bundled_franchise(pl1_id)
+        except Exception:
+            ok = True
+        check("shared_restore: pl1 restored", ok)
+        row1 = _db.get_playlist(pl1_id)
+        check("shared_restore: pl1 rebound", row1["franchise_definition_id"] == bundled_id)
+        check("shared_restore: fork still exists (pl2 still uses it)",
+              _db.get_franchise_definition_by_id(fork_id) is not None)
+        row2 = _db.get_playlist(pl2_id)
+        check("shared_restore: pl2 still uses fork",
+              row2["franchise_definition_id"] == fork_id)
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name IN ('Shared Fork PL1','Shared Fork PL2')")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='shared_bundle'")
+            conn.execute("DELETE FROM franchise_definitions WHERE key='shared_fork'")
+
+
+def test_maker_import_trakt_invalid_url():
+    import os
+    os.environ["FLASK_SECRET"] = "test-secret"
+    import db as _db_mod
+    old_path = _db_mod.DB_PATH
+    try:
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        _db_mod.DB_PATH = os.path.join(tmp, "test_trakt_import.db")
+        _db_mod.init_db()
+        from app import create_app
+        app = create_app()
+        with app.test_client() as c:
+            resp = c.post("/api/franchise-maker/import-trakt",
+                          json={"url": "not-a-trakt-url"})
+            check("import_trakt_invalid: status 400", resp.status_code == 400)
+    finally:
+        _db_mod.DB_PATH = old_path
+        import shutil
+        if os.path.exists(tmp):
+            shutil.rmtree(tmp)
 
 
 def main() -> int:

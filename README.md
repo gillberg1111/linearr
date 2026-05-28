@@ -5,7 +5,7 @@
 # Linearr
 
 ### The missing show sequencer for Plex and Jellyfin.
-Five sort modes. Two backends. Your rules.
+Shows, genres, franchises — Automated. Sequenced. Yours.
 
 ---
 
@@ -243,6 +243,31 @@ fall-asleep buffer.
   playlist metadata, and (for syncs) added/removed counts. Delivery runs in
   a background thread — a failing endpoint is logged but never interrupts a
   sync or any other operation.
+- **Franchise playlists** — a third creation mode alongside By Show and By
+  Genre. Build a chronologically ordered playlist mixing movies, full
+  series, individual seasons, and individual episodes — perfect for MCU
+  watch orders, Star Wars chronological viewing, Star Trek timelines, etc.
+  17 pre-baked franchises ship with the app sourced from curated community
+  Trakt.tv lists: MCU, Star Wars, DCEU, DCU (James Gunn's new universe),
+  Arrowverse, Star Trek, Stargate, Doctor Who, Buffy & Angel, X-Men,
+  Mission: Impossible, Jurassic Park, MonsterVerse, John Wick, Alien &
+  Predator, Conjuring Universe, James Bond. Override any with a custom
+  Trakt list URL per-playlist. Items not yet in your library are flagged
+  in red and added automatically once you add them and the next sync runs.
+- **Franchise Playlist Maker** — an in-app visual builder at
+  `/franchise-maker` for creating fully custom franchise watch orders.
+  Search TMDB for movies and TV shows, browse seasons and episodes inline,
+  add items individually or with **+ Add Series** to drop all seasons of a
+  show at once. Drag to reorder. **Import from Trakt URL** populates the
+  editor with any public Trakt list as a starting point so you don't
+  start from scratch. Editing a pre-baked franchise creates a custom copy
+  — the bundled list stays untouched — and adds a **Restore default**
+  button to revert. Requires a free TMDB API key (v3 key or v4 Read
+  Access Token), configured on the Settings page.
+- **Per-playlist pruning toggle** — every playlist has a Pruning on/off
+  toggle on the configure page (default on for show/genre playlists, off
+  for franchise playlists). Disabling pruning keeps every episode in the
+  playlist regardless of watch state.
 - **Mobile-responsive layout** — breakpoints at 768 px (tablet) and 480 px
   (phone). Poster grids narrow, config cards stack, the builder toolbar wraps,
   commit button goes full-width, and secondary topbar buttons hide on small
@@ -669,7 +694,7 @@ The unit-test suite is stdlib-only — no Plex, Jellyfin, or network required.
 
 ```bash
 python tests.py
-# expected: 187 passed, 0 failed, 187 total
+# expected: 269 passed, 0 failed, 269 total
 ```
 
 Covers:
@@ -883,6 +908,10 @@ Linearr was built collaboratively with [Claude Code](https://claude.com/claude-c
 (Anthropic's AI coding assistant) across many pair-programming sessions.
 Architecture, naming, testing against a real Plex / Unraid setup,
 deployment, and ongoing maintenance are mine.
+
+Franchise watch-order playlists are powered by community-maintained lists on
+[Trakt.tv](https://trakt.tv). Linearr uses the Trakt API under a registered
+application key. Trakt® is a trademark of Trakt, LLC.
 
 ---
 

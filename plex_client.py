@@ -362,6 +362,48 @@ class PlexClient(MediaClient):
 
     # ----- movies -----------------------------------------------------------
 
+    def list_all_movies(self) -> list[MovieSummary]:
+        try:
+            movies = []
+            for section in self._server.library.sections():
+                if section.type != "movie":
+                    continue
+                for movie in section.all(includeGuids=1):
+                    tmdb_id = None
+                    for guid in (movie.guids or []):
+                        if guid.id.startswith("tmdb://"):
+                            try:
+                                tmdb_id = int(guid.id.split("//")[1])
+                            except (ValueError, IndexError):
+                                pass
+                            break
+                    movies.append(MovieSummary(
+                        rating_key=str(movie.ratingKey),
+                        title=movie.title,
+                        year=movie.year,
+                        thumb=movie.thumb,
+                        air_date=(
+                            str(movie.originallyAvailableAt.date())
+                            if movie.originallyAvailableAt else None
+                        ),
+                        view_count=getattr(movie, "viewCount", 0) or 0,
+                        tmdb_id=tmdb_id,
+                    ))
+            return movies
+        except Exception:
+            _log.warning("list_all_movies failed", exc_info=True)
+            return []
+
+    def find_show_by_tvdb_id(self, tvdb_id: int) -> ShowSummary | None:
+        try:
+            for show in self.list_all_shows():
+                if show.tvdb_id and int(show.tvdb_id) == tvdb_id:
+                    return show
+            return None
+        except Exception:
+            _log.warning("find_show_by_tvdb_id failed for %s", tvdb_id, exc_info=True)
+            return None
+
     def find_associated_movies(self, show_title: str) -> list[MovieSummary]:
         out: list[MovieSummary] = []
         seen: set[str] = set()

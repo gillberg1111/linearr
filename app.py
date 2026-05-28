@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.1.0"
+__version__ = "2.3.0"
 
 import logging
 import os
@@ -26,6 +26,7 @@ load_dotenv()
 import db  # noqa: E402
 import scheduler  # noqa: E402
 import service  # noqa: E402
+import json as _json  # noqa: E402
 from media_client import (  # noqa: E402
     available_backends,
     get_client,
@@ -138,12 +139,69 @@ def _lookup_show_record(aggregated: list[dict], rating_key: str) -> dict | None:
         # Same record might be addressed via either ID when the user has both:
         if r.get("plex_rating_key") == rating_key or r.get("jellyfin_rating_key") == rating_key:
             return r
-    return None
+        return None
 
 
-# --------------------------------------------------------------------------- #
-# Form parsing
-# --------------------------------------------------------------------------- #
+# Module-level cache of per-backend library lookup dicts for franchise preview
+# matching. TTL = 60s. Cleared automatically when expired.
+_franchise_lib_cache: dict[str, tuple[float, dict]] = {}
+_FRANCHISE_LIB_CACHE_TTL = 60.0
+
+
+def _franchise_library_cache(backend: str) -> dict:
+    """Return cached lookup dicts for `backend`, rebuilding if missing or stale.
+
+    Returns dict with keys: movie_tmdb, movie_ty, show_tvdb, show_ty.
+    On error, returns empty dicts (caller treats as "nothing found").
+    """
+    import time as _time
+    now = _time.monotonic()
+    cached = _franchise_lib_cache.get(backend)
+    if cached and (now - cached[0]) < _FRANCHISE_LIB_CACHE_TTL:
+        return cached[1]
+    try:
+        _cl = get_client(backend)
+        _movies = _cl.list_all_movies()
+        _shows = _cl.list_all_shows()
+        data = {
+            "movie_tmdb": {m.tmdb_id: True for m in _movies if m.tmdb_id},
+            "movie_ty":   {(service._normalize_for_match(m.title), m.year): True for m in _movies},
+            "show_tvdb":  {int(s.tvdb_id): True for s in _shows if s.tvdb_id},
+            "show_ty":    {(service._normalize_for_match(s.title), s.year): True for s in _shows},
+        }
+    except Exception:
+        log.warning("franchise lib cache rebuild failed for %s", backend, exc_info=True)
+        data = {"movie_tmdb": {}, "movie_ty": {}, "show_tvdb": {}, "show_ty": {}}
+    _franchise_lib_cache[backend] = (now, data)
+    return data
+
+
+# Module-level cache of fetched Trakt list items. TTL = 5 minutes.
+_trakt_list_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+_TRAKT_LIST_CACHE_TTL = 300.0
+
+
+def _cached_trakt_list_items(user: str, slug: str) -> list[dict]:
+    """Fetch a Trakt list via TraktClient, caching results for 5 minutes."""
+    import time as _time
+    now = _time.monotonic()
+    key = (user, slug)
+    cached = _trakt_list_cache.get(key)
+    if cached and (now - cached[0]) < _TRAKT_LIST_CACHE_TTL:
+        return cached[1]
+    from trakt_client import get_trakt_client
+    items = get_trakt_client().fetch_list_items(user, slug)
+    _trakt_list_cache[key] = (now, items)
+    return items
+
+
+def _load_prebaked_franchises() -> list[dict]:
+    path = os.path.join(os.path.dirname(__file__), "defaults", "franchises.json")
+    try:
+        with open(path) as f:
+            return _json.load(f)
+    except (FileNotFoundError, _json.JSONDecodeError):
+        return []
 
 
 def _parse_excluded_form_value(raw: str) -> set[tuple[int, int]]:
@@ -291,6 +349,15 @@ def _gather_season_meta(configs: list[ShowConfig], primary_backend: str) -> dict
         except Exception:
             log.exception("metadata fetch failed for %s on %s", target_id, tb)
     return out
+
+
+def _next_auto_name(existing: list[str]) -> str:
+    existing_set = set(existing)
+    for i in range(1, 1000):
+        candidate = f"Linearr {i:03d}"
+        if candidate not in existing_set:
+            return candidate
+    return "Linearr Playlist"
 
 
 # --------------------------------------------------------------------------- #
@@ -545,6 +612,7 @@ def create_app() -> Flask:
             block_size = 1
         unwatched_only = bool(request.form.get("unwatched_only"))
         auto_sync = bool(request.form.get("auto_sync")) if "shows" in request.form else True
+        pruning_enabled = max(0, min(1, int(request.form.get("pruning_enabled", "1") or "1")))
 
         backends = available_backends()
         backend_choice = request.form.get("backend")
@@ -566,6 +634,7 @@ def create_app() -> Flask:
                     auto_sync=auto_sync,
                     backend=backend_choice,
                     block_size=block_size,
+                    pruning_enabled=pruning_enabled,
                 )
             except Exception as e:
                 log.exception("create failed")
@@ -585,6 +654,7 @@ def create_app() -> Flask:
                     unwatched_only=unwatched_only,
                     auto_sync=auto_sync,
                     backend=backend_choice,
+                    pruning_enabled=pruning_enabled,
                     missing_shows=missing_shows,
                     preview_api_url=url_for("api_preview"),
                     existing_names=existing_names,
@@ -616,6 +686,7 @@ def create_app() -> Flask:
             unwatched_only=unwatched_only,
             auto_sync=auto_sync,
             backend=backend_choice,
+            pruning_enabled=pruning_enabled,
             missing_shows=missing_shows,
             preview_api_url=url_for("api_preview"),
             existing_names=existing_names,
@@ -670,6 +741,67 @@ def create_app() -> Flask:
         selected = {k for k in request.args.get("selected", "").split(",") if k}
         rules = db.list_rules(playlist_id) if view.playlist_type == "genre" else []
         import os as _os
+
+        franchise_items = []
+        if view.playlist_type == "franchise":
+            row = db.get_playlist(playlist_id)
+            definition_id = dict(row).get("franchise_definition_id") if row else None
+            if definition_id:
+                fi_list = db.list_franchise_items(definition_id)
+                match_state = db.list_franchise_match_state(playlist_id)
+                backend_val = view.backend
+                for fi in fi_list:
+                    ms = match_state.get(fi["id"], {})
+                    plex_found = bool(ms.get("plex_found", 0))
+                    jellyfin_found = bool(ms.get("jellyfin_found", 0))
+
+                    if backend_val == "both":
+                        found = plex_found or jellyfin_found
+                        if plex_found and jellyfin_found:
+                            lib_status = "found"
+                        elif plex_found:
+                            lib_status = "plex_only"
+                        elif jellyfin_found:
+                            lib_status = "jellyfin_only"
+                        else:
+                            lib_status = "missing"
+                    elif backend_val == "jellyfin":
+                        found = jellyfin_found
+                        lib_status = "found" if jellyfin_found else "missing"
+                    else:
+                        found = plex_found
+                        lib_status = "found" if plex_found else "missing"
+
+                    display_title = fi["title"]
+                    if fi["item_type"] == "episode" and fi.get("show_title"):
+                        s = fi.get("season_number", 0)
+                        e = fi.get("episode_number", 0)
+                        display_title = f"{fi['show_title']} S{s:02d}E{e:02d} — {fi['title']}"
+                    elif fi["item_type"] == "season" and fi.get("show_title"):
+                        display_title = f"{fi['show_title']} — Season {fi['season_number']}"
+
+                    franchise_items.append({
+                        **fi,
+                        "found": found,
+                        "lib_status": lib_status,
+                        "display_title": display_title,
+                    })
+
+        is_forked = False
+        bundled_origin_name = None
+        if view.playlist_type == "franchise":
+            row = db.get_playlist(playlist_id)
+            row_d = dict(row) if row else {}
+            defn_id = row_d.get("franchise_definition_id")
+            if defn_id:
+                fr_defn = db.get_franchise_definition_by_id(defn_id)
+                if fr_defn and fr_defn.get("forked_from_key"):
+                    for f in _load_prebaked_franchises():
+                        if f["key"] == fr_defn["forked_from_key"]:
+                            is_forked = True
+                            bundled_origin_name = f["name"]
+                            break
+
         return render_template(
             "playlist.html",
             playlist=view,
@@ -678,7 +810,10 @@ def create_app() -> Flask:
             selected=selected,
             missing_on=missing_on,
             rules=rules,
+            franchise_items=franchise_items,
             watched_keep=max(0, int(_os.environ.get("WATCHED_KEEP", "2"))),
+            is_forked=is_forked,
+            bundled_origin_name=bundled_origin_name,
         )
 
     # ------------------------------------------------------------------ #
@@ -999,6 +1134,367 @@ def create_app() -> Flask:
             existing_names=existing_names,
         )
 
+    # -- v2.2.0 franchise playlist creation ------------------------------- #
+
+    @app.route("/new/franchise", methods=["GET", "POST"])
+    def new_franchise():
+        backends = available_backends()
+        franchises = _load_prebaked_franchises()
+
+        if request.method == "GET":
+            existing_names = [
+                r["name"] for r in db.list_playlists()
+            ]
+            return render_template(
+                "new_franchise.html",
+                franchises=franchises,
+                backends=backends,
+                existing_names=existing_names,
+            )
+
+        name = request.form.get("name", "").strip()
+        backend = request.form.get("backend", backends[0] if backends else "plex")
+        franchise_key = request.form.get("franchise_key", "").strip()
+        franchise_source = request.form.get("franchise_source", "trakt").strip()
+        trakt_user = request.form.get("trakt_user", "").strip()
+        trakt_slug = request.form.get("trakt_slug", "").strip()
+        franchise_name = request.form.get("franchise_name", "").strip()
+
+        if not name:
+            existing = [r["name"] for r in db.list_playlists()]
+            name = _next_auto_name(existing)
+
+        if not trakt_user or not trakt_slug:
+            flash("Please select a franchise or enter a valid Trakt list URL.")
+            return redirect(url_for("new_franchise"))
+
+        if not franchise_key:
+            franchise_key = f"custom_{trakt_user}_{trakt_slug}"
+        if not franchise_name:
+            franchise_name = name
+
+        try:
+            playlist_id = service.create_franchise_playlist(
+                name=name,
+                backend=backend,
+                franchise_key=franchise_key,
+                source=franchise_source,
+                trakt_user=trakt_user,
+                trakt_slug=trakt_slug,
+                franchise_name=franchise_name,
+            )
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        except Exception as e:
+            log.warning("create_franchise_playlist failed: %s", e, exc_info=True)
+            flash(f"Error creating franchise playlist: {e}")
+            return redirect(url_for("new_franchise"))
+
+    @app.route("/api/franchise/preview")
+    def api_franchise_preview():
+        trakt_user = request.args.get("trakt_user", "").strip()
+        trakt_slug = request.args.get("trakt_slug", "").strip()
+        backend = request.args.get("backend", "plex")
+        source = request.args.get("source", "trakt").strip()
+        franchise_key = request.args.get("franchise_key", "").strip()
+
+        if source == "local" and franchise_key:
+            local_path = os.path.join(
+                os.path.dirname(__file__), "defaults", "franchise_data", f"{franchise_key}.json"
+            )
+            try:
+                with open(local_path) as _f:
+                    raw_items = _json.load(_f).get("items", [])
+            except FileNotFoundError:
+                return render_template(
+                    "_franchise_preview_partial.html",
+                    error=f"Local franchise file not found: {franchise_key}.json",
+                    items=[], found_count=0, total_count=0, missing_count=0,
+                )
+        else:
+            if not trakt_user or not trakt_slug or trakt_user == "null" or trakt_slug == "null":
+                return render_template(
+                    "_franchise_preview_partial.html",
+                    error="Missing trakt_user or trakt_slug.",
+                    items=[], found_count=0, total_count=0, missing_count=0,
+                )
+            try:
+                raw_items = _cached_trakt_list_items(trakt_user, trakt_slug)
+            except Exception as e:
+                return render_template(
+                    "_franchise_preview_partial.html",
+                    error=f"Could not fetch Trakt list: {e}",
+                    items=[], found_count=0, total_count=0, missing_count=0,
+                )
+
+        # "both" is not a valid client key — check each configured backend
+        backends_to_check = available_backends() if backend == "both" else [backend]
+
+        # Per-backend library lookup dicts — cached at module level with 60s TTL
+        # so previewing several franchises in succession is fast.
+        be_caches: dict[str, dict] = {
+            _be: _franchise_library_cache(_be) for _be in backends_to_check
+        }
+
+        def _item_found_on(fi: dict, cache: dict) -> bool:
+            t = fi["item_type"]
+            if t == "movie":
+                return bool(
+                    cache["movie_tmdb"].get(fi.get("tmdb_id"))
+                    or cache["movie_ty"].get((service._normalize_for_match(fi["title"]), fi.get("year")))
+                )
+            tvdb = fi.get("show_tvdb_id") or fi.get("tvdb_id")
+            if tvdb:
+                return bool(cache["show_tvdb"].get(int(tvdb)))
+            title = fi.get("show_title") or fi["title"]
+            return bool(cache["show_ty"].get((service._normalize_for_match(title), fi.get("year"))))
+
+        preview_items = []
+        for fi in raw_items:
+            found_on = {_be for _be, _cache in be_caches.items() if _item_found_on(fi, _cache)}
+            both_configured = len(backends_to_check) > 1
+
+            if not found_on:
+                lib_status = "missing"
+            elif both_configured and found_on == {"plex"}:
+                lib_status = "plex_only"
+            elif both_configured and found_on == {"jellyfin"}:
+                lib_status = "jellyfin_only"
+            else:
+                lib_status = "found"
+
+            display_title = fi["title"]
+            if fi["item_type"] == "episode" and fi.get("show_title"):
+                s = fi.get("season_number", 0)
+                e = fi.get("episode_number", 0)
+                display_title = f"{fi['show_title']} S{s:02d}E{e:02d} — {fi['title']}"
+            elif fi["item_type"] == "season" and fi.get("show_title"):
+                display_title = f"{fi['show_title']} — Season {fi['season_number']}"
+
+            preview_items.append({
+                "item_type": fi["item_type"],
+                "display_title": display_title,
+                "year": fi.get("year"),
+                "show_title": fi.get("show_title"),
+                "found": bool(found_on),
+                "lib_status": lib_status,
+            })
+
+        found_count = sum(1 for i in preview_items if i["found"])
+        missing_count = len(preview_items) - found_count
+
+        return render_template(
+            "_franchise_preview_partial.html",
+            error=None,
+            items=preview_items,
+            found_count=found_count,
+            total_count=len(preview_items),
+            missing_count=missing_count,
+        )
+
+    # -- v2.3.0 franchise maker ----------------------------------------- #
+
+    @app.route("/franchise-maker", methods=["GET"])
+    def franchise_maker():
+        backends = available_backends()
+        existing_names = [r["name"] for r in db.list_playlists()]
+        has_key = bool(db.get_setting("tmdb_api_key") or os.environ.get("TMDB_API_KEY"))
+        tmdb_key_set_in_db = bool(db.get_setting("tmdb_api_key"))
+
+        # v2.3.0 — optional preload from a bundled franchise or Trakt URL
+        items: list[dict] = []
+        franchise_name = ""
+        forked_from_key = None
+        bundled_origin_name = None
+        is_bundled = False
+
+        import_local = (request.args.get("import_local") or "").strip()
+        import_trakt_user = (request.args.get("import_trakt_user") or "").strip()
+        import_trakt_slug = (request.args.get("import_trakt_slug") or "").strip()
+
+        if import_local:
+            for f in _load_prebaked_franchises():
+                if f.get("key") == import_local:
+                    franchise_name = f.get("name", "")
+                    forked_from_key = import_local
+                    bundled_origin_name = f.get("name")
+                    is_bundled = True
+                    src = (f.get("source") or "trakt")
+                    try:
+                        if src == "local":
+                            path = os.path.join(
+                                os.path.dirname(__file__), "defaults", "franchise_data",
+                                f"{import_local}.json",
+                            )
+                            with open(path) as _f:
+                                items = _json.load(_f).get("items", [])
+                        elif src == "trakt":
+                            items = _cached_trakt_list_items(
+                                f.get("trakt_user", ""), f.get("trakt_slug", "")
+                            )
+                    except Exception as e:
+                        log.warning("franchise maker preload from %s failed: %s",
+                                    import_local, e)
+                    break
+        elif import_trakt_user and import_trakt_slug:
+            try:
+                items = _cached_trakt_list_items(import_trakt_user, import_trakt_slug)
+                franchise_name = f"{import_trakt_user}/{import_trakt_slug}"
+            except Exception as e:
+                log.warning("franchise maker preload from Trakt failed: %s", e)
+
+        return render_template(
+            "franchise_maker.html",
+            mode="new",
+            playlist_id=None,
+            franchise_name=franchise_name,
+            description="",
+            items=items,
+            forked_from_key=forked_from_key,
+            is_bundled=is_bundled,
+            bundled_origin_name=bundled_origin_name,
+            existing_names=existing_names,
+            backends=backends,
+            has_tmdb_key=has_key,
+            tmdb_key_set_in_db=tmdb_key_set_in_db,
+            default_backend=backends[0] if backends else "plex",
+        )
+
+    @app.route("/franchise-maker/<int:playlist_id>/edit", methods=["GET"])
+    def franchise_maker_edit(playlist_id: int):
+        row = db.get_playlist(playlist_id)
+        if not row:
+            abort(404)
+        row = dict(row)
+        if row.get("playlist_type") != "franchise":
+            abort(404)
+
+        defn_id = row.get("franchise_definition_id")
+        if not defn_id:
+            abort(404)
+
+        defn = db.get_franchise_definition_by_id(defn_id)
+        if not defn:
+            abort(404)
+
+        backends = available_backends()
+        existing_names = [r["name"] for r in db.list_playlists()]
+        has_key = bool(db.get_setting("tmdb_api_key") or os.environ.get("TMDB_API_KEY"))
+        tmdb_key_set_in_db = bool(db.get_setting("tmdb_api_key"))
+
+        is_bundled = defn.get("source") in ("trakt", "local")
+        forked_from_key = defn.get("forked_from_key")
+
+        items = service.franchise_items_for_maker(defn_id)
+
+        return render_template(
+            "franchise_maker.html",
+            mode="edit",
+            playlist_id=playlist_id,
+            franchise_name=defn.get("name", row["name"]),
+            description="",
+            items=items,
+            forked_from_key=forked_from_key,
+            is_bundled=is_bundled,
+            bundled_origin_name=None,
+            existing_names=existing_names,
+            backends=backends,
+            has_tmdb_key=has_key,
+            tmdb_key_set_in_db=tmdb_key_set_in_db,
+            default_backend=row.get("backend", backends[0] if backends else "plex"),
+        )
+
+    @app.route("/api/franchise-maker/search", methods=["GET"])
+    def api_fm_search():
+        from tmdb_client import search
+        q = request.args.get("q", "")
+        media_type = request.args.get("type", "movie")
+        try:
+            results = search(q, media_type)
+            return jsonify(results)
+        except ValueError as e:
+            return jsonify({"error": str(e), "needs_key": True}), 400
+        except Exception as e:
+            log.warning("TMDB search failed: %s", e)
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/franchise-maker/movie/<int:tmdb_id>", methods=["GET"])
+    def api_fm_movie(tmdb_id: int):
+        from tmdb_client import get_movie
+        try:
+            return jsonify(get_movie(tmdb_id))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/franchise-maker/tv/<int:tmdb_id>", methods=["GET"])
+    def api_fm_tv(tmdb_id: int):
+        from tmdb_client import get_tv
+        try:
+            return jsonify(get_tv(tmdb_id))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/franchise-maker/tv/<int:tmdb_id>/season/<int:season_number>", methods=["GET"])
+    def api_fm_season(tmdb_id: int, season_number: int):
+        from tmdb_client import get_season
+        try:
+            return jsonify(get_season(tmdb_id, season_number))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/franchise-maker/import-trakt", methods=["POST"])
+    def api_fm_import_trakt():
+        payload = request.json or {}
+        url = (payload.get("url") or "").strip()
+        import re
+        m = re.search(r"trakt\.tv/users/([^/]+)/lists/([^/?#]+)", url)
+        if not m:
+            return jsonify({"error": "Invalid Trakt list URL"}), 400
+        user, slug = m.group(1), m.group(2)
+        try:
+            from trakt_client import get_trakt_client
+            items = get_trakt_client().fetch_list_items(user, slug)
+            return jsonify({"items": items})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/franchise-maker/save", methods=["POST"])
+    def api_fm_save():
+        payload = request.json or {}
+        try:
+            forked = payload.get("forked_from_key")
+            forked_from_key = forked.strip() if isinstance(forked, str) and forked.strip() else None
+            pid = service.save_user_franchise_playlist(
+                playlist_id=payload.get("playlist_id"),
+                name=(payload.get("name") or "").strip(),
+                backend=payload.get("backend", "plex"),
+                items=payload.get("items", []),
+                description=(payload.get("description") or "").strip(),
+                forked_from_key=forked_from_key,
+            )
+            return jsonify({
+                "ok": True,
+                "playlist_id": pid,
+                "redirect_url": url_for("view_playlist", playlist_id=pid),
+            })
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        except Exception as e:
+            log.warning("franchise maker save failed", exc_info=True)
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/playlist/<int:playlist_id>/restore-default", methods=["POST"])
+    def restore_default(playlist_id: int):
+        try:
+            ok = service.restore_bundled_franchise(playlist_id)
+            if ok:
+                flash("Restored original default franchise list.", "ok")
+            else:
+                flash("Nothing to restore — this playlist isn't a fork.", "error")
+        except Exception as e:
+            log.exception("restore failed")
+            flash(f"Restore failed: {e}", "error")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
     @app.route("/playlist/<int:playlist_id>/exclude", methods=["POST"])
     def exclude_show(playlist_id: int):
         show = (request.form.get("show") or "").strip()
@@ -1218,6 +1714,22 @@ def create_app() -> Flask:
         flash(f"Unwatched-only filter {'enabled' if new_value else 'disabled'}.", "ok")
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
+    @app.route("/playlist/<int:playlist_id>/pruning", methods=["POST"])
+    def change_pruning(playlist_id: int):
+        enabled = bool(request.form.get("enabled"))
+        try:
+            with db.connection() as conn:
+                conn.execute(
+                    "UPDATE managed_playlists SET pruning_enabled=? WHERE id=?",
+                    (int(enabled), playlist_id),
+                )
+        except Exception as e:
+            log.exception("pruning change failed")
+            flash(f"Failed to update setting: {e}", "error")
+            return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        flash(f"Pruning {'enabled' if enabled else 'disabled'}.", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
     @app.route("/playlist/<int:playlist_id>/reorder", methods=["POST"])
     def reorder(playlist_id: int):
         ordered = request.form.getlist("order")
@@ -1308,6 +1820,11 @@ def create_app() -> Flask:
                 db.set_setting("api_key", secrets.token_urlsafe(32))
                 flash("API key regenerated.", "ok")
 
+            elif action == "tmdb_key_save":
+                key = (request.form.get("tmdb_key") or "").strip()
+                db.set_setting("tmdb_api_key", key)
+                flash("TMDB API key saved." if key else "TMDB API key cleared.", "ok")
+
             elif action == "webhook_add":
                 url = (request.form.get("webhook_url") or "").strip()
                 label = (request.form.get("webhook_label") or "").strip()
@@ -1335,7 +1852,13 @@ def create_app() -> Flask:
 
         api_key = db.get_setting("api_key") or "(not set)"
         webhooks_list = db.list_webhooks()
-        return render_template("settings.html", api_key=api_key, webhooks=webhooks_list)
+        tmdb_key = db.get_setting("tmdb_api_key") or ""
+        return render_template(
+            "settings.html",
+            api_key=api_key,
+            webhooks=webhooks_list,
+            tmdb_key=tmdb_key,
+        )
 
     # ── REST API v1 ──────────────────────────────────────────────────── #
 
