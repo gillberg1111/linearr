@@ -1093,6 +1093,63 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   color: var(--fg-dim);
 }
 
+/* ── Settings — card wrapper ── */
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.4rem 1.5rem;
+}
+
+/* ── Settings — webhook list ── */
+.webhook-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.8rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.webhook-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.webhook-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.webhook-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.webhook-url {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  word-break: break-all;
+}
+.webhook-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.webhook-add-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .stats-label { font-size: 0.9rem; color: var(--fg-dim); }
 
 /* ---------- v1.1.0 — backend badges + warning banner ---------- */

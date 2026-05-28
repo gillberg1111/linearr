@@ -293,6 +293,16 @@ def init_db() -> None:
                 "ALTER TABLE managed_playlists ADD COLUMN last_stats TEXT"
             )
 
+        # v2.1.0 — outbound webhooks
+        if "webhooks" not in existing_tables:
+            conn.execute(
+                """CREATE TABLE webhooks (
+                    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url   TEXT NOT NULL,
+                    label TEXT NOT NULL DEFAULT ''
+                )"""
+            )
+
 
 def create_playlist(
     name: str,
@@ -784,3 +794,30 @@ def update_playlist_stats(playlist_id: int, stats: dict) -> None:
             "UPDATE managed_playlists SET last_stats = ? WHERE id = ?",
             (_json.dumps(stats), playlist_id),
         )
+
+
+# --------------------------------------------------------------------------- #
+# v2.1.0 — Outbound webhooks
+# --------------------------------------------------------------------------- #
+
+
+def list_webhooks() -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT id, url, label FROM webhooks ORDER BY id"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_webhook(url: str, label: str = "") -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO webhooks (url, label) VALUES (?, ?)",
+            (url.strip(), label.strip()),
+        )
+        return cur.lastrowid
+
+
+def delete_webhook(webhook_id: int) -> None:
+    with connection() as conn:
+        conn.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))

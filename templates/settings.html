@@ -27,4 +27,57 @@
       across container restarts.
     </p>
   </section>
+
+  <section class="card" style="max-width:600px; margin-top:1.5rem">
+    <div class="section-head">
+      <h2>Outbound Webhooks</h2>
+      <span class="hint">
+        Linearr will POST a JSON payload to these URLs when a playlist is
+        created, updated (with new or removed episodes), or deleted.
+        Useful for Home Assistant automations, push notifications (Ntfy,
+        Gotify, Pushover), or any HTTP endpoint.
+      </span>
+    </div>
+
+    {% if webhooks %}
+      <ul class="webhook-list">
+        {% for wh in webhooks %}
+          <li class="webhook-row">
+            <div class="webhook-info">
+              <span class="webhook-label">{{ wh.label or 'Webhook' }}</span>
+              <span class="webhook-url">{{ wh.url }}</span>
+            </div>
+            <div class="webhook-actions">
+              <form method="post" style="display:inline">
+                <input type="hidden" name="webhook_url" value="{{ wh.url }}">
+                <button type="submit" name="action" value="webhook_test"
+                        class="btn btn-sm btn-ghost">Test</button>
+              </form>
+              <form method="post" style="display:inline"
+                    onsubmit="return confirm('Remove this webhook?')">
+                <input type="hidden" name="webhook_id" value="{{ wh.id }}">
+                <button type="submit" name="action" value="webhook_delete"
+                        class="btn btn-sm btn-ghost-danger">Remove</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="hint" style="margin-top:0.8rem">No webhooks configured yet.</p>
+    {% endif %}
+
+    <form method="post" class="webhook-add-form">
+      <input type="url" name="webhook_url" placeholder="https://…" required
+             class="name-input" style="flex:1; min-width:0">
+      <input type="text" name="webhook_label" placeholder="Label (optional)"
+             class="name-input" style="width:160px">
+      <button type="submit" name="action" value="webhook_add"
+              class="btn btn-primary btn-sm">Add</button>
+    </form>
+    <p class="hint" style="margin-top:0.5rem">
+      Example payload:
+      <code>{"event":"playlist.synced","timestamp":"…","playlist":{…},"data":{"added":3,"removed":0}}</code>
+    </p>
+  </section>
 {% endblock %}

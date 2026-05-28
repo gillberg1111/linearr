@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 import db
 import rotation
+import webhooks as _webhooks
 from media_client import (
     EpisodeRef,
     MediaClient,
@@ -684,6 +685,12 @@ def create_managed_playlist(
         "Created playlist '%s' (backend=%s, sides created: %s)",
         name, backend, ",".join(sorted(created_ids.keys())) or "none",
     )
+    try:
+        _row = db.get_playlist(playlist_id)
+        if _row:
+            _webhooks.fire("playlist.created", playlist=_webhooks._playlist_info(dict(_row)))
+    except Exception:
+        pass
     return playlist_id
 
 
@@ -1136,6 +1143,12 @@ def create_genre_playlist(
         "Created genre playlist '%s' (backend=%s, genres=%s, %d shows)",
         name, backend, cleaned_genres, len(configs),
     )
+    try:
+        _row = db.get_playlist(playlist_id)
+        if _row:
+            _webhooks.fire("playlist.created", playlist=_webhooks._playlist_info(dict(_row)))
+    except Exception:
+        pass
     return playlist_id
 
 
@@ -1234,6 +1247,14 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
     added, removed = _rebuild_playlist_tails(row, full_configs, op_label="sync")
     if added or removed:
         log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
+        try:
+            _webhooks.fire(
+                "playlist.synced",
+                playlist=_webhooks._playlist_info(dict(row)),
+                data={"added": added, "removed": removed},
+            )
+        except Exception:
+            pass
 
     # v2.0.0: collect stats from the first available backend side.
     for _be, _cl, _pl_id in _clients_for_playlist(row):
@@ -1357,6 +1378,10 @@ def delete_managed_playlist(playlist_id: int) -> None:
     row = db.get_playlist(playlist_id)
     if not row:
         return
+    try:
+        _webhooks.fire("playlist.deleted", playlist=_webhooks._playlist_info(dict(row)))
+    except Exception:
+        pass
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue

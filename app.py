@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.0.8"
+__version__ = "2.1.0"
 
 import logging
 import os
@@ -34,6 +34,7 @@ from media_client import (  # noqa: E402
 )
 from rotation import VALID_SORT_MODES  # noqa: E402
 from service import ShowConfig  # noqa: E402
+import webhooks as _webhooks  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1301,12 +1302,40 @@ def create_app() -> Flask:
     @app.route("/settings", methods=["GET", "POST"])
     def settings():
         if request.method == "POST":
-            if request.form.get("action") == "regenerate":
+            action = request.form.get("action")
+
+            if action == "regenerate":
                 db.set_setting("api_key", secrets.token_urlsafe(32))
                 flash("API key regenerated.", "ok")
+
+            elif action == "webhook_add":
+                url = (request.form.get("webhook_url") or "").strip()
+                label = (request.form.get("webhook_label") or "").strip()
+                if url:
+                    db.add_webhook(url, label)
+                    flash("Webhook added.", "ok")
+                else:
+                    flash("URL is required.", "error")
+
+            elif action == "webhook_delete":
+                wid = request.form.get("webhook_id")
+                if wid and wid.isdigit():
+                    db.delete_webhook(int(wid))
+                    flash("Webhook removed.", "ok")
+
+            elif action == "webhook_test":
+                url = (request.form.get("webhook_url") or "").strip()
+                if url:
+                    ok, msg = _webhooks.fire_test(url)
+                    flash(msg, "ok" if ok else "error")
+                else:
+                    flash("No URL provided.", "error")
+
             return redirect(url_for("settings"))
+
         api_key = db.get_setting("api_key") or "(not set)"
-        return render_template("settings.html", api_key=api_key)
+        webhooks_list = db.list_webhooks()
+        return render_template("settings.html", api_key=api_key, webhooks=webhooks_list)
 
     # ── REST API v1 ──────────────────────────────────────────────────── #
 

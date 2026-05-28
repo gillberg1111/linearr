@@ -3,6 +3,25 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-05-27
+
+### Added
+
+- **Outbound webhooks.** Linearr can now POST a JSON event payload to one or
+  more configured URLs when a playlist is created, synced with changes, or
+  deleted. Webhook URLs are managed on the Settings page with an optional
+  label per URL and a "Send test" button to verify delivery. Delivery runs
+  in a background thread — a failing endpoint is logged but never blocks a
+  sync or any other operation. Events: `playlist.created`, `playlist.synced`
+  (only fires when episodes are actually added or removed), `playlist.deleted`,
+  and `test`. New file: `webhooks.py`. New DB table: `webhooks (id, url, label)`.
+
+### Fixed
+
+- **Settings page card styling.** `.card` class had no CSS definition since
+  v2.0.0; settings sections were unstyled. Added proper background, border,
+  and padding.
+
 ## [2.0.8] - 2026-05-27
 
 ### Changed
