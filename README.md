@@ -234,6 +234,15 @@ fall-asleep buffer.
   the top bar); pin it across restarts with `LINEARR_API_KEY`. Endpoints:
   list all playlists, get playlist detail + rules, trigger a sync, list
   configured backends with health checks, get genre cache, get playlist stats.
+- **Outbound webhooks** — configure one or more webhook URLs on the Settings
+  page and Linearr will POST a JSON payload when a playlist is created,
+  updated (episodes added or removed), or deleted. Works with Home Assistant,
+  Ntfy, Gotify, Pushover, Discord, Slack, or any HTTP endpoint that accepts
+  a POST. Each URL has an optional label; a "Send test" button verifies
+  delivery before you rely on it. Payload includes event type, timestamp,
+  playlist metadata, and (for syncs) added/removed counts. Delivery runs in
+  a background thread — a failing endpoint is logged but never interrupts a
+  sync or any other operation.
 - **Mobile-responsive layout** — breakpoints at 768 px (tablet) and 480 px
   (phone). Poster grids narrow, config cards stack, the builder toolbar wraps,
   commit button goes full-width, and secondary topbar buttons hide on small
@@ -836,13 +845,24 @@ plus which backend(s) each playlist targets and per-row backend IDs for
 
 ---
 
+## License & disclaimer
+
+Linearr is open-source software released under the **[MIT License](LICENSE)**.
+
+> **No warranty.** This software is provided "as is", without warranty of any
+> kind, express or implied. The author is not responsible for any data loss,
+> playlist corruption, media library damage, or any other issue that may result
+> from its use. Please **review the source code** and test thoroughly in your
+> own environment before relying on it. By using Linearr you accept full
+> responsibility for any outcomes.
+
+---
+
 ## Contributing
 
 Issues and PRs welcome. The rotation/sort logic in `rotation.py` is pure
 and unit-tested — keep it that way; side effects belong in `service.py` or
 `plex_client.py`. Run `python tests.py` before any PR.
-
-License: [MIT](LICENSE).
 
 ---
 
