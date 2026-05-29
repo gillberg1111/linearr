@@ -2416,24 +2416,35 @@ def sync_all() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def delete_managed_playlist(playlist_id: int) -> None:
+def delete_managed_playlist(playlist_id: int) -> list[str]:
+    """Delete the playlist on every backend it targets, then remove the local
+    row. Returns the list of backends whose deletion FAILED (empty == all good)
+    so the caller can warn the user instead of silently claiming success.
+
+    `delete_playlist` is called directly (no `playlist_exists` pre-check): each
+    backend's impl already no-ops when the playlist is gone, and a false-negative
+    existence check must never cause us to skip the real delete.
+    """
     row = db.get_playlist(playlist_id)
     if not row:
-        return
+        return []
     try:
         _webhooks.fire("playlist.deleted", playlist=_webhooks._playlist_info(dict(row)))
     except Exception:
         pass
+    failed: list[str] = []
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue
         try:
-            if client.playlist_exists(pl_id):
-                client.delete_playlist(pl_id)
+            client.delete_playlist(pl_id)
         except Exception:
-            log.warning("Failed to delete %s playlist for '%s' (continuing)", tb, row["name"])
+            # Log the real cause (e.g. an Emby permission error) — don't bury it.
+            log.warning("Failed to delete %s playlist for '%s'", tb, row["name"], exc_info=True)
+            failed.append(tb)
     db.delete_playlist(playlist_id)
-    log.info("Deleted managed playlist '%s'", row["name"])
+    log.info("Deleted managed playlist '%s' (backend failures: %s)", row["name"], failed or "none")
+    return failed
 
 
 # --------------------------------------------------------------------------- #

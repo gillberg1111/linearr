@@ -3,6 +3,23 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.1] - 2026-05-29
+
+### Fixed
+
+- Playlist deletion no longer fails silently. `delete_managed_playlist` was
+  gated on `playlist_exists()` and swallowed any backend error with a generic
+  warning while still removing the local row — so a delete that failed on a
+  backend (e.g. an Emby credential without item-deletion permission) looked
+  successful in Linearr while the playlist lingered on the server. It now calls
+  each backend's `delete_playlist` directly (each already no-ops when the
+  playlist is gone), logs the real exception, and the UI reports exactly which
+  backend(s) the deletion failed on.
+
+### Changed
+
+- Updated the project banner image.
+
 ## [3.0.0] - 2026-05-29
 
 ### Added

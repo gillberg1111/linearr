@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 import logging
 import os
@@ -1845,12 +1845,21 @@ def create_app() -> Flask:
     @app.route("/playlist/<int:playlist_id>/delete", methods=["POST"])
     def delete_playlist(playlist_id: int):
         try:
-            service.delete_managed_playlist(playlist_id)
+            failed = service.delete_managed_playlist(playlist_id)
         except Exception as e:
             log.exception("delete failed")
             flash(f"Failed to delete playlist: {e}", "error")
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash("Playlist deleted.", "ok")
+        if failed:
+            names = ", ".join(b.title() for b in failed)
+            flash(
+                f"Removed from Linearr, but the playlist could NOT be deleted on: "
+                f"{names}. Check that backend's credentials have permission to "
+                f"delete items (e.g. the Emby API key / user must allow deletion).",
+                "error",
+            )
+        else:
+            flash("Playlist deleted.", "ok")
         return redirect(url_for("index"))
 
     @app.route("/playlist/<int:playlist_id>/sync", methods=["POST"])
