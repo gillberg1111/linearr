@@ -1400,6 +1400,10 @@ def _normalize_for_match(title: str) -> str:
     return t
 
 
+def _normalize_cl_key(cl_id: str) -> str:
+    return cl_id.replace('-', '_')
+
+
 def _build_backend_cache(backend: str, client: MediaClient) -> dict:
     all_movies = client.list_all_movies()
     all_shows = client.list_all_shows()
@@ -1538,6 +1542,7 @@ def _fetch_and_store_franchise_local(key: str, name: str) -> int:
 
 def _fetch_and_store_franchise_chronolists(
     key: str, name: str, chronolists_id: str, known_hash: str | None = None,
+    auto_discovered: bool = False,
 ) -> int:
     from datetime import datetime, timezone
     if not chronolists_id:
@@ -1554,7 +1559,8 @@ def _fetch_and_store_franchise_chronolists(
             key=key, name=name, source="chronolists",
             trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
             fetched_at=fetched_at, content_hash=target_hash,
-            item_count=existing.get("item_count", 0))
+            item_count=existing.get("item_count", 0),
+            auto_discovered=int(auto_discovered))
 
     payload = cl.fetch_list(chronolists_id)
     items = parse_chronolists_items(payload.get("items", []))
@@ -1562,7 +1568,8 @@ def _fetch_and_store_franchise_chronolists(
     definition_id = db.upsert_franchise_definition(
         key=key, name=name, source="chronolists",
         trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
-        fetched_at=fetched_at, content_hash=new_hash, item_count=len(items))
+        fetched_at=fetched_at, content_hash=new_hash, item_count=len(items),
+        auto_discovered=int(auto_discovered))
     if existing is None or existing.get("content_hash") != new_hash:
         db.replace_franchise_items(definition_id, items)
         log.info("Franchise '%s' (chronolists): stored %d items", name, len(items))
@@ -2138,17 +2145,73 @@ def migrate_bundled_franchise_sources() -> None:
             log.warning("Source migration failed for '%s'", defn["key"], exc_info=True)
 
 
+def _discover_new_chronolists_franchises(cl_index: dict) -> None:
+    if not cl_index:
+        return
+
+    registry = _load_prebaked_franchises()
+    known_cl_ids = {
+        f["chronolists_id"]
+        for f in registry
+        if f.get("chronolists_id")
+    }
+    registry_by_key = {f["key"]: f for f in registry}
+
+    for cl_id, cl_meta in cl_index.items():
+        if cl_id in known_cl_ids:
+            continue
+
+        normalized = _normalize_cl_key(cl_id)
+        cl_name = cl_meta.get("name", cl_id)
+        cl_hash = cl_meta.get("hash")
+
+        if normalized in registry_by_key:
+            reg_entry = registry_by_key[normalized]
+            if reg_entry.get("source") == "chronolists":
+                continue
+            try:
+                existing_defn = db.get_franchise_definition(normalized)
+                old_hash = existing_defn.get("content_hash") if existing_defn else None
+                definition_id = _fetch_and_store_franchise_chronolists(
+                    normalized, reg_entry["name"], cl_id, known_hash=cl_hash)
+                new_defn = db.get_franchise_definition(normalized)
+                if not existing_defn or (new_defn and new_defn.get("content_hash") != old_hash):
+                    for pl in db.get_playlists_by_franchise_definition(definition_id):
+                        try:
+                            sync_franchise_playlist(pl["id"], force=True)
+                        except Exception:
+                            log.warning("Auto-migrate re-sync failed for pl=%d", pl["id"], exc_info=True)
+                log.info(
+                    "Franchise '%s' auto-migrated from %s to Chronolists (cl_id=%s)",
+                    reg_entry["name"], reg_entry.get("source"), cl_id)
+            except Exception:
+                log.warning("Auto-migration failed for cl_id=%s", cl_id, exc_info=True)
+
+        else:
+            existing_defn = db.get_franchise_definition(normalized)
+            if existing_defn and existing_defn.get("content_hash") == cl_hash:
+                continue
+            try:
+                _fetch_and_store_franchise_chronolists(
+                    normalized, cl_name, cl_id, known_hash=cl_hash,
+                    auto_discovered=True)
+                if not existing_defn:
+                    log.info(
+                        "Auto-discovered new Chronolists franchise: '%s' (cl_id=%s)",
+                        cl_name, cl_id)
+            except Exception:
+                log.warning("Auto-discovery failed for cl_id=%s", cl_id, exc_info=True)
+
+
 def refresh_franchise_definitions() -> None:
     definitions = db.list_franchise_definitions()
 
-    # One shared index read for ALL chronolists franchises this run.
     cl_index: dict[str, dict] = {}
-    if any(d["source"] == "chronolists" for d in definitions):
-        try:
-            from chronolists_client import get_chronolists_client
-            cl_index = get_chronolists_client().fetch_index()
-        except Exception:
-            log.warning("Chronolists index fetch failed; skipping cl refresh", exc_info=True)
+    try:
+        from chronolists_client import get_chronolists_client
+        cl_index = get_chronolists_client().fetch_index()
+    except Exception:
+        log.warning("Chronolists index fetch failed", exc_info=True)
 
     for defn in definitions:
         src = defn["source"]
@@ -2189,6 +2252,12 @@ def refresh_franchise_definitions() -> None:
                 "refresh_franchise_definitions failed for '%s'",
                 defn.get("key"), exc_info=True,
             )
+
+    if cl_index:
+        try:
+            _discover_new_chronolists_franchises(cl_index)
+        except Exception:
+            log.warning("Chronolists auto-discovery failed", exc_info=True)
 
 
 def sync_all() -> None:

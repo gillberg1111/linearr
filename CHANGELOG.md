@@ -3,6 +3,46 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] - 2026-05-28
+
+### Added
+
+- **Chronolists auto-discovery.** The weekly franchise refresh now diffs the
+  live Chronolists index against the bundled registry and handles two cases
+  automatically — no git push required for either:
+  - **Auto-migrate** (Scenario A): if Chronolists adds a list whose id
+    normalises to a key Linearr already ships under Trakt or local (e.g.
+    `james-bond` → `james_bond`), that franchise definition's source switches
+    to Chronolists, its items are re-downloaded, and any existing playlists
+    re-sync automatically.
+  - **Auto-discover** (Scenario B): if Chronolists adds a brand-new list with
+    no matching registry key, it is stored with `auto_discovered=1` and a new
+    card appears in the New Franchise Playlist picker — sorted alphabetically
+    after the 23 bundled cards, before "Build Your Own".
+- `_normalize_cl_key(cl_id)` helper — maps Chronolists hyphenated ids to
+  underscore registry keys.
+- `_discover_new_chronolists_franchises(cl_index)` — core discovery/migration
+  logic called at the tail of `refresh_franchise_definitions`.
+- `_merged_franchise_list()` in `app.py` — merges the static registry with DB
+  source overrides (Scenario A) and auto-discovered entries (Scenario B); used
+  by the New Franchise Playlist picker.
+
+### Database
+
+- `franchise_definitions.auto_discovered` column added (`INTEGER DEFAULT 0`).
+  Set to `1` on INSERT for auto-discovered entries; never overwritten on UPDATE
+  so migrations preserve the original flag. Introspection migration for
+  existing DBs.
+- `db.list_auto_discovered_franchise_definitions()` — returns definitions with
+  `auto_discovered = 1`, ordered by name.
+
+### Tests
+
+- 346/346 (was 326): `_normalize_cl_key` mappings, known Chronolists id count,
+  `auto_discovered` flag preserved on UPDATE, `list_auto_discovered` filter,
+  `_merged_franchise_list` source override, auto-discovered append, no
+  duplication.
+
 ## [2.4.0] - 2026-05-28
 
 ### Added

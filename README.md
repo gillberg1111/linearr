@@ -253,9 +253,12 @@ fall-asleep buffer.
   Star Trek, Stargate, Doctor Who, Buffy & Angel, X-Men (two timelines),
   Mission: Impossible, Harry Potter, One Chicago, Battlestar Galactica, The
   Walking Dead, Underworld, Jurassic Park, MonsterVerse, John Wick, Alien &
-  Predator, Conjuring Universe, James Bond. Override any with a custom
-  Trakt list URL per-playlist. Items not yet in your library are flagged
-  in red and added automatically once you add them and the next sync runs.
+  Predator, Conjuring Universe, James Bond. The picker **grows automatically**
+  as Chronolists expands — new lists appear without a release update. When
+  Chronolists adds a franchise Linearr already tracks under Trakt, it
+  **automatically becomes the new source** and existing playlists re-sync.
+  Items not yet in your library are flagged in red and added automatically
+  once you add them and the next sync runs.
 - **Franchise Playlist Maker** — an in-app visual builder at
   `/franchise-maker` for creating fully custom franchise watch orders.
   Search TMDB for movies and TV shows, browse seasons and episodes inline,

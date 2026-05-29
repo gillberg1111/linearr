@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 import logging
 import os
@@ -203,6 +203,39 @@ def _load_prebaked_franchises() -> list[dict]:
             return _json.load(f)
     except (FileNotFoundError, _json.JSONDecodeError):
         return []
+
+
+def _merged_franchise_list() -> list[dict]:
+    static = _load_prebaked_franchises()
+    db_defs = {d["key"]: d for d in db.list_franchise_definitions()}
+
+    merged = []
+    for f in static:
+        key = f["key"]
+        db_defn = db_defs.get(key)
+        if (db_defn
+                and db_defn.get("source") == "chronolists"
+                and f.get("source") != "chronolists"):
+            f = dict(f)
+            f["source"] = "chronolists"
+            f["chronolists_id"] = db_defn.get("chronolists_id")
+            f["trakt_user"] = None
+            f["trakt_slug"] = None
+        merged.append(f)
+
+    static_keys = {f["key"] for f in static}
+    for d in db.list_auto_discovered_franchise_definitions():
+        if d["key"] not in static_keys:
+            merged.append({
+                "key": d["key"],
+                "name": d["name"],
+                "source": "chronolists",
+                "chronolists_id": d.get("chronolists_id"),
+                "trakt_user": None,
+                "trakt_slug": None,
+            })
+
+    return merged
 
 
 def _parse_excluded_form_value(raw: str) -> set[tuple[int, int]]:
@@ -1140,7 +1173,7 @@ def create_app() -> Flask:
     @app.route("/new/franchise", methods=["GET", "POST"])
     def new_franchise():
         backends = available_backends()
-        franchises = _load_prebaked_franchises()
+        franchises = _merged_franchise_list()
 
         if request.method == "GET":
             existing_names = [

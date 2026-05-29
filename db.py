@@ -328,7 +328,8 @@ def init_db() -> None:
                     chronolists_id TEXT,
                     fetched_at   TEXT,
                     content_hash TEXT,
-                    item_count   INTEGER NOT NULL DEFAULT 0
+                    item_count   INTEGER NOT NULL DEFAULT 0,
+                    auto_discovered INTEGER NOT NULL DEFAULT 0
                 )"""
             )
 
@@ -388,6 +389,12 @@ def init_db() -> None:
         if "chronolists_id" not in fd_cols_v24:
             conn.execute(
                 "ALTER TABLE franchise_definitions ADD COLUMN chronolists_id TEXT"
+            )
+
+        # v2.5.0 — Chronolists auto-discovery
+        if "auto_discovered" not in _columns(conn, "franchise_definitions"):
+            conn.execute(
+                "ALTER TABLE franchise_definitions ADD COLUMN auto_discovered INTEGER NOT NULL DEFAULT 0"
             )
 
 
@@ -930,6 +937,7 @@ def upsert_franchise_definition(
     fetched_at: str = "",
     content_hash: str = "",
     item_count: int = 0,
+    auto_discovered: int = 0,
 ) -> int:
     with connection() as conn:
         existing = conn.execute(
@@ -950,10 +958,12 @@ def upsert_franchise_definition(
             cur = conn.execute(
                 """INSERT INTO franchise_definitions
                    (key, name, source, trakt_user, trakt_slug,
-                    chronolists_id, fetched_at, content_hash, item_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    chronolists_id, fetched_at, content_hash, item_count,
+                    auto_discovered)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (key, name, source, trakt_user, trakt_slug,
-                 chronolists_id, fetched_at, content_hash, item_count),
+                 chronolists_id, fetched_at, content_hash, item_count,
+                 auto_discovered),
             )
             return cur.lastrowid
 
@@ -961,6 +971,14 @@ def upsert_franchise_definition(
 def list_franchise_definitions() -> list[dict]:
     with connection() as conn:
         rows = conn.execute("SELECT * FROM franchise_definitions").fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_auto_discovered_franchise_definitions() -> list[dict]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM franchise_definitions WHERE auto_discovered = 1 ORDER BY name ASC"
+        ).fetchall()
         return [dict(r) for r in rows]
 
 

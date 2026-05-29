@@ -2170,6 +2170,144 @@ def test_resolve_show_for_item_tmdb_fallback():
     check("resolve_tmdb: correct show", result.rating_key == "jf_show_99")
 
 
+# --------------------------------------------------------------------------- #
+# v2.5.0 — Chronolists auto-discovery tests
+# --------------------------------------------------------------------------- #
+
+
+def test_normalize_cl_key():
+    from service import _normalize_cl_key
+    check("cl_key: james-bond", _normalize_cl_key("james-bond") == "james_bond")
+    check("cl_key: the-boys", _normalize_cl_key("the-boys") == "the_boys")
+    check("cl_key: mcu (no change)", _normalize_cl_key("mcu") == "mcu")
+    check("cl_key: xmen-a", _normalize_cl_key("xmen-a") == "xmen_a")
+
+
+def test_known_cl_ids_count():
+    import json as _json
+    import os as _os
+    path = _os.path.join(_os.path.dirname(__file__), "defaults", "franchises.json")
+    with open(path) as f:
+        reg = _json.load(f)
+    known = {e["chronolists_id"] for e in reg if e.get("chronolists_id")}
+    check("known_cl_ids: all 16 chronolists entries have id", len(known) == 16, str(len(known)))
+
+
+def test_auto_discovered_not_overwritten_on_update():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            """INSERT INTO franchise_definitions
+               (key, name, source, chronolists_id, content_hash, item_count, auto_discovered)
+               VALUES (?,?,?,?,?,?,?)""",
+            ("test_ad_flag", "Test AD", "chronolists", "test-id", "hash1", 5, 1),
+        )
+    try:
+        _db.upsert_franchise_definition(
+            key="test_ad_flag", name="Test AD Updated", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="test-id",
+            fetched_at="2026-01-01T00:00:00Z", content_hash="hash2",
+            item_count=10, auto_discovered=0,
+        )
+        defn = _db.get_franchise_definition("test_ad_flag")
+        check("auto_disc_flag: still 1 after UPDATE", defn.get("auto_discovered") == 1,
+              f"got {defn.get('auto_discovered')}")
+        check("auto_disc_flag: name updated", defn.get("name") == "Test AD Updated")
+        check("auto_disc_flag: hash updated", defn.get("content_hash") == "hash2")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='test_ad_flag'")
+
+
+def test_list_auto_discovered():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count, auto_discovered) "
+            "VALUES (?,?,?,?,?,?)",
+            ("ad_yes", "Auto Yes", "chronolists", "h1", 1, 1),
+        )
+        conn.execute(
+            "INSERT INTO franchise_definitions (key, name, source, content_hash, item_count, auto_discovered) "
+            "VALUES (?,?,?,?,?,?)",
+            ("ad_no", "Auto No", "trakt", "h2", 2, 0),
+        )
+    try:
+        results = _db.list_auto_discovered_franchise_definitions()
+        check("auto_disc_list: only 1 row", len(results) == 1, str(len(results)))
+        check("auto_disc_list: correct key", results[0]["key"] == "ad_yes")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key IN ('ad_yes','ad_no')")
+
+
+def test_merged_franchise_list_source_override():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute("""INSERT INTO franchise_definitions
+            (key, name, source, chronolists_id, content_hash, item_count)
+            VALUES (?,?,?,?,?,?)""",
+            ("james_bond", "James Bond", "chronolists", "james-bond", "cl_hash", 25),
+        )
+    try:
+        from app import _merged_franchise_list
+        merged = _merged_franchise_list()
+        jb = next((m for m in merged if m["key"] == "james_bond"), None)
+        check("merge_override: jb present", jb is not None)
+        check("merge_override: source is chronolists", jb["source"] == "chronolists")
+        check("merge_override: chronolists_id set", jb["chronolists_id"] == "james-bond")
+        check("merge_override: trakt_user cleared", jb["trakt_user"] is None)
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='james_bond'")
+
+
+def test_merged_franchise_list_auto_discovered():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute("""INSERT INTO franchise_definitions
+            (key, name, source, chronolists_id, content_hash, item_count, auto_discovered)
+            VALUES (?,?,?,?,?,?,?)""",
+            ("the_boys", "The Boys", "chronolists", "the-boys", "hash1", 30, 1),
+        )
+    try:
+        from app import _merged_franchise_list
+        merged = _merged_franchise_list()
+        tb = next((m for m in merged if m["key"] == "the_boys"), None)
+        check("merge_ad: the_boys present", tb is not None)
+        check("merge_ad: source is chronolists", tb["source"] == "chronolists")
+        check("merge_ad: chronolists_id set", tb["chronolists_id"] == "the-boys")
+        check("merge_ad: name from DB", tb["name"] == "The Boys")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='the_boys'")
+
+
+def test_merged_franchise_list_no_duplication():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        conn.execute("""INSERT INTO franchise_definitions
+            (key, name, source, chronolists_id, content_hash, item_count, auto_discovered)
+            VALUES (?,?,?,?,?,?,?)""",
+            ("mcu", "MCU Duplicate", "chronolists", "mcu", "h", 40, 1),
+        )
+    try:
+        from app import _merged_franchise_list
+        merged = _merged_franchise_list()
+        mcu_count = sum(1 for m in merged if m["key"] == "mcu")
+        check("merge_dup: mcu appears once", mcu_count == 1, str(mcu_count))
+        mcu = next(m for m in merged if m["key"] == "mcu")
+        check("merge_dup: mcu name from static", mcu["name"] == "Marvel (MCU)")
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM franchise_definitions WHERE key='mcu'")
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:
