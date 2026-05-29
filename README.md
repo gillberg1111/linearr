@@ -86,6 +86,21 @@ untouched; the future portion regenerates instantly.
   <br><sub><em>Per-show configure: season range, specials toggle, sort mode, unwatched-only filter, pruning, and "Push to" backend picker. Every change updates the live preview below without reloading.</em></sub>
 </p>
 
+<p align="center">
+  <img src="images/05-genre.png" alt="Configure page" width="900">
+  <br><sub><em>Create playlist based on genre.</em></sub>
+</p>
+
+<p align="center">
+  <img src="images/06-franchise.png" alt="Configure page" width="900">
+  <br><sub><em>Select franchise based playlist that are build in chronological order from Chronolists.com.</em></sub>
+</p>
+
+<p align="center">
+  <img src="images/07-buildyourown.png" alt="Configure page" width="900">
+  <br><sub><em>Build your own franchise (or any style really) playlist, import an existing list from Trakt to use or edit, or edit one of the existing franchise playlists.</em></sub>
+</p>
+
 ---
 
 ## Table of contents
