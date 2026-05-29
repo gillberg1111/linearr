@@ -9,11 +9,6 @@
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.4rem;margin-bottom:1rem;font-size:0.8rem;color:var(--text-muted)">
     <span>Franchise watch orders sourced from</span>
     <a href="https://chronolists.com" target="_blank" rel="noopener">Chronolists</a>
-    <span>and community-maintained lists on</span>
-    <a href="https://trakt.tv" target="_blank" rel="noopener" style="line-height:0">
-      <img src="{{ url_for('static', filename='trakt-logo-dark.svg') }}"
-           alt="Trakt.tv" height="14" style="opacity:0.85">
-    </a>
   </div>
 
   <div class="franchise-grid">
@@ -31,26 +26,6 @@
     <a href="{{ url_for('franchise_maker') }}" class="franchise-card franchise-card-custom" style="text-decoration:none">
       <div class="franchise-card-name">Build Your Own</div>
     </a>
-  </div>
-
-  <div class="franchise-selected-options" id="franchiseOptions" hidden>
-
-    <div id="presetOptions" hidden>
-      <div class="sort-mode-bar sort-mode-bar-inline">
-        <span class="sort-mode-label">List source</span>
-        <div class="pill-toggle" id="listSourceToggle">
-          <button type="button" class="pill is-active" data-val="0">Default</button>
-          <button type="button" class="pill" data-val="1">Use different list</button>
-        </div>
-      </div>
-      <div id="presetCustomUrlRow" class="franchise-custom-url-row" hidden>
-        <input type="url" id="presetCustomTraktUrl"
-               placeholder="https://trakt.tv/users/username/lists/list-slug"
-               class="name-input" style="flex:1">
-        <button type="button" class="btn btn-sm" id="presetLoadBtn">Load Preview</button>
-      </div>
-    </div>
-
   </div>
 
   <section class="preview-section" id="franchisePreviewSection" hidden>
@@ -113,13 +88,9 @@
     var editBtn      = document.getElementById('editBtn');
     var previewSect  = document.getElementById('franchisePreviewSection');
     var previewCont  = document.getElementById('franchisePreviewContainer');
-    var franchiseOpts = document.getElementById('franchiseOptions');
-    var presetOpts   = document.getElementById('presetOptions');
     var backendPicker = document.getElementById('franchiseBackendPicker');
-    var listToggle   = document.getElementById('listSourceToggle');
-    var presetUrlRow = document.getElementById('presetCustomUrlRow');
 
-    var defaultUser = '', defaultSlug = '', defaultSource = 'trakt';
+    var defaultUser = '', defaultSlug = '';
 
     function getBackend() {
       if (!backendPicker) return 'plex';
@@ -182,11 +153,6 @@
       });
     }
 
-    function parseTraktUrl(val) {
-      var m = val.match(/trakt\.tv\/users\/([^/]+)\/lists\/([^/?#]+)/);
-      return m ? { user: m[1], slug: m[2] } : null;
-    }
-
     // Pre-set franchise card click
     cards.forEach(function(card) {
       card.addEventListener('click', function() {
@@ -195,64 +161,13 @@
 
         defaultUser = card.dataset.traktUser;
         defaultSlug = card.dataset.traktSlug;
-        defaultSource = card.dataset.franchiseSource || 'trakt';
-
-        // Reset list-source toggle to Default
-        listToggle.querySelectorAll('.pill').forEach(function(p) {
-          p.classList.toggle('is-active', p.dataset.val === '0');
-        });
-        presetUrlRow.hidden = true;
-        document.getElementById('presetCustomTraktUrl').value = '';
 
         setHidden(defaultUser, defaultSlug, card.dataset.franchiseKey, card.dataset.franchiseName);
         document.getElementById('hiddenFranchiseSource').value = card.dataset.franchiseSource || 'trakt';
         document.getElementById('hiddenChronolistsId').value = card.dataset.chronolistsId || '';
 
-        franchiseOpts.hidden = false;
-        presetOpts.hidden    = false;
-
         fetchPreview(defaultUser, defaultSlug);
       });
-    });
-
-    // List-source toggle (Default / Use different list)
-    listToggle.addEventListener('click', function(e) {
-      var btn = e.target.closest('button[data-val]');
-      if (!btn) return;
-      var useCustom = btn.dataset.val === '1';
-      listToggle.querySelectorAll('.pill').forEach(function(p) {
-        p.classList.toggle('is-active', p.dataset.val === btn.dataset.val);
-      });
-      presetUrlRow.hidden = !useCustom;
-      if (useCustom) {
-        document.getElementById('presetCustomTraktUrl').focus();
-        previewSect.hidden = true;
-        previewCont.innerHTML = '';
-        createBtn.disabled = true;
-      } else {
-        // Revert to default list — restore the card's original source + ids
-        // (a Trakt-URL override may have switched source to 'trakt').
-        document.getElementById('presetCustomTraktUrl').value = '';
-        var activeCard = document.querySelector('.franchise-card.selected:not(.franchise-card-custom)');
-        if (activeCard) {
-          setHidden(defaultUser, defaultSlug, activeCard.dataset.franchiseKey, activeCard.dataset.franchiseName);
-          document.getElementById('hiddenFranchiseSource').value = activeCard.dataset.franchiseSource || 'trakt';
-          document.getElementById('hiddenChronolistsId').value = activeCard.dataset.chronolistsId || '';
-          fetchPreview(defaultUser, defaultSlug);
-        }
-      }
-    });
-
-    // Preset custom load button
-    document.getElementById('presetLoadBtn').addEventListener('click', function() {
-      var parsed = parseTraktUrl(document.getElementById('presetCustomTraktUrl').value.trim());
-      if (!parsed) { alert('Could not parse Trakt URL.\nExpected: https://trakt.tv/users/username/lists/list-slug'); return; }
-      var activeCard = document.querySelector('.franchise-card.selected:not(.franchise-card-custom)');
-      var key  = (activeCard ? activeCard.dataset.franchiseKey : 'custom') + '_override';
-      var name = activeCard ? activeCard.dataset.franchiseName : 'Custom';
-      setHidden(parsed.user, parsed.slug, key, name);
-      document.getElementById('hiddenFranchiseSource').value = 'trakt';
-      fetchPreview(parsed.user, parsed.slug);
     });
 
     // Backend picker — refresh preview when backend changes

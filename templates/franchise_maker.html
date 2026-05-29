@@ -34,6 +34,12 @@
     <div class="maker-results" id="resultsList"></div>
     <div style="margin-top:1rem; padding-top:0.8rem; border-top:1px solid var(--border)">
       <button type="button" class="btn btn-sm" id="importTraktBtn">Import from Trakt URL…</button>
+      <p class="hint" style="margin-top:0.5rem;display:flex;align-items:center;gap:0.3rem">
+        Powered by
+        <a href="https://trakt.tv" target="_blank" rel="noopener" style="line-height:0">
+          <img src="{{ url_for('static', filename='trakt-logo-dark.svg') }}" alt="Trakt.tv" height="12" style="opacity:0.7">
+        </a>
+      </p>
     </div>
   </div>
 

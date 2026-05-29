@@ -251,7 +251,7 @@ fall-asleep buffer.
   [Chronolists](https://chronolists.com) and curated community Trakt.tv
   lists: MCU, Star Wars, DCEU, DCU (James Gunn's new universe), Arrowverse,
   Star Trek, Stargate, Doctor Who, Buffy & Angel, X-Men (two timelines),
-  Mission: Impossible, Harry Potter, Chicago, Battlestar Galactica, The
+  Mission: Impossible, Harry Potter, One Chicago, Battlestar Galactica, The
   Walking Dead, Underworld, Jurassic Park, MonsterVerse, John Wick, Alien &
   Predator, Conjuring Universe, James Bond. Override any with a custom
   Trakt list URL per-playlist. Items not yet in your library are flagged

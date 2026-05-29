@@ -14,7 +14,7 @@ All notable changes to Linearr. Format loosely follows
   Chronolists' own list hash from the index endpoint, so a refresh is a single
   cheap request unless a list actually changed.
 - **Expanded franchise registry — 23 bundled franchises** (was 17). Added
-  Harry Potter, Chicago (One Chicago), Battlestar Galactica, The Walking Dead,
+  Harry Potter, One Chicago, Battlestar Galactica, The Walking Dead,
   Underworld, and split X-Men into two timelines (Timeline A / Timeline B).
   16 franchises now pull from Chronolists; DCU, Jurassic Park, MonsterVerse,
   John Wick, Alien & Predator, Conjuring Universe, and James Bond remain on
