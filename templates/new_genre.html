@@ -201,10 +201,11 @@
                     <div class="rotation-info">
                       <div class="title">{{ s.title }}</div>
                       <div class="sub">
-                        {% if s.plex and s.jellyfin %}On Plex + Jellyfin
-                        {% elif s.plex %}On Plex
-                        {% elif s.jellyfin %}On Jellyfin
-                        {% endif %}
+                        {% set _on = [] %}
+                        {% if s.plex %}{% set _ = _on.append('Plex') %}{% endif %}
+                        {% if s.jellyfin %}{% set _ = _on.append('Jellyfin') %}{% endif %}
+                        {% if s.emby %}{% set _ = _on.append('Emby') %}{% endif %}
+                        {% if _on %}On {{ _on | join(' + ') }}{% endif %}
                       </div>
                       <div class="show-weight-control" hidden>
                         <span class="weight-label">Weight</span>

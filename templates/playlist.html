@@ -151,7 +151,7 @@
     </div>
     <span class="hint">
       {% if playlist.unwatched_only %}
-        Episodes you've already watched (anywhere in Plex) are excluded.
+        Episodes you've already watched (anywhere on the backend) are excluded.
       {% else %}
         Includes every episode in the chosen seasons.
       {% endif %}
@@ -226,11 +226,11 @@
             <div class="rotation-info">
               <div class="title">
                 {{ s.show_title }}
-                {% if ',' in playlist.backend and not on_jf %}
-                  <span class="backend-badge is-warn">Not on Jellyfin</span>
-                {% elif ',' in playlist.backend and not on_plex %}
+                {% if 'plex' in playlist.backend and not on_plex %}
                   <span class="backend-badge is-warn">Not on Plex</span>
-                {% elif ',' in playlist.backend and not on_emby %}
+                {% elif 'jellyfin' in playlist.backend and not on_jf %}
+                  <span class="backend-badge is-warn">Not on Jellyfin</span>
+                {% elif 'emby' in playlist.backend and not on_emby %}
                   <span class="backend-badge is-warn">Not on Emby</span>
                 {% endif %}
               </div>
@@ -603,7 +603,7 @@
       {% if playlist.playlist_type != 'franchise' %}
       <form method="post" action="{{ url_for('refresh_metadata', playlist_id=playlist.id) }}">
         <button type="submit" class="btn btn-ghost">Refresh metadata</button>
-        <span class="hint">Ask Plex/Jellyfin to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
+        <span class="hint">Ask Plex/Jellyfin/Emby to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
       </form>
       {% endif %}
       {% if playlist.playlist_type != 'franchise' %}

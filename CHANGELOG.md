@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.4] - 2026-05-29
+
+### Fixed
+
+- **Emby UI parity** — several user-facing strings/labels still said only
+  "Plex/Jellyfin":
+  - Refresh-metadata hint on the playlist page now reads "Plex/Jellyfin/Emby".
+  - Genre builder's matched-shows "On …" line now lists Emby (any combination).
+  - Configure exclusion note and the unwatched-only hint are now
+    backend-agnostic ("all configured backends" / "on the backend").
+- Missing-side warning on the playlist page was gated on `',' in backend` and
+  could mislabel — e.g. a `plex,emby` playlist showing "Not on Jellyfin" even
+  though Jellyfin isn't targeted. It now checks actual backend membership, so it
+  only warns about backends the playlist targets.
+
 ## [3.0.3] - 2026-05-29
 
 ### Fixed
