@@ -128,8 +128,9 @@ class PlexClient(MediaClient):
         # That way get_client('plex') can be called even when Plex is down —
         # we only raise on the first actual API call, which the caller's
         # try/except handles uniformly with all other backend errors.
-        self._url = os.environ["PLEX_URL"]
-        self._token = os.environ["PLEX_TOKEN"]
+        from media_client import backend_setting
+        self._url = backend_setting("plex_url") or ""
+        self._token = backend_setting("plex_token") or ""
         self._server_instance: PlexServer | None = None
 
     @property
@@ -528,6 +529,19 @@ class PlexClient(MediaClient):
                 pl.removeItem(ep)
             except Exception:
                 continue
+
+    def set_playlist_image(self, rating_key: str, image_url: str) -> None:
+        """Upload a cover poster to the playlist from an HTTP URL.
+        Fire-and-forget: log and swallow on any failure."""
+        if not rating_key or not image_url:
+            return
+        try:
+            pl = self._get_playlist(rating_key)
+            if pl is None:
+                return
+            pl.uploadPoster(url=image_url)
+        except Exception:
+            _log.warning("set_playlist_image failed for Plex playlist %s", rating_key, exc_info=True)
 
     # replace_playlist_items: default impl from MediaClient ABC works for Plex
     # (remove all then add all). Plex doesn't have a native atomic-replace

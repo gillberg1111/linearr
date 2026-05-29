@@ -10,11 +10,11 @@
   <Support>https://github.com/gillberg1111/linearr/issues</Support>
   <Project>https://github.com/gillberg1111/linearr</Project>
   <Overview>
-    Linearr — the missing show sequencer for Plex AND Jellyfin.
+    Linearr — the missing show sequencer for Plex, Jellyfin, and Emby.
     Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies).
 
-    Configure either Plex, Jellyfin, or both. With both configured, each new playlist gets a "Push to: Both / Plex / Jellyfin"
-    picker, and "Both" playlists are mirrored to each server independently using each server's own library state.
+    Configure Plex, Jellyfin, Emby, or any combination. With multiple backends configured, new playlists
+    get per-backend checkboxes; targeted servers are mirrored independently using each server's own library state.
 
     Two sort modes per playlist:
     - Rotation: round-robin across shows (Show A S01E01, Show B S01E01, Show A S01E02, ...).
@@ -45,7 +45,7 @@
   <DonateText/>
   <DonateLink/>
   <Description>
-    The missing show sequencer for Plex AND Jellyfin. Automated round-robin rotation and
+    The missing show sequencer for Plex, Jellyfin, and Emby. Automated round-robin rotation and
     chronological crossover alignment for your episodes (and their movies).
     • Configure Plex, Jellyfin, or both — playlists mirror to whichever you target
     • Two sort modes per playlist: Rotation (round-robin) or Air Date (chronological)
@@ -75,6 +75,13 @@
   <Config Name="JELLYFIN_USERNAME" Target="JELLYFIN_USERNAME" Default="" Mode="" Description="Jellyfin username. (Linearr authenticates as a user because the API-key path is broken on the playlist endpoints we need.)  Leave blank to disable Jellyfin." Type="Variable" Display="always" Required="false" Mask="false"></Config>
 
   <Config Name="JELLYFIN_PASSWORD" Target="JELLYFIN_PASSWORD" Default="" Mode="" Description="Jellyfin password. Held in memory only; the resulting access token is never written to disk.  Leave blank to disable Jellyfin." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <!-- Emby (set URL and API key to enable; leave blank to skip Emby) -->
+  <Config Name="EMBY_URL" Target="EMBY_URL" Default="" Mode="" Description="Emby server URL (LAN IP). Example: http://192.168.1.100:8096  Leave blank to disable Emby." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+
+  <Config Name="EMBY_API_KEY" Target="EMBY_API_KEY" Default="" Mode="" Description="Emby API key. Create one in Emby Dashboard → Advanced → API Keys.  Leave blank to disable Emby." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+
+  <Config Name="EMBY_USERNAME" Target="EMBY_USERNAME" Default="" Mode="" Description="Emby username (optional). Determines which user owns managed playlists.  Leave blank to disable Emby." Type="Variable" Display="always" Required="false" Mask="false"></Config>
 
   <Config Name="WATCHED_KEEP" Target="WATCHED_KEEP" Default="2" Mode="" Description="How many recently-watched episodes to leave in each playlist as a fall-asleep buffer. Older watched episodes are pruned." Type="Variable" Display="always" Required="false" Mask="false">2</Config>
 

@@ -51,11 +51,11 @@
              value="{{ franchise_name | e }}"
              style="flex:1">
       {% if backends|length > 1 %}
-      <div class="pill-toggle pill-toggle-3" id="backendPicker">
-        {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
-          <label class="pill {% if val == default_backend %}is-active{% endif %}">
-            <input type="radio" name="backend" value="{{ val }}" {% if val == default_backend %}checked{% endif %}>
-            <span>{{ lbl }}</span>
+      <div class="pill-toggle" id="backendPicker">
+        {% for be in backends %}
+          <label class="pill is-active">
+            <input type="checkbox" name="backend" value="{{ be }}" checked>
+            <span>{{ {"plex":"Plex","jellyfin":"Jellyfin","emby":"Emby"}.get(be, be) }}</span>
           </label>
         {% endfor %}
       </div>
@@ -145,8 +145,10 @@ function getBackend() {
     var hidden = document.getElementById('backendValue');
     return hidden ? hidden.value : 'plex';
   }
-  var r = picker.querySelector('input[name="backend"]:checked');
-  return r ? r.value : 'plex';
+  var checked = picker.querySelectorAll('input[name="backend"]:checked');
+  var vals = [];
+  checked.forEach(function(cb) { vals.push(cb.value); });
+  return vals.join(',') || 'plex';
 }
 
 function escapeHtml(str) {
@@ -546,10 +548,8 @@ var backendPicker = document.getElementById('backendPicker');
 if (backendPicker) {
   backendPicker.addEventListener('change', function(e) {
     if (e.target.name !== 'backend') return;
-    backendPicker.querySelectorAll('.pill').forEach(function(p) {
-      var r = p.querySelector('input[name="backend"]');
-      if (r) p.classList.toggle('is-active', r.checked);
-    });
+    var pill = e.target.closest('.pill');
+    if (pill) pill.classList.toggle('is-active', e.target.checked);
   });
 }
 

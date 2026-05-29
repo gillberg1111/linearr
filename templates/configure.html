@@ -93,18 +93,17 @@
         {% if AVAILABLE_BACKENDS|length > 1 %}
         <div class="options-group">
           <span class="sort-mode-label">Push to</span>
-          <div class="pill-toggle pill-toggle-3">
-            {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
-              <label class="pill {% if backend == val %}is-active{% endif %}">
-                <input type="radio" name="backend" value="{{ val }}"
-                       {% if backend == val %}checked{% endif %}>
-                <span>{{ lbl }}</span>
+          <div class="pill-toggle" id="backendPicker">
+            {% for be in AVAILABLE_BACKENDS %}
+              <label class="pill is-active">
+                <input type="checkbox" name="backend" value="{{ be }}" checked>
+                <span>{{ {"plex":"Plex","jellyfin":"Jellyfin","emby":"Emby"}.get(be, be) }}</span>
               </label>
             {% endfor %}
           </div>
         </div>
         {% else %}
-          <input type="hidden" name="backend" value="{{ backend }}">
+          <input type="hidden" name="backend" value="{{ AVAILABLE_BACKENDS[0] }}">
         {% endif %}
 
         <div class="options-group">
@@ -143,7 +142,7 @@
         </div>
         <span class="hint" style="width:100%;margin-top:0.3rem">
           When on, watched episodes beyond your
-          WATCHED_KEEP buffer are removed on each sync.
+          recently-watched buffer are removed on each sync.
           Turn off to keep all episodes regardless of watch state.
         </span>
 
@@ -173,10 +172,10 @@
           {% endfor %}
         </ul>
         <p class="warning-banner-foot">
-          These will only appear in the {{ 'other side' if backend == 'both' else 'chosen' }} playlist.
+          These will only appear in the {{ 'backends they exist on' if (',' in backend) else 'chosen' }} playlist.
           To include them on every backend, either add them to the missing library —
           Linearr will auto-detect on the next sync —
-          or switch the <em>Push to</em> pill above to a single backend.
+          or uncheck the missing backend in the <em>Push to</em> pills above.
         </p>
       </div>
     {% endif %}
@@ -352,7 +351,7 @@
           <details class="exclude-section"
                    data-show="{{ _ep_id or rk }}"
                    data-backend="{{ _ep_be }}"
-                   data-is-both="{{ 'true' if (backend == 'both' and c and c.plex_rating_key and c.jellyfin_rating_key) else '' }}">
+                   data-is-both="{{ 'true' if (AVAILABLE_BACKENDS|length > 1 and c and (c.plex_rating_key or c.jellyfin_rating_key or c.emby_rating_key)) else '' }}">
             <summary class="exclude-summary">
               <span class="exclude-summary-label">Exclude individual episodes</span>
               <span class="hint exclude-summary-count">
@@ -378,7 +377,7 @@
 
     <div class="commit-bar">
       <div class="commit-card">
-        <button type="submit" name="action" value="commit" class="btn btn-primary btn-large">
+        <button type="submit" name="action" value="commit" id="commitBtn" class="btn btn-primary btn-large">
           <img src="{{ url_for('static', filename='favicon-16.png') }}" alt="" width="16" height="16" style="opacity:0.9;">
           {% if mode == 'new' %}Create Playlist{% else %}Add to Playlist{% endif %}
         </button>
@@ -450,11 +449,26 @@
         const html = await resp.text();
         document.getElementById('previewContainer').innerHTML = html;
         initPreviewPagination();
+        updateCommitBtn();
       } catch (e) {
         // swallow — next change will retry
       } finally {
         section.classList.remove('is-updating');
       }
+    }
+
+    // Disable "Create/Add to Playlist" (translucent) when there's nothing to
+    // create: no "Push to" backend selected, or the preview is empty (no shows
+    // / every episode excluded). Mirrors the show-picker's Configure button.
+    function anyBackendSelected() {
+      if (document.querySelector('input[type="hidden"][name="backend"]')) return true;
+      return document.querySelectorAll('input[name="backend"]:checked').length > 0;
+    }
+    function updateCommitBtn() {
+      const btn = document.getElementById('commitBtn');
+      if (!btn) return;
+      const hasEpisodes = document.querySelectorAll('#previewList li').length > 0;
+      btn.disabled = !anyBackendSelected() || !hasEpisodes;
     }
 
     // ---------- Shared debounce (used by config + exclusion pickers) ----------
@@ -509,16 +523,38 @@
       document.querySelectorAll('input[name^="weight_"]').forEach((el) => {
         el.addEventListener('change', scheduleUpdate);
       });
-      document.querySelectorAll('input[name="backend"]').forEach((radio) => {
-        radio.addEventListener('change', () => {
+      document.querySelectorAll('input[name="backend"]').forEach((cb) => {
+        cb.addEventListener('change', () => {
           refreshPillActive('backend');
           scheduleUpdate();
         });
       });
 
+      // Ensure at least one backend checkbox is checked on form submit.
+      document.getElementById('configForm').addEventListener('submit', function() {
+        var cbs = document.querySelectorAll('input[name="backend"]:checked');
+        if (cbs.length === 0) {
+          var first = document.querySelector('input[name="backend"]');
+          if (first) first.checked = true;
+        }
+      });
+
       // Unwatched-only checkbox
       const uw = document.getElementById('unwatchedOnly');
       if (uw) uw.addEventListener('change', scheduleUpdate);
+
+      // "Push to" backend checkboxes — reflect in pill highlight, gate the
+      // commit button immediately, and refresh the preview for the new set.
+      const backendPicker = document.getElementById('backendPicker');
+      if (backendPicker) {
+        backendPicker.addEventListener('change', (e) => {
+          if (e.target.name !== 'backend') return;
+          const pill = e.target.closest('.pill');
+          if (pill) pill.classList.toggle('is-active', e.target.checked);
+          updateCommitBtn();
+          scheduleUpdate();
+        });
+      }
 
       // Season picks, end picks, specials toggle — anything affecting episode set
       document.querySelectorAll(
@@ -605,6 +641,10 @@
         updateAllLabel();
       });
     })();
+
+    // Populate the preview immediately on load (the server renders it empty;
+    // without this the page sits at "0 episodes" until the first change).
+    fetchAndRenderPreview();
 
     // ---------- Per-episode exclusion picker (v1.2.0) ----------
     // Lazy-loaded on <details> expand. State lives in a per-show Set; the

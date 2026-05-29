@@ -2308,6 +2308,169 @@ def test_merged_franchise_list_no_duplication():
             conn.execute("DELETE FROM franchise_definitions WHERE key='mcu'")
 
 
+# --------------------------------------------------------------------------- #
+# v3.0.0 — Emby backend tests
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_backend_set_basic():
+    from media_client import parse_backend_set
+    check("parse: plex,jellyfin", parse_backend_set("plex,jellyfin") == ["plex","jellyfin"])
+    check("parse: both legacy", parse_backend_set("both") == ["plex","jellyfin"])
+    check("parse: emby single", parse_backend_set("emby") == ["emby"])
+    check("parse: all three", parse_backend_set("plex,jellyfin,emby") == ["plex","jellyfin","emby"])
+    check("parse: empty -> plex", parse_backend_set("") == ["plex"])
+    check("parse: None -> plex", parse_backend_set(None) == ["plex"])
+    check("parse: unknown dropped", parse_backend_set("plex,foo") == ["plex"])
+    check("parse: canonical order enforced",
+          parse_backend_set("emby,plex") == ["plex","emby"])
+
+
+def test_format_backend_set():
+    from media_client import format_backend_set
+    check("format: canonical", format_backend_set(["emby","plex"]) == "plex,emby")
+    check("format: dedupe", format_backend_set(["plex","plex"]) == "plex")
+    check("format: empty -> plex", format_backend_set([]) == "plex")
+    check("format: plex,jellyfin", format_backend_set(["plex","jellyfin"]) == "plex,jellyfin")
+
+
+def test_primary_backend():
+    from media_client import primary_backend
+    check("primary: emby", primary_backend("emby") == "emby")
+    check("primary: plex,emby", primary_backend("plex,emby") == "plex")
+    check("primary: jellyfin,emby", primary_backend("jellyfin,emby") == "jellyfin")
+
+
+def test_emby_delete_safety():
+    from emby_client import _check_delete_safety, EmbySafetyError
+    try:
+        _check_delete_safety("/Playlists/abc123/Items")
+    except EmbySafetyError:
+        check("emby guard: allowed DELETE passed", False)
+    else:
+        check("emby guard: allowed DELETE passed", True)
+
+    try:
+        _check_delete_safety("/Items")
+        check("emby guard: denied /Items", False)
+    except EmbySafetyError:
+        check("emby guard: denied /Items", True)
+
+    try:
+        _check_delete_safety("/Items?Ids=123")
+        check("emby guard: denied Ids", False)
+    except EmbySafetyError:
+        check("emby guard: denied Ids", True)
+
+    try:
+        _check_delete_safety("/Library/VirtualFolders")
+        check("emby guard: denied library", False)
+    except EmbySafetyError:
+        check("emby guard: denied library", True)
+
+
+def test_backends_for_csv():
+    import db as _db
+    _db.init_db()
+    with _db.connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO managed_playlists (name, backend, sort_mode, created_at) "
+            "VALUES (?,?,?,?)",
+            ("CSV Test", "plex,emby", "franchise", "2026-01-01T00:00:00"),
+        )
+        pl_id = cur.lastrowid
+    try:
+        from service import _backends_for
+        row = _db.get_playlist(pl_id)
+        result = _backends_for(row)
+        check("csv_backends: count", len(result) == 2, str(len(result)))
+        check("csv_backends: plex present", "plex" in result)
+        check("csv_backends: emby present", "emby" in result)
+        check("csv_backends: jellyfin absent", "jellyfin" not in result)
+    finally:
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE name='CSV Test'")
+
+
+def test_show_config_id_for_emby():
+    from service import ShowConfig
+    sc = ShowConfig(rating_key="rk1", title="Test",
+                    plex_rating_key="p1", jellyfin_rating_key="j1",
+                    emby_rating_key="e1",
+                    emby_movie_rating_keys=["em1","em2"])
+    check("id_for: plex", sc.id_for("plex") == "p1")
+    check("id_for: jellyfin", sc.id_for("jellyfin") == "j1")
+    check("id_for: emby", sc.id_for("emby") == "e1")
+    check("movie_ids_for: emby", sc.movie_ids_for("emby") == ["em1","em2"])
+
+
+def test_db_backend_validation():
+    import db as _db
+    try:
+        _db._validate_backend("plex,emby")
+        check("validate: plex,emby accepted", True)
+    except ValueError:
+        check("validate: plex,emby accepted", False)
+
+    try:
+        _db._validate_backend("both")
+        check("validate: both accepted", True)
+    except ValueError:
+        check("validate: both accepted", False)
+
+    try:
+        _db._validate_backend("")
+        check("validate: empty rejected", False)
+    except ValueError:
+        check("validate: empty rejected", True)
+
+    try:
+        _db._validate_backend("plex,garbage")
+        check("validate: garbage rejected", False)
+    except ValueError:
+        check("validate: garbage rejected", True)
+
+
+def test_match_franchise_empty_returns_quad():
+    """Regression: _match_franchise_to_library must return a 4-tuple
+    (plex, jellyfin, emby, missing) even when the definition has no items, so
+    the v3.0.0 callers unpacking 4 values don't crash. The empty case returns
+    early (before any backend client call), so this needs no network."""
+    import os, tempfile
+    import db as _db
+    import service as _svc
+    orig = _db.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db.DB_PATH = tmp
+        _db.init_db()
+        result = _svc._match_franchise_to_library(999999, 1, {})
+        check("match franchise empty -> 4-tuple", len(result) == 4)
+        check("match franchise empty -> ([],[],[],0)", result == ([], [], [], 0))
+    finally:
+        _db.DB_PATH = orig
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_set_playlist_image_present():
+    """v3.0.0 franchise cover art: the ABC exposes a non-abstract no-op
+    set_playlist_image, and every backend client overrides it."""
+    from media_client import MediaClient
+    check("set_playlist_image on ABC", hasattr(MediaClient, "set_playlist_image"))
+    check("set_playlist_image not abstract",
+          "set_playlist_image" not in getattr(MediaClient, "__abstractmethods__", set()))
+    import plex_client, jellyfin_client, emby_client
+    for mod, cls in (("plex_client", "PlexClient"),
+                     ("jellyfin_client", "JellyfinClient"),
+                     ("emby_client", "EmbyClient")):
+        klass = getattr(__import__(mod), cls)
+        check(f"{cls}.set_playlist_image overridden",
+              klass.set_playlist_image is not MediaClient.set_playlist_image)
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

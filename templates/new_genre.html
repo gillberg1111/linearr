@@ -20,7 +20,7 @@
              class="name-input" autofocus value="{{ prev_name or '' }}">
       <button type="submit" name="action" value="preview"
               class="btn" formnovalidate>
-        Preview matches
+        Match shows
       </button>
     </div>
 
@@ -137,12 +137,11 @@
       {% if backends|length > 1 %}
       <div class="options-group">
         <span class="sort-mode-label">Push to</span>
-        <div class="pill-toggle pill-toggle-3">
-          {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
-            <label class="pill {% if default_backend == val %}is-active{% endif %}">
-              <input type="radio" name="backend" value="{{ val }}"
-                     {% if default_backend == val %}checked{% endif %}>
-              <span>{{ lbl }}</span>
+        <div class="pill-toggle" id="genreBackendPicker">
+          {% for be in backends %}
+            <label class="pill is-active">
+              <input type="checkbox" name="backend" value="{{ be }}" checked>
+              <span>{{ {"plex":"Plex","jellyfin":"Jellyfin","emby":"Emby"}.get(be, be) }}</span>
             </label>
           {% endfor %}
         </div>
@@ -257,6 +256,18 @@
 
   <script>
   (function () {
+    // Backend "Push to" checkboxes: reflect checked state in the pill's
+    // highlight (the input itself is visually hidden via pointer-events:none,
+    // so without this unchecking gives no feedback).
+    var _genrePicker = document.getElementById('genreBackendPicker');
+    if (_genrePicker) {
+      _genrePicker.addEventListener('change', function (e) {
+        if (e.target.name !== 'backend') return;
+        var pill = e.target.closest('.pill');
+        if (pill) pill.classList.toggle('is-active', e.target.checked);
+      });
+    }
+
     var SORT_HINTS = {
       rotation:              'Round-robin: Show A → Show B → Show A → … Air date is ignored.',
       rotation_blocks:       'Block scheduling: N episodes per show before rotating to the next.',
@@ -695,12 +706,20 @@
     var createBtn  = document.querySelector('button[name="action"][value="create"]');
     var nameInput  = document.querySelector('input[name="name"]');
 
+    function anyBackendSelected() {
+      if (document.querySelector('input[type="hidden"][name="backend"]')) return true;
+      return document.querySelectorAll('input[name="backend"]:checked').length > 0;
+    }
+
     function updateCreateBtn() {
       if (!createBtn) return;
-      createBtn.disabled = !(nameInput && nameInput.value.trim() && hasMatchedShows);
+      createBtn.disabled = !(nameInput && nameInput.value.trim()
+                             && hasMatchedShows && anyBackendSelected());
     }
 
     if (nameInput) nameInput.addEventListener('input', updateCreateBtn);
+    var _backendPicker = document.getElementById('genreBackendPicker');
+    if (_backendPicker) _backendPicker.addEventListener('change', updateCreateBtn);
     updateCreateBtn();
 
     // Auto-fill name before form submit if blank

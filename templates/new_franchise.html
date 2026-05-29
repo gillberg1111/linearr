@@ -20,6 +20,9 @@
             data-franchise-name="{{ f.name }}"
             data-franchise-source="{{ f.source | default('trakt') }}"
             data-chronolists-id="{{ f.chronolists_id | default('') }}">
+        {% if f.poster %}
+          <div class="franchise-card-poster" style="background-image:url('{{ f.poster }}')"></div>
+        {% endif %}
         <div class="franchise-card-name">{{ f.name }}</div>
       </div>
     {% endfor %}
@@ -48,11 +51,11 @@
              placeholder="Auto-named if blank" class="name-input" style="flex:1;max-width:280px">
 
       {% if backends|length > 1 %}
-        <div class="pill-toggle pill-toggle-3" id="franchiseBackendPicker">
-          {% for val, lbl in [('both','Both'),('plex','Plex'),('jellyfin','Jellyfin')] %}
-            <label class="pill {% if loop.first %}is-active{% endif %}">
-              <input type="radio" name="backend" value="{{ val }}" {% if loop.first %}checked{% endif %}>
-              <span>{{ lbl }}</span>
+        <div class="pill-toggle" id="franchiseBackendPicker">
+          {% for be in backends %}
+            <label class="pill is-active">
+              <input type="checkbox" name="backend" value="{{ be }}" checked>
+              <span>{{ {"plex":"Plex","jellyfin":"Jellyfin","emby":"Emby"}.get(be, be) }}</span>
             </label>
           {% endfor %}
         </div>
@@ -94,8 +97,17 @@
 
     function getBackend() {
       if (!backendPicker) return 'plex';
-      var r = backendPicker.querySelector('input[name="backend"]:checked');
-      return r ? r.value : 'plex';
+      var checked = backendPicker.querySelectorAll('input[name="backend"]:checked');
+      var vals = [];
+      checked.forEach(function(cb) { vals.push(cb.value); });
+      return vals.join(',') || 'plex';
+    }
+
+    // True when at least one "Push to" backend is selected (a single-backend
+    // install uses a hidden input, which always counts).
+    function anyBackendSelected() {
+      if (document.querySelector('input[type="hidden"][name="backend"]')) return true;
+      return document.querySelectorAll('input[name="backend"]:checked').length > 0;
     }
 
     function setHidden(user, slug, key, name) {
@@ -122,7 +134,7 @@
         .then(function(r) { return r.text(); })
         .then(function(html) {
           previewCont.innerHTML = html;
-          createBtn.disabled = false;
+          createBtn.disabled = !anyBackendSelected();
           if (editBtn) editBtn.disabled = false;
         })
         .catch(function() {
@@ -174,10 +186,10 @@
     if (backendPicker) {
       backendPicker.addEventListener('change', function(e) {
         if (e.target.name !== 'backend') return;
-        backendPicker.querySelectorAll('.pill').forEach(function(p) {
-          var r = p.querySelector('input[name="backend"]');
-          if (r) p.classList.toggle('is-active', r.checked);
-        });
+        var pill = e.target.closest('.pill');
+        if (pill) pill.classList.toggle('is-active', e.target.checked);
+        // Immediate feedback: no backend selected → Create stays disabled.
+        createBtn.disabled = !anyBackendSelected();
         var tu = document.getElementById('hiddenTraktUser').value;
         var ts = document.getElementById('hiddenTraktSlug').value;
         if (tu && ts) fetchPreview(tu, ts);

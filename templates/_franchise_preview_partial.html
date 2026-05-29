@@ -28,6 +28,8 @@
           <span class="franchise-status-badge franchise-status-partial">Plex only</span>
         {% elif item.lib_status == 'jellyfin_only' %}
           <span class="franchise-status-badge franchise-status-partial">Jellyfin only</span>
+        {% elif item.lib_status == 'emby_only' %}
+          <span class="franchise-status-badge franchise-status-partial">Emby only</span>
         {% else %}
           <span class="franchise-status-badge franchise-status-missing">Not in library</span>
         {% endif %}

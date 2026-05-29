@@ -5,7 +5,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "mcu"
+    "chronolists_id": "mcu",
+    "poster": "https://image.tmdb.org/t/p/w500/vSNxAJTlD0r02V9sPYpOjqDZXUK.jpg"
   },
   {
     "key": "star_wars",
@@ -13,7 +14,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "star-wars"
+    "chronolists_id": "star-wars",
+    "poster": "https://image.tmdb.org/t/p/w500/mztdt3y6GBsJR69zHtszFezTCLT.jpg"
   },
   {
     "key": "star_trek",
@@ -21,7 +23,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "star-trek"
+    "chronolists_id": "star-trek",
+    "poster": "https://image.tmdb.org/t/p/w500/tsbBTABtNgu0ycsFpnIhiQ5woOM.jpg"
   },
   {
     "key": "doctor_who",
@@ -29,7 +32,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "doctor-who"
+    "chronolists_id": "doctor-who",
+    "poster": "https://image.tmdb.org/t/p/w500/m6G92osOtSeXwjSfL21jZCUOvxe.jpg"
   },
   {
     "key": "arrowverse",
@@ -37,7 +41,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "dctv"
+    "chronolists_id": "dctv",
+    "poster": "https://image.tmdb.org/t/p/w500/u8ZHFj1jC384JEkTt3vNg1DfWEb.jpg"
   },
   {
     "key": "dceu",
@@ -45,7 +50,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "dceu"
+    "chronolists_id": "dceu",
+    "poster": "https://image.tmdb.org/t/p/w500/v4ncgZjG2Zu8ZW5al1vIZTsSjqX.jpg"
   },
   {
     "key": "stargate",
@@ -53,7 +59,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "stargate"
+    "chronolists_id": "stargate",
+    "poster": "https://image.tmdb.org/t/p/w500/4T6Po0XnZlevmhfPh3ZfEs5butR.jpg"
   },
   {
     "key": "buffy_angel",
@@ -61,7 +68,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "buffy"
+    "chronolists_id": "buffy",
+    "poster": "https://image.tmdb.org/t/p/w500/y7fVZkyheCEQHDUEHwNmYENGfT2.jpg"
   },
   {
     "key": "mission_impossible",
@@ -69,7 +77,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "mi"
+    "chronolists_id": "mi",
+    "poster": "https://image.tmdb.org/t/p/w500/l5uxY5m5OInWpcExIpKG6AR3rgL.jpg"
   },
   {
     "key": "harry_potter",
@@ -77,7 +86,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "harry-potter"
+    "chronolists_id": "harry-potter",
+    "poster": "https://image.tmdb.org/t/p/w500/fLsaFKExQt05yqjoAvKsmOMYvJR.jpg"
   },
   {
     "key": "chicago",
@@ -85,7 +95,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "chicago"
+    "chronolists_id": "chicago",
+    "poster": "https://image.tmdb.org/t/p/w500/r915sk2JpthZSjHEgZKifWxgo6L.jpg"
   },
   {
     "key": "bsg",
@@ -93,7 +104,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "bsg"
+    "chronolists_id": "bsg",
+    "poster": "https://image.tmdb.org/t/p/w500/wGCdHYsx0aY5Z5236XTC6JQMpNn.jpg"
   },
   {
     "key": "walking_dead",
@@ -101,7 +113,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "walking-dead"
+    "chronolists_id": "walking-dead",
+    "poster": "https://image.tmdb.org/t/p/w500/l7N9aS6VyYvjelKoCB2eZge0Qky.jpg"
   },
   {
     "key": "underworld",
@@ -109,7 +122,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "underworld"
+    "chronolists_id": "underworld",
+    "poster": "https://image.tmdb.org/t/p/w500/yW9gF7rGn8EoV8B8rxOx1xjxVZf.jpg"
   },
   {
     "key": "xmen_a",
@@ -117,7 +131,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "xmen-a"
+    "chronolists_id": "xmen-a",
+    "poster": "https://image.tmdb.org/t/p/w500/hNEokmUke0dazoBhttFN0o3L7Xv.jpg"
   },
   {
     "key": "xmen_b",
@@ -125,7 +140,8 @@
     "source": "chronolists",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": "xmen-b"
+    "chronolists_id": "xmen-b",
+    "poster": "https://image.tmdb.org/t/p/w500/hNEokmUke0dazoBhttFN0o3L7Xv.jpg"
   },
   {
     "key": "dcu",
@@ -141,7 +157,8 @@
     "source": "trakt",
     "trakt_user": "Strangerer",
     "trakt_slug": "jurassic-park-jurassic-world-trilogies",
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/maFjKnJ62hDQ9E66dKqDZgbUy0H.jpg"
   },
   {
     "key": "monsterverse",
@@ -149,7 +166,8 @@
     "source": "trakt",
     "trakt_user": "superfabio",
     "trakt_slug": "monsterverse",
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/tphkjmQq8WebuVwNXelmjLUXuPJ.jpg"
   },
   {
     "key": "john_wick",
@@ -157,7 +175,8 @@
     "source": "local",
     "trakt_user": null,
     "trakt_slug": null,
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/wXqWR7dHncNRbxoEGybEy7QTe9h.jpg"
   },
   {
     "key": "alien_predator",
@@ -165,7 +184,8 @@
     "source": "trakt",
     "trakt_user": "prey33",
     "trakt_slug": "alien-predator-timeline",
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/2XDQa6EmFHSA37j1t0w88vpWqj9.jpg"
   },
   {
     "key": "conjuring",
@@ -173,7 +193,8 @@
     "source": "trakt",
     "trakt_user": "zviznemte",
     "trakt_slug": "the-conjuring-universe-timeline",
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/sFC1ElvoKGdHJIWRpNB3xWJ9lJA.jpg"
   },
   {
     "key": "james_bond",
@@ -181,6 +202,7 @@
     "source": "trakt",
     "trakt_user": "Trakt",
     "trakt_slug": "james-bond-collection",
-    "chronolists_id": null
+    "chronolists_id": null,
+    "poster": "https://image.tmdb.org/t/p/w500/f9HsemSsBEHN5eoMble1bj6fDxs.jpg"
   }
 ]

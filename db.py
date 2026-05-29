@@ -76,9 +76,21 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-VALID_BACKENDS = ("plex", "jellyfin", "both")
+VALID_BACKENDS = ("plex", "jellyfin", "emby", "both")
 VALID_PLAYLIST_TYPES = ("manual", "genre", "franchise")
 VALID_FRANCHISE_SOURCES = ("trakt", "local", "user", "chronolists")
+
+
+def _validate_backend(backend: str) -> None:
+    if not backend or not backend.strip():
+        raise ValueError("Empty or invalid backend set")
+    from media_client import ALL_BACKENDS
+    tokens = [t.strip() for t in backend.replace(";", ",").split(",") if t.strip()]
+    if not tokens:
+        raise ValueError(f"Empty backend set")
+    for t in tokens:
+        if t not in ALL_BACKENDS and t != "both":
+            raise ValueError(f"Unknown backend token: {t!r}")
 
 
 def init_db() -> None:
@@ -91,6 +103,7 @@ def init_db() -> None:
                 name                 TEXT NOT NULL UNIQUE,
                 plex_rating_key      TEXT,
                 jellyfin_playlist_id TEXT,
+                emby_playlist_id     TEXT,
                 backend              TEXT NOT NULL DEFAULT 'plex'
                     CHECK(backend IN ('plex','jellyfin','both')),
                 playlist_type        TEXT NOT NULL DEFAULT 'manual'
@@ -137,6 +150,8 @@ def init_db() -> None:
                 include_movies           INTEGER NOT NULL DEFAULT 0,
                 movie_rating_keys        TEXT    NOT NULL DEFAULT '',
                 jellyfin_movie_item_ids  TEXT    NOT NULL DEFAULT '',
+                emby_show_item_id     TEXT,
+                emby_movie_item_ids   TEXT NOT NULL DEFAULT '',
                 excluded_episode_keys    TEXT    NOT NULL DEFAULT '',
                 is_excluded              INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (playlist_id, show_rating_key),
@@ -365,6 +380,8 @@ def init_db() -> None:
                     plex_item_id      TEXT,
                     jellyfin_found    INTEGER NOT NULL DEFAULT 0,
                     jellyfin_item_id  TEXT,
+                    emby_found        INTEGER NOT NULL DEFAULT 0,
+                    emby_item_id      TEXT,
                     UNIQUE(franchise_item_id, playlist_id),
                     FOREIGN KEY (franchise_item_id) REFERENCES franchise_items(id)
                         ON DELETE CASCADE,
@@ -397,6 +414,68 @@ def init_db() -> None:
                 "ALTER TABLE franchise_definitions ADD COLUMN auto_discovered INTEGER NOT NULL DEFAULT 0"
             )
 
+        # v3.0.0 — franchise card poster (TMDB), resolved at fetch time so
+        # auto-discovered Chronolists franchises get a card poster too.
+        if "poster_url" not in _columns(conn, "franchise_definitions"):
+            conn.execute(
+                "ALTER TABLE franchise_definitions ADD COLUMN poster_url TEXT"
+            )
+
+        # v3.0.0 — Emby columns
+        pl_shows_cols = _columns(conn, "playlist_shows")
+        if "emby_show_item_id" not in pl_shows_cols:
+            conn.execute("ALTER TABLE playlist_shows ADD COLUMN emby_show_item_id TEXT")
+        if "emby_movie_item_ids" not in pl_shows_cols:
+            conn.execute("ALTER TABLE playlist_shows ADD COLUMN emby_movie_item_ids TEXT NOT NULL DEFAULT ''")
+
+        managed_pl_cols_v3 = _columns(conn, "managed_playlists")
+        if "emby_playlist_id" not in managed_pl_cols_v3:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN emby_playlist_id TEXT")
+
+        # Relax backend CHECK from enum to CSV set (SQLite requires rebuild)
+        existing_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='managed_playlists'"
+        ).fetchone()
+        if existing_sql and "both" in (existing_sql["sql"] or ""):
+            conn.executescript("""
+                PRAGMA foreign_keys=OFF;
+                BEGIN;
+                CREATE TABLE managed_playlists_new (
+                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name                 TEXT NOT NULL UNIQUE,
+                    plex_rating_key      TEXT,
+                    jellyfin_playlist_id TEXT,
+                    emby_playlist_id     TEXT,
+                    backend              TEXT NOT NULL DEFAULT 'plex',
+                    playlist_type        TEXT NOT NULL DEFAULT 'manual'
+                        CHECK(playlist_type IN ('manual','genre','franchise')),
+                    genre_filter         TEXT,
+                    created_at           TEXT NOT NULL,
+                    sort_mode            TEXT NOT NULL DEFAULT 'rotation',
+                    block_size           INTEGER NOT NULL DEFAULT 1,
+                    shuffle_seed         INTEGER,
+                    unwatched_only       INTEGER NOT NULL DEFAULT 0,
+                    auto_sync            INTEGER NOT NULL DEFAULT 1,
+                    franchise_definition_id INTEGER,
+                    pruning_enabled      INTEGER NOT NULL DEFAULT 1,
+                    rule_mode            TEXT NOT NULL DEFAULT 'genre',
+                    last_stats           TEXT
+                );
+                INSERT INTO managed_playlists_new SELECT * FROM managed_playlists;
+                DROP TABLE managed_playlists;
+                ALTER TABLE managed_playlists_new RENAME TO managed_playlists;
+                PRAGMA foreign_key_check;
+                COMMIT;
+                PRAGMA foreign_keys=ON;
+            """)
+
+        # Emby columns in franchise_match_state
+        fms_cols = _columns(conn, "franchise_match_state")
+        if "emby_found" not in fms_cols:
+            conn.execute("ALTER TABLE franchise_match_state ADD COLUMN emby_found INTEGER NOT NULL DEFAULT 0")
+        if "emby_item_id" not in fms_cols:
+            conn.execute("ALTER TABLE franchise_match_state ADD COLUMN emby_item_id TEXT")
+
 
 def create_playlist(
     name: str,
@@ -408,7 +487,7 @@ def create_playlist(
     genre_filter: str | None = None,
 ) -> int:
     if backend not in VALID_BACKENDS:
-        raise ValueError(f"Invalid backend: {backend!r}. Must be one of {VALID_BACKENDS}")
+        _validate_backend(backend)
     if playlist_type not in VALID_PLAYLIST_TYPES:
         raise ValueError(f"Invalid playlist_type: {playlist_type!r}. Must be one of {VALID_PLAYLIST_TYPES}")
     with connection() as conn:
@@ -519,7 +598,7 @@ def set_jellyfin_playlist_id(playlist_id: int, jellyfin_id: str | None) -> None:
 
 def set_backend(playlist_id: int, backend: str) -> None:
     if backend not in VALID_BACKENDS:
-        raise ValueError(f"Invalid backend: {backend!r}. Must be one of {VALID_BACKENDS}")
+        _validate_backend(backend)
     with connection() as conn:
         conn.execute(
             "UPDATE managed_playlists SET backend = ? WHERE id = ?",
@@ -584,6 +663,40 @@ def set_jellyfin_movie_item_ids(
     with connection() as conn:
         conn.execute(
             """UPDATE playlist_shows SET jellyfin_movie_item_ids = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (s, playlist_id, show_rating_key),
+        )
+
+
+def set_emby_playlist_id(playlist_id: int, emby_id: str | None) -> None:
+    with connection() as conn:
+        conn.execute(
+            "UPDATE managed_playlists SET emby_playlist_id = ? WHERE id = ?",
+            (emby_id, playlist_id),
+        )
+
+
+def set_emby_show_item_id(
+    playlist_id: int, show_rating_key: str, emby_show_item_id: str | None
+) -> None:
+    with connection() as conn:
+        conn.execute(
+            """UPDATE playlist_shows SET emby_show_item_id = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (emby_show_item_id, playlist_id, show_rating_key),
+        )
+
+
+def set_emby_movie_item_ids(
+    playlist_id: int, show_rating_key: str, emby_movie_item_ids: list[str] | str
+) -> None:
+    if isinstance(emby_movie_item_ids, str):
+        s = emby_movie_item_ids
+    else:
+        s = ",".join(str(k) for k in emby_movie_item_ids if k)
+    with connection() as conn:
+        conn.execute(
+            """UPDATE playlist_shows SET emby_movie_item_ids = ?
                WHERE playlist_id = ? AND show_rating_key = ?""",
             (s, playlist_id, show_rating_key),
         )
@@ -654,6 +767,11 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
                 jf_movie_keys_str = jf_movie_keys
             else:
                 jf_movie_keys_str = ",".join(str(k) for k in jf_movie_keys if k)
+            emby_movie_keys = cfg.get("emby_movie_item_ids") or []
+            if isinstance(emby_movie_keys, str):
+                emby_movie_keys_str = emby_movie_keys
+            else:
+                emby_movie_keys_str = ",".join(str(k) for k in emby_movie_keys if k)
             # Default plex_show_item_id: if not supplied AND the PK looks
             # like a Plex ratingKey (digits only), assume Plex. Otherwise
             # caller must set it explicitly. This keeps single-backend
@@ -671,16 +789,19 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
             conn.execute(
                 """INSERT OR IGNORE INTO playlist_shows
                    (playlist_id, show_rating_key, plex_show_item_id, jellyfin_show_item_id,
+                    emby_show_item_id,
                     show_title, show_thumb, position, weight,
                     start_season, end_season, include_specials,
                     include_movies, movie_rating_keys, jellyfin_movie_item_ids,
+                    emby_movie_item_ids,
                     excluded_episode_keys)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     playlist_id,
                     cfg["rating_key"],
                     plex_show_id,
                     cfg.get("jellyfin_show_item_id"),
+                    cfg.get("emby_show_item_id"),
                     cfg["title"],
                     cfg.get("thumb"),
                     next_pos,
@@ -691,6 +812,7 @@ def add_shows(playlist_id: int, configs: list[dict]) -> None:
                     1 if cfg.get("include_movies") else 0,
                     movie_keys_str,
                     jf_movie_keys_str,
+                    emby_movie_keys_str,
                     excl_str,
                 ),
             )
@@ -938,20 +1060,24 @@ def upsert_franchise_definition(
     content_hash: str = "",
     item_count: int = 0,
     auto_discovered: int = 0,
+    poster_url: str | None = None,
 ) -> int:
     with connection() as conn:
         existing = conn.execute(
             "SELECT id FROM franchise_definitions WHERE key = ?", (key,)
         ).fetchone()
         if existing:
+            # COALESCE keeps an existing poster when this call passes None
+            # (e.g. the hash-match early return that doesn't re-resolve items).
             conn.execute(
                 """UPDATE franchise_definitions
                    SET name=?, source=?, trakt_user=?, trakt_slug=?,
                        chronolists_id=?,
-                       fetched_at=?, content_hash=?, item_count=?
+                       fetched_at=?, content_hash=?, item_count=?,
+                       poster_url=COALESCE(?, poster_url)
                    WHERE key=?""",
                 (name, source, trakt_user, trakt_slug, chronolists_id,
-                 fetched_at, content_hash, item_count, key),
+                 fetched_at, content_hash, item_count, poster_url, key),
             )
             return existing["id"]
         else:
@@ -959,11 +1085,11 @@ def upsert_franchise_definition(
                 """INSERT INTO franchise_definitions
                    (key, name, source, trakt_user, trakt_slug,
                     chronolists_id, fetched_at, content_hash, item_count,
-                    auto_discovered)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    auto_discovered, poster_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (key, name, source, trakt_user, trakt_slug,
                  chronolists_id, fetched_at, content_hash, item_count,
-                 auto_discovered),
+                 auto_discovered, poster_url),
             )
             return cur.lastrowid
 
@@ -1043,22 +1169,28 @@ def upsert_franchise_match_state(
     plex_item_id: str | None,
     jellyfin_found: bool,
     jellyfin_item_id: str | None,
+    emby_found: bool = False,
+    emby_item_id: str | None = None,
 ) -> None:
     with connection() as conn:
         conn.execute(
             """INSERT INTO franchise_match_state
                (franchise_item_id, playlist_id,
                 plex_found, plex_item_id,
-                jellyfin_found, jellyfin_item_id)
-               VALUES (?, ?, ?, ?, ?, ?)
+                jellyfin_found, jellyfin_item_id,
+                emby_found, emby_item_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(franchise_item_id, playlist_id) DO UPDATE SET
                  plex_found=excluded.plex_found,
                  plex_item_id=excluded.plex_item_id,
                  jellyfin_found=excluded.jellyfin_found,
-                 jellyfin_item_id=excluded.jellyfin_item_id""",
+                 jellyfin_item_id=excluded.jellyfin_item_id,
+                 emby_found=excluded.emby_found,
+                 emby_item_id=excluded.emby_item_id""",
             (franchise_item_id, playlist_id,
              int(plex_found), plex_item_id,
-             int(jellyfin_found), jellyfin_item_id),
+             int(jellyfin_found), jellyfin_item_id,
+             int(emby_found), emby_item_id),
         )
 
 

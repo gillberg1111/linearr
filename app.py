@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.5.0"
+__version__ = "3.0.0"
 
 import logging
 import os
@@ -28,9 +28,13 @@ import scheduler  # noqa: E402
 import service  # noqa: E402
 import json as _json  # noqa: E402
 from media_client import (  # noqa: E402
+    ALL_BACKENDS,
     available_backends,
+    format_backend_set,
     get_client,
     normalize_title,
+    parse_backend_set,
+    primary_backend,
     titles_match,
 )
 from rotation import VALID_SORT_MODES  # noqa: E402
@@ -120,6 +124,7 @@ def _aggregated_shows() -> list[dict]:
                 "thumb_backend": backend if s.thumb else None,
                 "plex_rating_key": s.rating_key if backend == "plex" else None,
                 "jellyfin_rating_key": s.rating_key if backend == "jellyfin" else None,
+                "emby_rating_key": s.rating_key if backend == "emby" else None,
                 "backends": {backend},
             }
             seen.setdefault(nk, []).append(new_idx)
@@ -136,10 +141,12 @@ def _lookup_show_record(aggregated: list[dict], rating_key: str) -> dict | None:
     for r in aggregated:
         if r["rating_key"] == rating_key:
             return r
-        # Same record might be addressed via either ID when the user has both:
-        if r.get("plex_rating_key") == rating_key or r.get("jellyfin_rating_key") == rating_key:
+        # Same record might be addressed via any backend ID:
+        if (r.get("plex_rating_key") == rating_key
+                or r.get("jellyfin_rating_key") == rating_key
+                or r.get("emby_rating_key") == rating_key):
             return r
-        return None
+    return None
 
 
 # Module-level cache of per-backend library lookup dicts for franchise preview
@@ -148,11 +155,17 @@ _franchise_lib_cache: dict[str, tuple[float, dict]] = {}
 _FRANCHISE_LIB_CACHE_TTL = 60.0
 
 
-def _franchise_library_cache(backend: str) -> dict:
-    """Return cached lookup dicts for `backend`, rebuilding if missing or stale.
+def _franchise_library_cache(backend: str) -> dict | None:
+    """Return a cached full backend match-cache for `backend`, rebuilding if
+    missing or stale.
 
-    Returns dict with keys: movie_tmdb, movie_ty, show_tvdb, show_ty.
-    On error, returns empty dicts (caller treats as "nothing found").
+    This is the SAME cache shape the real franchise matcher uses
+    (`service._build_backend_cache`) — including a per-show `episode_cache` —
+    so the preview resolves the actual episode/movie items rather than merely
+    checking whether a show exists. The cache (and its accumulated
+    episode_cache) is held for `_FRANCHISE_LIB_CACHE_TTL` so previewing several
+    franchises in succession stays fast. Returns None on error (caller treats
+    as "nothing found" for that backend).
     """
     import time as _time
     now = _time.monotonic()
@@ -160,19 +173,10 @@ def _franchise_library_cache(backend: str) -> dict:
     if cached and (now - cached[0]) < _FRANCHISE_LIB_CACHE_TTL:
         return cached[1]
     try:
-        _cl = get_client(backend)
-        _movies = _cl.list_all_movies()
-        _shows = _cl.list_all_shows()
-        data = {
-            "movie_tmdb": {m.tmdb_id: True for m in _movies if m.tmdb_id},
-            "movie_ty":   {(service._normalize_for_match(m.title), m.year): True for m in _movies},
-            "show_tvdb":  {int(s.tvdb_id): True for s in _shows if s.tvdb_id},
-            "show_tmdb":  {int(s.tmdb_id): True for s in _shows if s.tmdb_id},
-            "show_ty":    {(service._normalize_for_match(s.title), s.year): True for s in _shows},
-        }
+        data = service._build_backend_cache(backend, get_client(backend))
     except Exception:
         log.warning("franchise lib cache rebuild failed for %s", backend, exc_info=True)
-        data = {"movie_tmdb": {}, "movie_ty": {}, "show_tvdb": {}, "show_ty": {}}
+        data = None
     _franchise_lib_cache[backend] = (now, data)
     return data
 
@@ -221,6 +225,11 @@ def _merged_franchise_list() -> list[dict]:
             f["chronolists_id"] = db_defn.get("chronolists_id")
             f["trakt_user"] = None
             f["trakt_slug"] = None
+        # Prefer the precomputed static poster; fall back to a poster resolved
+        # and stored on the DB definition (e.g. after first fetch).
+        if not f.get("poster") and db_defn and db_defn.get("poster_url"):
+            f = dict(f)
+            f["poster"] = db_defn["poster_url"]
         merged.append(f)
 
     static_keys = {f["key"] for f in static}
@@ -233,6 +242,7 @@ def _merged_franchise_list() -> list[dict]:
                 "chronolists_id": d.get("chronolists_id"),
                 "trakt_user": None,
                 "trakt_slug": None,
+                "poster": d.get("poster_url"),
             })
 
     return merged
@@ -261,7 +271,9 @@ def _parse_configs_from_form(
     """Pull per-show fields out of the configure form.
 
     Field names: start_<rk>, end_<rk>, specials_<rk>, include_movies_<rk>,
-    movies_<rk> (multi-valued), jf_movies_<rk> (multi-valued — Jellyfin movie IDs).
+    movies_<rk> (multi-valued — Plex movie IDs),
+    jf_movies_<rk> (multi-valued — Jellyfin movie IDs),
+    emby_movies_<rk> (multi-valued — Emby movie IDs).
     """
     configs: list[ShowConfig] = []
     for rk in show_keys:
@@ -271,6 +283,7 @@ def _parse_configs_from_form(
         inc_movies = form.get(f"include_movies_{rk}", "")
         selected_movies = form.getlist(f"movies_{rk}")
         selected_jf_movies = form.getlist(f"jf_movies_{rk}")
+        selected_emby_movies = form.getlist(f"emby_movies_{rk}")
         try:
             start_i = max(1, int(start))
         except ValueError:
@@ -282,12 +295,11 @@ def _parse_configs_from_form(
         if end_i is not None and end_i < start_i:
             end_i = None
 
-        # Aggregated lookup gives us both Plex and Jellyfin IDs (when both
-        # backends have the show). When only one backend is configured,
-        # aggregated may be None and we fall back to ShowConfig's __post_init__
-        # auto-fill (numeric rating_key → plex_rating_key).
+        # Aggregated lookup gives us backend IDs. When no aggregated list,
+        # fall back to ShowConfig's __post_init__ auto-fill.
         plex_id = None
         jf_id = None
+        emby_id = None
         title = ""
         thumb = None
         if aggregated:
@@ -295,6 +307,7 @@ def _parse_configs_from_form(
             if rec:
                 plex_id = rec.get("plex_rating_key")
                 jf_id = rec.get("jellyfin_rating_key")
+                emby_id = rec.get("emby_rating_key")
                 title = rec.get("title") or ""
                 thumb = rec.get("thumb")
 
@@ -315,7 +328,9 @@ def _parse_configs_from_form(
                 movie_rating_keys=[k for k in selected_movies if k],
                 plex_rating_key=plex_id,
                 jellyfin_rating_key=jf_id,
+                emby_rating_key=emby_id,
                 jellyfin_movie_rating_keys=[k for k in selected_jf_movies if k],
+                emby_movie_rating_keys=[k for k in selected_emby_movies if k],
                 excluded_episodes=excluded,
                 weight=weight_i,
             )
@@ -326,18 +341,13 @@ def _parse_configs_from_form(
 def _missing_side_shows(
     configs: list[ShowConfig], backend_choice: str, available: list[str]
 ) -> list[dict]:
-    """Return [{title, missing}] for shows that lack an id on a targeted backend.
-
-    Empty when only one backend is configured (no triple-pill in the UI, so
-    no concept of missing-side). Empty when backend_choice is single and all
-    shows have that side's id.
-    """
     if len(available) < 2:
         return []
     out: list[dict] = []
-    target_backends = ["plex", "jellyfin"] if backend_choice == "both" else [backend_choice]
+    BACKEND_LABEL = {"plex": "Plex", "jellyfin": "Jellyfin", "emby": "Emby"}
+    target_backends = parse_backend_set(backend_choice)
     for tb in target_backends:
-        label = "Plex" if tb == "plex" else "Jellyfin"
+        label = BACKEND_LABEL.get(tb, tb.capitalize())
         for c in configs:
             if c.id_for(tb) is None:
                 out.append({
@@ -348,41 +358,50 @@ def _missing_side_shows(
     return out
 
 
-def _gather_season_meta(configs: list[ShowConfig], primary_backend: str) -> dict:
-    """Per-show {summary, seasons, movies} keyed by ShowConfig.rating_key.
-
-    `primary_backend` is the backend we query for season/movie metadata in the
-    UI. For 'both' playlists we still use one backend's metadata for the
-    configure page (typically Plex, since it's more featureful for movies).
-    Jellyfin-only shows fall back to the Jellyfin backend automatically.
-    """
-    out: dict = {}
-    client_primary = get_client(primary_backend) if primary_backend in available_backends() else None
-    client_jf = get_client("jellyfin") if "jellyfin" in available_backends() else None
-
-    for cfg in configs:
-        # Pick the backend that actually has this show.
-        if primary_backend == "plex" and cfg.plex_rating_key and client_primary:
-            tb, target_id, client = "plex", cfg.plex_rating_key, client_primary
-        elif cfg.jellyfin_rating_key and client_jf:
-            tb, target_id, client = "jellyfin", cfg.jellyfin_rating_key, client_jf
-        elif cfg.plex_rating_key and client_primary:
-            tb, target_id, client = "plex", cfg.plex_rating_key, client_primary
-        else:
-            continue
+def _gather_season_meta(configs: list[ShowConfig], primary_be: str) -> dict:
+    backends = available_backends()
+    clients: dict[str, object] = {}
+    for be in backends:
         try:
-            summary = client.get_show_summary(target_id)
-            seasons = client.season_summaries(target_id)
-            movies = client.find_associated_movies(summary.title)
-            out[cfg.rating_key] = {
-                "summary": summary,
-                "seasons": seasons,
-                "movies": movies,
-                "source_backend": tb,
-            }
+            clients[be] = get_client(be)
         except Exception:
-            log.exception("metadata fetch failed for %s on %s", target_id, tb)
+            clients[be] = None
+
+    out: dict = {}
+    for cfg in configs:
+        for be in ALL_BACKENDS:
+            if be not in clients or clients[be] is None:
+                continue
+            target_id = cfg.id_for(be)
+            if not target_id:
+                continue
+            try:
+                summary = clients[be].get_show_summary(target_id)
+                seasons = clients[be].season_summaries(target_id)
+                movies = clients[be].find_associated_movies(summary.title)
+                out[cfg.rating_key] = {
+                    "summary": summary,
+                    "seasons": seasons,
+                    "movies": movies,
+                    "source_backend": be,
+                }
+                break
+            except Exception:
+                continue
     return out
+
+
+def _backend_from_form(form, available: list[str]) -> str:
+    """Extract backend value from form (checkbox list or legacy single value).
+    Falls back to primary backend when nothing selected."""
+    values = form.getlist("backend")
+    if not values:
+        single = form.get("backend", "").strip()
+        if single:
+            values = [single]
+    if values:
+        return format_backend_set(values)
+    return available[0] if available else "plex"
 
 
 def _next_auto_name(existing: list[str]) -> str:
@@ -457,8 +476,8 @@ def create_app() -> Flask:
             w, h = 240, 360
 
         # Dispatch: explicit b= wins; otherwise infer from shape.
-        # Plex thumb refs start with '/'. Jellyfin refs are bare GUIDs.
-        if explicit_backend in ("plex", "jellyfin"):
+        # Plex thumb refs start with '/'. Emby/Jellyfin refs are bare GUIDs.
+        if explicit_backend in ("plex", "jellyfin", "emby"):
             backend = explicit_backend
         elif ref.startswith("/"):
             backend = "plex"
@@ -533,7 +552,7 @@ def create_app() -> Flask:
                 return ("", 404)
             sort_mode = view.sort_mode
             unwatched_only = view.unwatched_only
-            preview_backend = "jellyfin" if view.backend == "jellyfin" else "plex"
+            preview_backend = primary_backend(view.backend)
             block_size = view.block_size
             shuffle_seed = view.shuffle_seed
             existing_rows = db.list_shows(playlist_id)
@@ -544,8 +563,8 @@ def create_app() -> Flask:
             if sort_mode not in VALID_SORT_MODES:
                 sort_mode = "rotation"
             unwatched_only = bool(request.form.get("unwatched_only"))
-            target_backend = request.form.get("backend") or available_backends()[0]
-            preview_backend = "jellyfin" if target_backend == "jellyfin" else "plex"
+            target_backend = _backend_from_form(request.form, available_backends())
+            preview_backend = primary_backend(target_backend)
             try:
                 block_size = max(1, int(request.form.get("block_size", "1") or "1"))
             except ValueError:
@@ -593,7 +612,8 @@ def create_app() -> Flask:
                 "SELECT name FROM managed_playlists").fetchall()]
         if not backends:
             flash("No backends configured. Set PLEX_URL+PLEX_TOKEN and/or "
-                  "JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD.", "error")
+                  "JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD and/or "
+                  "EMBY_URL+EMBY_API_KEY.", "error")
             return render_template("new.html", shows=[], prev_name="", selected=set(),
                                    default_backend="plex", existing_names=existing_names)
         try:
@@ -609,7 +629,7 @@ def create_app() -> Flask:
             shows=shows,
             prev_name=prev_name,
             selected=selected,
-            default_backend=("both" if len(backends) > 1 else backends[0]),
+            default_backend=",".join(backends),
             existing_names=existing_names,
         )
 
@@ -649,14 +669,12 @@ def create_app() -> Flask:
         pruning_enabled = max(0, min(1, int(request.form.get("pruning_enabled", "1") or "1")))
 
         backends = available_backends()
-        backend_choice = request.form.get("backend")
-        if backend_choice not in ("plex", "jellyfin", "both") or backend_choice not in backends + (["both"] if len(backends) > 1 else []):
-            backend_choice = "both" if len(backends) > 1 else (backends[0] if backends else "plex")
-        primary_backend = "plex" if "plex" in (backends if backend_choice == "both" else [backend_choice]) else "jellyfin"
+        backend_choice = _backend_from_form(request.form, backends)
+        primary_be = primary_backend(backend_choice)
 
         agg = _aggregated_shows() if len(backends) > 1 else None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
-        meta = _gather_season_meta(configs, primary_backend)
+        meta = _gather_season_meta(configs, primary_be)
         missing_shows = _missing_side_shows(configs, backend_choice, backends)
 
         if action == "commit":
@@ -741,36 +759,34 @@ def create_app() -> Flask:
         except Exception:
             agg = []
         existing_keys = {s["show_rating_key"] for s in view.shows}
-        # Also exclude by Plex or Jellyfin id match (added via other backend).
+        # Also exclude by existing backend id matches.
         existing_plex = {s.get("plex_show_item_id") for s in view.shows if s.get("plex_show_item_id")}
         existing_jf = {s.get("jellyfin_show_item_id") for s in view.shows if s.get("jellyfin_show_item_id")}
+        existing_emby = {s.get("emby_show_item_id") for s in view.shows if s.get("emby_show_item_id")}
         available = [
             r for r in agg
             if r["rating_key"] not in existing_keys
             and r.get("plex_rating_key") not in existing_plex
             and r.get("jellyfin_rating_key") not in existing_jf
+            and r.get("emby_rating_key") not in existing_emby
         ]
         # Full deduplicated list for the manual-link widget (needs shows on both sides).
         all_shows = agg
 
         # Build the missing-side warning data: any show that lacks an id
-        # for a backend this playlist targets is reported. Most actionable
-        # for 'both' playlists; harmless for single-backend ones (those will
-        # almost never have missing ids thanks to the add-time flow).
+        # for a backend this playlist targets is reported.
         missing_on = []
+        playlist_backends = parse_backend_set(view.backend)
+        BACKEND_LABEL_MAP = {"plex": "Plex", "jellyfin": "Jellyfin", "emby": "Emby"}
         for s in view.shows:
-            if view.backend in ("both", "jellyfin") and not s.get("jellyfin_show_item_id"):
-                missing_on.append({
-                    "title": s["show_title"],
-                    "missing": "Jellyfin",
-                    "rating_key": s["show_rating_key"],
-                })
-            if view.backend in ("both", "plex") and not s.get("plex_show_item_id"):
-                missing_on.append({
-                    "title": s["show_title"],
-                    "missing": "Plex",
-                    "rating_key": s["show_rating_key"],
-                })
+            for be in playlist_backends:
+                col = f"{be}_show_item_id"
+                if not s.get(col):
+                    missing_on.append({
+                        "title": s["show_title"],
+                        "missing": BACKEND_LABEL_MAP.get(be, be.capitalize()),
+                        "rating_key": s["show_rating_key"],
+                    })
 
         selected = {k for k in request.args.get("selected", "").split(",") if k}
         rules = db.list_rules(playlist_id) if view.playlist_type == "genre" else []
@@ -783,25 +799,35 @@ def create_app() -> Flask:
             if definition_id:
                 fi_list = db.list_franchise_items(definition_id)
                 match_state = db.list_franchise_match_state(playlist_id)
-                backend_val = view.backend
+                playlist_backends = parse_backend_set(view.backend)
                 for fi in fi_list:
                     ms = match_state.get(fi["id"], {})
                     plex_found = bool(ms.get("plex_found", 0))
                     jellyfin_found = bool(ms.get("jellyfin_found", 0))
+                    emby_found = bool(ms.get("emby_found", 0))
 
-                    if backend_val == "both":
-                        found = plex_found or jellyfin_found
-                        if plex_found and jellyfin_found:
+                    if len(playlist_backends) > 1:
+                        be_found = [b for b in playlist_backends
+                                    if {"plex": plex_found, "jellyfin": jellyfin_found, "emby": emby_found}.get(b)]
+                        found = len(be_found) > 0
+                        if len(be_found) == len(playlist_backends):
                             lib_status = "found"
-                        elif plex_found:
-                            lib_status = "plex_only"
-                        elif jellyfin_found:
-                            lib_status = "jellyfin_only"
-                        else:
+                        elif len(be_found) == 0:
                             lib_status = "missing"
-                    elif backend_val == "jellyfin":
+                        elif len(be_found) == 1 and be_found[0] == "plex":
+                            lib_status = "plex_only"
+                        elif len(be_found) == 1 and be_found[0] == "jellyfin":
+                            lib_status = "jellyfin_only"
+                        elif len(be_found) == 1 and be_found[0] == "emby":
+                            lib_status = "emby_only"
+                        else:
+                            lib_status = "found"
+                    elif playlist_backends[0] == "jellyfin":
                         found = jellyfin_found
                         lib_status = "found" if jellyfin_found else "missing"
+                    elif playlist_backends[0] == "emby":
+                        found = emby_found
+                        lib_status = "found" if emby_found else "missing"
                     else:
                         found = plex_found
                         lib_status = "found" if plex_found else "missing"
@@ -866,8 +892,8 @@ def create_app() -> Flask:
         action = request.form.get("action", "preview")
         agg = _aggregated_shows() if len(available_backends()) > 1 else None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
-        primary_backend = "jellyfin" if view.backend == "jellyfin" else "plex"
-        meta = _gather_season_meta(configs, primary_backend)
+        primary_be = primary_backend(view.backend)
+        meta = _gather_season_meta(configs, primary_be)
         missing_shows = _missing_side_shows(configs, view.backend, available_backends())
 
         if action == "commit":
@@ -1010,11 +1036,7 @@ def create_app() -> Flask:
         name = (request.form.get("name") or "").strip()
         genres_raw = (request.form.get("genres") or "").strip()
         genre_list = [g.strip() for g in genres_raw.split(",") if g.strip()]
-        backend_choice = request.form.get("backend") or (
-            "both" if len(backends) > 1 else backends[0]
-        )
-        if backend_choice not in ("plex", "jellyfin", "both"):
-            backend_choice = backends[0]
+        backend_choice = _backend_from_form(request.form, backends)
         sort_mode = request.form.get("sort_mode", "rotation")
         if sort_mode not in VALID_SORT_MODES:
             sort_mode = "rotation"
@@ -1027,7 +1049,7 @@ def create_app() -> Flask:
         rule_mode = (request.form.get("rule_mode") or "genre").strip()
 
         action = request.form.get("action", "preview")
-        target_backends = ["plex", "jellyfin"] if backend_choice == "both" else [backend_choice]
+        target_backends = parse_backend_set(backend_choice)
 
         # Per-show weights submitted from the genre creation form (rotation_weighted only).
         weights_from_form: dict[str, int] = {}
@@ -1056,9 +1078,12 @@ def create_app() -> Flask:
                             "title": c.title,
                             "rating_key": c.rating_key,
                             "thumb": c.thumb,
-                            "thumb_backend": "plex" if c.plex_rating_key else "jellyfin",
+                            "thumb_backend": primary_backend(",".join(
+                                b for b in ("plex","jellyfin","emby") if c.id_for(b)
+                            ) or "plex"),
                             "plex": bool(c.plex_rating_key),
                             "jellyfin": bool(c.jellyfin_rating_key),
+                            "emby": bool(c.emby_rating_key),
                         }
                         for c in configs
                     ]
@@ -1073,9 +1098,12 @@ def create_app() -> Flask:
                         "title": c.title,
                         "rating_key": c.rating_key,
                         "thumb": c.thumb,
-                        "thumb_backend": "plex" if c.plex_rating_key else "jellyfin",
+                        "thumb_backend": primary_backend(",".join(
+                            b for b in ("plex","jellyfin","emby") if c.id_for(b)
+                        ) or "plex"),
                         "plex": bool(c.plex_rating_key),
                         "jellyfin": bool(c.jellyfin_rating_key),
+                        "emby": bool(c.emby_rating_key),
                     }
                     for c in configs
                 ]
@@ -1187,7 +1215,7 @@ def create_app() -> Flask:
             )
 
         name = request.form.get("name", "").strip()
-        backend = request.form.get("backend", backends[0] if backends else "plex")
+        backend = _backend_from_form(request.form, backends)
         franchise_key = request.form.get("franchise_key", "").strip()
         franchise_source = request.form.get("franchise_source", "trakt").strip()
         trakt_user = request.form.get("trakt_user", "").strip()
@@ -1279,29 +1307,25 @@ def create_app() -> Flask:
                 )
 
         # "both" is not a valid client key — check each configured backend
-        backends_to_check = available_backends() if backend == "both" else [backend]
+        backends_to_check = [b for b in parse_backend_set(backend) if b in available_backends()]
 
-        # Per-backend library lookup dicts — cached at module level with 60s TTL
-        # so previewing several franchises in succession is fast.
+        # Per-backend full match-caches — cached at module level with 60s TTL
+        # so previewing several franchises in succession is fast. None entries
+        # (cache build failed) are dropped so they count as "not found".
         be_caches: dict[str, dict] = {
-            _be: _franchise_library_cache(_be) for _be in backends_to_check
+            _be: _cache
+            for _be in backends_to_check
+            if (_cache := _franchise_library_cache(_be)) is not None
         }
 
         def _item_found_on(fi: dict, cache: dict) -> bool:
-            t = fi["item_type"]
-            if t == "movie":
-                return bool(
-                    cache["movie_tmdb"].get(fi.get("tmdb_id"))
-                    or cache["movie_ty"].get((service._normalize_for_match(fi["title"]), fi.get("year")))
-                )
-            tvdb = fi.get("show_tvdb_id") or fi.get("tvdb_id")
-            if tvdb:
-                return bool(cache["show_tvdb"].get(int(tvdb)))
-            tmdb = fi.get("show_tmdb_id")
-            if tmdb:
-                return bool(cache["show_tmdb"].get(int(tmdb)))
-            title = fi.get("show_title") or fi["title"]
-            return bool(cache["show_ty"].get((service._normalize_for_match(title), fi.get("year"))))
+            # Delegate to the SAME resolution the real build uses, so the
+            # preview reflects what will actually land in the playlist —
+            # episode/season items are resolved to the specific episode(s),
+            # not just "the show exists".
+            if fi["item_type"] in ("show", "season"):
+                return bool(service._expand_franchise_show_item(fi, cache))
+            return service._resolve_franchise_item(fi, cache) is not None
 
         preview_items = []
         for fi in raw_items:
@@ -1314,6 +1338,8 @@ def create_app() -> Flask:
                 lib_status = "plex_only"
             elif both_configured and found_on == {"jellyfin"}:
                 lib_status = "jellyfin_only"
+            elif both_configured and found_on == {"emby"}:
+                lib_status = "emby_only"
             else:
                 lib_status = "found"
 
@@ -1428,7 +1454,7 @@ def create_app() -> Flask:
             backends=backends,
             has_tmdb_key=has_key,
             tmdb_key_set_in_db=tmdb_key_set_in_db,
-            default_backend=backends[0] if backends else "plex",
+            default_backend=",".join(backends) if backends else "plex",
         )
 
     @app.route("/franchise-maker/<int:playlist_id>/edit", methods=["GET"])
@@ -1920,16 +1946,56 @@ def create_app() -> Flask:
                 else:
                     flash("No URL provided.", "error")
 
+            elif action == "backends_save":
+                from media_client import BACKEND_SETTING_ENV
+                for _key in BACKEND_SETTING_ENV:
+                    db.set_setting(_key, (request.form.get(_key) or "").strip())
+                # New creds take effect immediately: drop cached clients so the
+                # next get_client() rebuilds with the saved values.
+                get_client.cache_clear()
+                flash("Backend settings saved.", "ok")
+
+            elif action == "backend_test":
+                # Persist whatever's on screen first, so Test reflects the
+                # current form (Save-and-test in one click).
+                from media_client import BACKEND_SETTING_ENV
+                for _key in BACKEND_SETTING_ENV:
+                    db.set_setting(_key, (request.form.get(_key) or "").strip())
+                tb = (request.form.get("test_backend") or "").strip()
+                get_client.cache_clear()
+                if tb not in available_backends():
+                    flash(f"{tb.title()} is not fully configured — fill in and Save first.", "error")
+                else:
+                    try:
+                        sections = get_client(tb).list_tv_sections()
+                        flash(
+                            f"{tb.title()} OK — reachable"
+                            + (f" ({len(sections)} TV librar"
+                               + ("y" if len(sections) == 1 else "ies") + ")" if sections else ""),
+                            "ok",
+                        )
+                    except Exception as exc:
+                        flash(f"{tb.title()} connection failed: {exc}", "error")
+
             return redirect(url_for("settings"))
 
         api_key = db.get_setting("api_key") or "(not set)"
         webhooks_list = db.list_webhooks()
         tmdb_key = db.get_setting("tmdb_api_key") or ""
+        from media_client import BACKEND_SETTING_ENV, backend_setting
+        backend_conf = {k: (backend_setting(k) or "") for k in BACKEND_SETTING_ENV}
+        backend_env_only = {
+            k: (bool(os.environ.get(env)) and not db.get_setting(k))
+            for k, env in BACKEND_SETTING_ENV.items()
+        }
         return render_template(
             "settings.html",
             api_key=api_key,
             webhooks=webhooks_list,
             tmdb_key=tmdb_key,
+            backend_conf=backend_conf,
+            backend_env_only=backend_env_only,
+            configured_backends=available_backends(),
         )
 
     # ── REST API v1 ──────────────────────────────────────────────────── #
@@ -2017,10 +2083,8 @@ def create_app() -> Flask:
             except Exception as exc:
                 info["healthy"] = False
                 info["error"] = str(exc)
-            if backend == "plex":
-                info["url"] = os.environ.get("PLEX_URL", "")
-            elif backend == "jellyfin":
-                info["url"] = os.environ.get("JELLYFIN_URL", "")
+            url_key = {"plex": "PLEX_URL", "jellyfin": "JELLYFIN_URL", "emby": "EMBY_URL"}.get(backend, "")
+            info["url"] = os.environ.get(url_key, "")
             result[backend] = info
         return jsonify(result)
 

@@ -59,6 +59,68 @@
 
   <section class="card" style="max-width:600px; margin-top:1.5rem">
     <div class="section-head">
+      <h2>Media Backends</h2>
+      <span class="hint">
+        Configure Plex, Jellyfin, and/or Emby here — or via environment
+        variables. Values saved here override the matching env var, take effect
+        immediately (no restart), and are stored in the local database. Leave a
+        backend's fields blank to disable it.
+      </span>
+    </div>
+    <form method="post" style="margin-top:0.8rem" autocomplete="off">
+      <input type="hidden" name="test_backend" id="testBackendField">
+
+      {% macro backend_field(name, label, value, type='text', ph='') -%}
+        <label class="backend-field">
+          <span class="backend-field-label">{{ label }}</span>
+          <input type="{{ type }}" name="{{ name }}" value="{{ value }}"
+                 placeholder="{{ ph }}" autocomplete="off"
+                 class="name-input" style="width:100%; font-family:monospace; font-size:0.85rem">
+        </label>
+      {%- endmacro %}
+
+      {% for be, title, fields in [
+          ('plex', 'Plex', [
+            ('plex_url', 'Server URL', 'text', 'http://192.168.1.x:32400'),
+            ('plex_token', 'X-Plex-Token', 'password', 'your-plex-token')]),
+          ('jellyfin', 'Jellyfin', [
+            ('jellyfin_url', 'Server URL', 'text', 'http://192.168.1.x:8096'),
+            ('jellyfin_username', 'Username', 'text', 'jellyfin-username'),
+            ('jellyfin_password', 'Password', 'password', 'jellyfin-password')]),
+          ('emby', 'Emby', [
+            ('emby_url', 'Server URL', 'text', 'http://192.168.1.x:8096'),
+            ('emby_api_key', 'API Key', 'password', 'emby-api-key'),
+            ('emby_username', 'Username (optional)', 'text', 'emby-username')]),
+      ] %}
+        <div class="backend-block">
+          <h3 class="backend-title">
+            {{ title }}
+            {% if be in configured_backends %}
+              <span class="backend-status is-ok">● connected</span>
+            {% else %}
+              <span class="backend-status is-off">○ not configured</span>
+            {% endif %}
+          </h3>
+          {% for fname, flabel, ftype, fph in fields %}
+            {{ backend_field(fname, flabel, backend_conf[fname], ftype, fph) }}
+          {% endfor %}
+          <button type="submit" name="action" value="backend_test"
+                  class="btn btn-sm"
+                  onclick="document.getElementById('testBackendField').value='{{ be }}';">
+            Test connection
+          </button>
+        </div>
+      {% endfor %}
+
+      <div style="margin-top:0.8rem">
+        <button type="submit" name="action" value="backends_save"
+                class="btn btn-primary btn-sm">Save backends</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card" style="max-width:600px; margin-top:1.5rem">
+    <div class="section-head">
       <h2>Outbound Webhooks</h2>
       <span class="hint">
         Linearr will POST a JSON payload to these URLs when a playlist is

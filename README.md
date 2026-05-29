@@ -1,20 +1,21 @@
 <p align="center">
-  <img src="images/banner.png" alt="Linearr — The missing show sequencer for Plex and Jellyfin" width="900">
+  <img src="images/banner.png" alt="Linearr — The missing show sequencer for Plex, Jellyfin, and Emby" width="900">
 </p>
 
 # Linearr
 
-### The missing show sequencer for Plex and Jellyfin.
+### The missing show sequencer for Plex, Jellyfin, and Emby.
 Shows, genres, franchises — Automated. Sequenced. Yours.
 
 ---
 
 A web app that builds and maintains custom playlists across multiple TV shows
-(and their associated movies) — on **Plex**, **Jellyfin**, or **both at once**.
-Configure either or both backends; each playlist independently targets Plex,
-Jellyfin, or "Both" (mirrored to each server in lockstep). Single-backend
-installs see no UI change — the picker only appears when both backends are
-configured.
+(and their associated movies) — on **Plex**, **Jellyfin**, **Emby**, or any
+combination of them at once. Configure any one, two, or all three backends;
+each playlist independently targets whichever backends you check (mirrored to
+each server in lockstep, using each server's own library and watch state).
+Single-backend installs see no UI change — the "Push to" picker only appears
+when more than one backend is configured.
 
 Five ways to order episodes:
 
@@ -49,14 +50,14 @@ pruning keeps watched episodes from piling up, with a configurable
 fall-asleep buffer.
 
 > [!IMPORTANT]
-> This app **never deletes media files or library items from Plex or Jellyfin.**
-> It only manages playlists. Two layers of safety guard back this up:
+> This app **never deletes media files or library items from Plex, Jellyfin,
+> or Emby.** It only manages playlists. Layered safety guards back this up:
 > - **Plex** — a runtime monkey-patch disables `delete()` on Episodes, Shows,
 >   Seasons, and Movies in the python-plexapi client.
-> - **Jellyfin** — an HTTP-layer guard deny-by-default refuses every outbound
->   `DELETE` request; only `DELETE /Playlists/{id}/Items` is allow-listed.
->   The intentional `delete_playlist()` is the single audited bypass and
->   verifies the target is a playlist before each call.
+> - **Jellyfin and Emby** — an HTTP-layer guard deny-by-default refuses every
+>   outbound `DELETE` request; only `DELETE /Playlists/{id}/Items` is
+>   allow-listed. The intentional `delete_playlist()` is the single audited
+>   bypass on each and verifies the target is a playlist before each call.
 >
 > Even an internal bug couldn't remove anything. Both guards are
 > defense-in-depth and have unit tests verifying they hold.
@@ -114,14 +115,15 @@ fall-asleep buffer.
 
 ## Features
 
-- **Plex AND Jellyfin support.** Configure either or both. Each playlist
-  targets Plex, Jellyfin, or "Both" (mirrored to each server independently
-  using each server's own library state and watch state). When both backends
-  are configured, a triple-pill picker appears on the configure page:
-  `Push to: Both / Plex / Jellyfin`. With only one backend configured, the
-  picker is hidden and that backend is used.
-  - **Cross-backend matching:** shows added to a "Both" playlist are matched
-    on the other side by **TVDB ID first**, then normalized title + year as
+- **Plex, Jellyfin AND Emby support.** Configure any one, two, or all three.
+  Each playlist targets whichever backends you check (mirrored to each server
+  independently using each server's own library state and watch state). When
+  more than one backend is configured, a per-backend checkbox picker appears on
+  the configure page: `Push to: ☑ Plex ☑ Jellyfin ☑ Emby` — select any subset.
+  With only one backend configured, the picker is hidden and that backend is
+  used. (Emby uses an API key; Plex a token; Jellyfin username/password.)
+  - **Cross-backend matching:** shows added to a multi-backend playlist are
+    matched on the other side(s) by **TVDB ID first**, then normalized title + year as
     a fallback. TVDB ID bridges cases where backends disagree on the title
     (e.g. "Stargirl" on Plex ↔ "DC's Stargirl" on Jellyfin). Matched IDs
     are persisted so each backend's playlist references the correct local item.
@@ -182,7 +184,7 @@ fall-asleep buffer.
   configurable).
 - **Auto-sync new episodes** — same 10-minute sweep also splices
   newly-aired episodes and new seasons into your playlists automatically.
-  Episodes removed from your Plex/Jellyfin library drop out. Toggle off
+  Episodes removed from your Plex / Jellyfin / Emby library drop out. Toggle off
   **globally** with `AUTO_SYNC=false`, or **per playlist** with the
   **Auto-update** pill on the playlist's detail page (defaults to Enabled).
   Disabled playlists are skipped on every sweep and stay locked until you
@@ -212,16 +214,17 @@ fall-asleep buffer.
   bypassing the auto-update toggle. Reports added/removed counts.
 - **Per-episode exclusions** — exclude specific episodes from a show within
   a playlist (season-grouped accordion picker, lazy-loaded on expand).
-  Applies uniformly across both backends.
+  Applies uniformly across all configured backends.
 - **Manual crossover grouping** (air_date mode) — when the title-based
   Part N heuristic misses a crossover (e.g. "Buffy — Fool for Love" /
   "Angel — Darla"), link specific episodes across shows into an explicit
   group with a user-defined play order.
 - **Cover art everywhere** — poster grids, season cards, playlist tiles; the
-  thumbnail proxy keeps every Plex token / Jellyfin access token server-side.
-- **Never destructive** — two-layer safety guard refuses any backend API
+  thumbnail proxy keeps every Plex token / Jellyfin / Emby credential server-side.
+- **Never destructive** — per-backend safety guards refuse any backend API
   call that could delete media or library items (Plex's monkey-patch on
-  `Episode/Show/Season/Movie.delete` + Jellyfin's HTTP-layer DELETE allow-list).
+  `Episode/Show/Season/Movie.delete` + Jellyfin's and Emby's HTTP-layer DELETE
+  allow-lists, each with a single audited playlist-only bypass).
 - **Playlist stats** — after every sync, the current episode count is stored
   for each playlist and shown on the detail page. The watched-episode fraction
   is intentionally not displayed: because Linearr prunes watched episodes down
@@ -286,13 +289,14 @@ fall-asleep buffer.
 git clone https://github.com/gillberg1111/linearr.git
 cd linearr
 cp .env.example .env
-# Edit .env — set PLEX_URL+PLEX_TOKEN, JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD, or both.
+# Edit .env — set any of: PLEX_URL+PLEX_TOKEN,
+# JELLYFIN_URL+JELLYFIN_USERNAME+JELLYFIN_PASSWORD, EMBY_URL+EMBY_API_KEY.
 docker compose up -d
 ```
 
-Open <http://localhost:5005>. That's it. With both backends configured you'll
-see the `Push to: Both / Plex / Jellyfin` picker when creating playlists;
-with only one, that backend is used automatically.
+Open <http://localhost:5005>. That's it. With more than one backend configured
+you'll see a `Push to: ☑ Plex ☑ Jellyfin ☑ Emby` checkbox picker when creating
+playlists; with only one, that backend is used automatically.
 
 ---
 
@@ -326,12 +330,21 @@ edit/restart it from the Docker tab just like a Community App.
    | Variable | `JELLYFIN_URL`         | `http://<unraid-ip>:8096`        | required *if Jellyfin enabled* (blank to disable)|
    | Variable | `JELLYFIN_USERNAME`    | *(your Jellyfin username)*       | required *if Jellyfin enabled*                   |
    | Variable | `JELLYFIN_PASSWORD`    | *(your Jellyfin password)*       | required *if Jellyfin enabled*                   |
+   | Variable | `EMBY_URL`             | `http://<unraid-ip>:8096`        | required *if Emby enabled* (blank to disable)    |
+   | Variable | `EMBY_API_KEY`         | *(Emby API key)*                 | required *if Emby enabled*                       |
+   | Variable | `EMBY_USERNAME`        | *(your Emby username)*           | optional — picks which user owns playlists       |
    | Variable | `WATCHED_KEEP`         | `2`                              | optional                                         |
    | Variable | `PRUNE_INTERVAL_MINUTES` | `10`                           | optional                                         |
-   | Variable | `TV_LIBRARIES`         | *(blank = all show libraries)*   | optional — applies to BOTH backends if set       |
+   | Variable | `TV_LIBRARIES`         | *(blank = all show libraries)*   | optional — applies to ALL backends if set        |
 
-   At least one backend (Plex *or* Jellyfin) must be configured. Both are
-   optional; both work; both at once works.
+   At least one backend (Plex, Jellyfin, *or* Emby) must be configured. All are
+   optional; any combination works. Get an Emby API key from **Emby →
+   Settings → Advanced → API Keys → New API Key**.
+
+   > You can also add or change backends later from the **Settings → Media
+   > Backends** page (with a per-backend "Test connection" button) — no env-var
+   > edit or container restart needed. Values saved there override the matching
+   > env var and are stored in the local database; env vars remain the fallback.
 
 4. **Apply** → Unraid pulls the image from `ghcr.io` and starts the
    container.
@@ -340,13 +353,15 @@ edit/restart it from the Docker tab just like a Community App.
 
 ### Notes for Unraid
 
-- **Plex or Jellyfin on the same Unraid box?** Use the LAN IP of the host
-  (e.g. `http://192.168.1.50:32400` for Plex, `http://192.168.1.50:8096` for
-  Jellyfin), **not** `localhost` — the Linearr container can't see them via
-  `localhost`.
-- **Jellyfin-only install**: leave `PLEX_URL` and `PLEX_TOKEN` blank, fill in
-  `JELLYFIN_URL` / `JELLYFIN_USERNAME` / `JELLYFIN_PASSWORD`. The picker is
-  hidden and every playlist targets Jellyfin.
+- **Plex, Jellyfin, or Emby on the same Unraid box?** Use the LAN IP of the
+  host (e.g. `http://192.168.1.50:32400` for Plex, `:8096` for Jellyfin/Emby),
+  **not** `localhost` — the Linearr container can't see them via `localhost`.
+- **Jellyfin-only install**: leave `PLEX_URL`/`PLEX_TOKEN` and the `EMBY_*`
+  vars blank, fill in `JELLYFIN_URL` / `JELLYFIN_USERNAME` /
+  `JELLYFIN_PASSWORD`. The picker is hidden and every playlist targets Jellyfin.
+- **Emby-only install**: leave `PLEX_*` and `JELLYFIN_*` blank, fill in
+  `EMBY_URL` / `EMBY_API_KEY` (and optionally `EMBY_USERNAME`). The picker is
+  hidden and every playlist targets Emby.
 - **Appdata path**: SQLite state lives in
   `/mnt/user/appdata/linearr/rotator.db`. Back this up if you care about
   your playlist configs; episode/show state lives in each backend.
@@ -425,7 +440,22 @@ docker run -d \
   ghcr.io/gillberg1111/linearr:latest
 ```
 
-Both Plex and Jellyfin (triple-pill picker enabled):
+Emby-only:
+
+```bash
+docker run -d \
+  --name linearr \
+  --restart unless-stopped \
+  -p 5005:5005 \
+  -v /path/to/your/appdata:/data \
+  -e EMBY_URL=http://192.168.1.100:8096 \
+  -e EMBY_API_KEY=YOUR_EMBY_API_KEY \
+  -e WATCHED_KEEP=2 \
+  -e PRUNE_INTERVAL_MINUTES=10 \
+  ghcr.io/gillberg1111/linearr:latest
+```
+
+Plex + Jellyfin + Emby (per-backend checkbox picker enabled):
 
 ```bash
 docker run -d \
@@ -438,6 +468,8 @@ docker run -d \
   -e JELLYFIN_URL=http://192.168.1.100:8096 \
   -e JELLYFIN_USERNAME=YOUR_JELLYFIN_USERNAME \
   -e JELLYFIN_PASSWORD=YOUR_JELLYFIN_PASSWORD \
+  -e EMBY_URL=http://192.168.1.100:8097 \
+  -e EMBY_API_KEY=YOUR_EMBY_API_KEY \
   ghcr.io/gillberg1111/linearr:latest
 ```
 
@@ -575,7 +607,7 @@ looking for associated movies — that isn't currently filterable.
    playlist, paginated 10/25/50/100/All with Prev/Next buttons. Air dates
    are visible so you can sanity-check a chronological build.
 5. **Create Playlist** commits — the result appears in every targeted
-   Plex/Jellyfin client as a native playlist.
+   Plex / Jellyfin / Emby client as a native playlist.
 
 ### Edit a playlist later
 
@@ -832,6 +864,11 @@ jellyfin_client.py           — JellyfinClient(MediaClient): raw requests
                                 via /Users/AuthenticateByName. HTTP-layer
                                 deny-by-default DELETE safety guard.
                                 Atomic playlist replace via UpdatePlaylist.
+emby_client.py               — EmbyClient(MediaClient): raw requests against
+                                the Emby REST API. API-key auth (X-Emby-Token).
+                                Own HTTP-layer deny-by-default DELETE safety
+                                guard. Standalone (Emby ≈ Jellyfin but with
+                                its own auth and endpoint quirks).
 rotation.py                  — Pure interleave / air-date-sort / splice /
                                 prune logic. Backend-agnostic.
                                 Unit-tested.
@@ -924,6 +961,6 @@ thanks to its maintainer for the public list API.
 
 > Linearr follows the `*arr` naming convention popular in the Plex / Sonarr /
 > Radarr ecosystem, but it is not affiliated with the Servarr project, Plex
-> Inc., or the Jellyfin project. "Plex" is a trademark of Plex GmbH;
-> Jellyfin is a community-developed free software project (GPL-2.0). Linearr
-> is an independent third-party client.
+> Inc., the Jellyfin project, or Emby LLC. "Plex" is a trademark of Plex GmbH;
+> "Emby" is a trademark of Emby LLC; Jellyfin is a community-developed free
+> software project (GPL-2.0). Linearr is an independent third-party client.

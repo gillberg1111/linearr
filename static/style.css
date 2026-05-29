@@ -11,6 +11,8 @@
   --accent-warn: #ff9b4d;
   --accent-jellyfin: #aa5cc3;
   --accent-jellyfin-2: #c684de;
+  --emby: #52b54b;
+  --emby-light: #6fce68;
   --border: #2a2d37;
   --border-strong: #3a3e4c;
   --radius: 10px;
@@ -215,9 +217,15 @@ a { color: var(--accent); }
 }
 .poster-stack {
   display: grid;
+  /* Column count is set inline per card (1–5) so 1–4 shows fill the WIDTH of
+     the artwork box instead of being pinned to 1/5 each. The single 1fr row +
+     fixed 5/3 aspect-ratio keep the box the SAME height regardless of how many
+     posters there are (a lone poster fills the width, not the height). */
   grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: 1fr;
   gap: 2px;
   aspect-ratio: 5 / 3;
+  overflow: hidden;
   background: var(--bg-elev-2);
 }
 .poster-tile {
@@ -1368,9 +1376,14 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   background: rgba(170, 92, 195, 0.18);
   border-color: rgba(170, 92, 195, 0.45);
 }
-.backend-badge.is-both {
+.backend-badge.is-emby {
+  color: var(--emby-light);
+  background: rgba(82, 181, 75, 0.18);
+  border-color: rgba(82, 181, 75, 0.45);
+}
+.backend-badge.is-multi {
   color: #d9c2ff;
-  background: linear-gradient(90deg, rgba(77,150,255,0.16), rgba(170,92,195,0.16));
+  background: linear-gradient(90deg, rgba(77,150,255,0.16), rgba(170,92,195,0.16), rgba(82,181,75,0.16));
   border-color: rgba(170, 92, 195, 0.35);
 }
 .backend-badge.is-warn {
@@ -1631,6 +1644,9 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 }
 
 .franchise-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   background: rgba(14,15,19,0.78);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -1641,6 +1657,36 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
   text-align: center;
+}
+
+/* Franchise poster sits behind a frosted-glass layer: the poster is a hint,
+   the label stays crisp and readable. The poster is blurred via `filter`
+   (NOT backdrop-filter) to avoid rounded-corner compositing seams, and
+   overscanned with scale() so neither the blur's soft edges nor the card's
+   hover-lift ever reveal a sharp sliver. */
+.franchise-card-poster {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(11px) saturate(1.15) brightness(0.55);
+  transform: scale(1.14);
+  transition: filter 0.15s;
+}
+.franchise-card-poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(14, 15, 19, 0.42), rgba(14, 15, 19, 0.68));
+}
+.franchise-card:hover .franchise-card-poster {
+  filter: blur(11px) saturate(1.2) brightness(0.64);
+}
+.franchise-card > .franchise-card-name,
+.franchise-card > .franchise-card-hint {
+  position: relative;
+  z-index: 1;
 }
 
 .franchise-card:hover {
@@ -2059,4 +2105,28 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   padding: 1.2rem;
   max-width: 420px;
   width: 90%;
+}
+
+/* ---------- Settings: Media Backends ---------- */
+.backend-block {
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--border);
+}
+.backend-block:first-of-type { border-top: none; }
+.backend-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.98rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.backend-status { font-size: 0.75rem; font-weight: 500; }
+.backend-status.is-ok { color: #57d977; }
+.backend-status.is-off { color: var(--muted); }
+.backend-field { display: block; margin-bottom: 0.5rem; }
+.backend-field-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
 }

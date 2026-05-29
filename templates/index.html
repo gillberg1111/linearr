@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1>Your playlists</h1>
   <p class="subtitle">
-    <strong>The missing show sequencer for Plex and Jellyfin.</strong>
+    <strong>The missing show sequencer for Plex, Jellyfin, and Emby.</strong>
     Shows, genres, franchises — Automated. Sequenced. Yours.
   </p>
 </div>
@@ -17,8 +17,15 @@
 <div class="playlist-grid">
   {% for p in playlists %}
   <a class="playlist-card" href="{{ url_for('view_playlist', playlist_id=p.id) }}">
-    <div class="poster-stack">
-      {% for s in p.shows[:4] %}
+    {% if p.poster %}
+    {# Franchise playlists store no per-show rows; use the franchise cover. #}
+    <div class="poster-stack" style="grid-template-columns:1fr">
+      <img class="poster-tile" loading="lazy" src="{{ p.poster }}" alt="{{ p.name }}">
+    </div>
+    {% else %}
+    {% set ncols = [p.shows|length, 5]|min %}
+    <div class="poster-stack" style="grid-template-columns:repeat({{ ncols if ncols > 0 else 1 }},1fr)">
+      {% for s in p.shows[:5] %}
       {% if s.show_thumb %}
       <img class="poster-tile" loading="lazy" src="{{ url_for('thumb') }}?path={{ s.show_thumb|urlencode }}&w=240&h=360"
         alt="{{ s.show_title }}"
@@ -27,18 +34,14 @@
       <div class="poster-tile poster-fallback">{{ s.show_title[:1] }}</div>
       {% endif %}
       {% endfor %}
-      {% if p.shows|length > 4 %}
-      <div class="poster-tile poster-more">+{{ p.shows|length - 4 }}</div>
-      {% endif %}
     </div>
+    {% endif %}
     <div class="playlist-card-body">
       <h3>
         {{ p.name }}
-        {% if AVAILABLE_BACKENDS|length > 1 or p.backend != 'plex' %}
-        <span class="backend-badge backend-badge-inline is-{{ p.backend }}">
-          {% if p.backend == 'both' %}P+J
-          {% elif p.backend == 'jellyfin' %}JF
-          {% else %}Plex{% endif %}
+        {% if AVAILABLE_BACKENDS|length > 1 or p.badge_label != 'P' %}
+        <span class="backend-badge backend-badge-inline {{ p.badge_css }}">
+          {{ p.badge_label }}
         </span>
         {% endif %}
         <span class="type-badge type-badge-inline is-{{ p.playlist_type }}">

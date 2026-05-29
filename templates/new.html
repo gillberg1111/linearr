@@ -41,6 +41,7 @@
           {% set both_backends = s.backends|length > 1 %}
           {% set only_jf = (s.backends|length == 1) and ('jellyfin' in s.backends) %}
           {% set only_px = (s.backends|length == 1) and ('plex' in s.backends) %}
+          {% set only_emby = (s.backends|length == 1) and ('emby' in s.backends) %}
           <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
             <input type="checkbox" name="shows" value="{{ s.rating_key }}"
                    {% if selected and s.rating_key in selected %}checked{% endif %}>
@@ -56,8 +57,8 @@
               {# Backend badge — only renders in dual-backend installs where one
                  backend has the show and the other doesn't. #}
               {% if AVAILABLE_BACKENDS|length > 1 and not both_backends %}
-                <div class="backend-badge {% if only_jf %}is-jellyfin{% else %}is-plex{% endif %}">
-                  {% if only_jf %}Jellyfin only{% else %}Plex only{% endif %}
+                <div class="backend-badge {% if only_jf %}is-jellyfin{% elif only_emby %}is-emby{% else %}is-plex{% endif %}">
+                  {% if only_jf %}Jellyfin only{% elif only_emby %}Emby only{% else %}Plex only{% endif %}
                 </div>
               {% endif %}
             </div>

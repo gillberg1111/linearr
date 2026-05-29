@@ -34,6 +34,11 @@ __all__ = [
     "MovieSummary",
     "PlaylistItem",
     "get_client",
+    "available_backends",
+    "ALL_BACKENDS",
+    "parse_backend_set",
+    "format_backend_set",
+    "primary_backend",
 ]
 
 
@@ -244,6 +249,16 @@ class MediaClient(ABC):
         if ordered_rating_keys:
             self.add_items_to_playlist(rating_key, ordered_rating_keys)
 
+    def set_playlist_image(self, rating_key: str, image_url: str) -> None:
+        """Best-effort: set the playlist's primary/cover image from an HTTP URL.
+
+        Default is a no-op; backends override. MUST be fire-and-forget — never
+        raise (a cover-art failure must not break playlist creation/sync).
+        Used to give franchise playlists a deterministic TMDB poster rather
+        than relying on the media server's inconsistent auto-composite.
+        """
+        return None
+
     # ----- Images -----------------------------------------------------------
 
     @abstractmethod
@@ -288,40 +303,104 @@ class MediaClient(ABC):
 # --------------------------------------------------------------------------- #
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def get_client(backend: str = "plex") -> MediaClient:
-    """Return a singleton client for the named backend.
-
-    Phase 4 will let callers ask for whichever backends are configured per
-    playlist. For now, callers explicitly name "plex" or "jellyfin".
-    """
+    """Return a singleton client for the named backend."""
     if backend == "plex":
-        from plex_client import PlexClient  # local import to avoid cycle on cold paths
-
+        from plex_client import PlexClient
         return PlexClient()
     if backend == "jellyfin":
-        from jellyfin_client import JellyfinClient  # local import; needs JELLYFIN_* env vars on first call
-
+        from jellyfin_client import JellyfinClient
         return JellyfinClient()
+    if backend == "emby":
+        from emby_client import EmbyClient
+        return EmbyClient()
     raise ValueError(f"Unknown backend: {backend!r}")
 
 
-def available_backends() -> list[str]:
-    """Names of backends with sufficient env vars to instantiate a client.
+# Canonical backend order used everywhere sets are rendered/iterated.
+ALL_BACKENDS = ("plex", "jellyfin", "emby")
 
-    Used by app.py to decide whether to show the backend picker. Does NOT
-    instantiate the clients (no network calls) — only checks env vars.
-    """
+
+def parse_backend_set(value: str | None) -> list[str]:
+    """'plex,jellyfin' -> ['plex','jellyfin'] in canonical order.
+    Legacy 'both' -> ['plex','jellyfin']. Unknown/empty -> ['plex'] fallback.
+    Drops tokens not in ALL_BACKENDS."""
+    if not value:
+        return ["plex"]
+    tokens = [t.strip() for t in value.replace(";", ",").split(",") if t.strip()]
+    if tokens == ["both"]:
+        return ["plex", "jellyfin"]
+    out = []
+    for t in ALL_BACKENDS:
+        if t in tokens:
+            out.append(t)
+    return out or ["plex"]
+
+
+def format_backend_set(backends: list[str]) -> str:
+    """Canonical-order, comma-joined. Dedupes. Empty -> 'plex'."""
+    seen = {b for b in backends if b in ALL_BACKENDS}
+    ordered = [b for b in ALL_BACKENDS if b in seen]
+    return ",".join(ordered) if ordered else "plex"
+
+
+def primary_backend(backend_value: str | None) -> str:
+    """First member of ALL_BACKENDS present in a CSV backend set."""
+    return parse_backend_set(backend_value)[0]
+
+
+# Logical backend-setting key → env-var fallback name. The Settings UI writes
+# the logical keys into managed_settings; env vars remain the fallback so
+# existing CA/container installs keep working with no change.
+BACKEND_SETTING_ENV: dict[str, str] = {
+    "plex_url": "PLEX_URL",
+    "plex_token": "PLEX_TOKEN",
+    "jellyfin_url": "JELLYFIN_URL",
+    "jellyfin_username": "JELLYFIN_USERNAME",
+    "jellyfin_password": "JELLYFIN_PASSWORD",
+    "emby_url": "EMBY_URL",
+    "emby_api_key": "EMBY_API_KEY",
+    "emby_username": "EMBY_USERNAME",
+}
+
+# Credentials required for each backend to be considered "available".
+_BACKEND_REQUIRED: dict[str, tuple[str, ...]] = {
+    "plex": ("plex_url", "plex_token"),
+    "jellyfin": ("jellyfin_url", "jellyfin_username", "jellyfin_password"),
+    "emby": ("emby_url", "emby_api_key"),
+}
+
+
+def backend_setting(key: str) -> str | None:
+    """Resolve a backend credential: managed_settings (DB) value first, then the
+    env-var fallback. Empty/whitespace is treated as unset. This is the single
+    read path so a backend configured via the Settings UI lights up without an
+    env var or a container restart."""
     import os as _os
+    try:
+        import db as _db  # local import; db lazily imports media_client elsewhere
+        v = _db.get_setting(key)
+        if v and v.strip():
+            return v.strip()
+    except Exception:
+        pass
+    env_name = BACKEND_SETTING_ENV.get(key)
+    v = _os.environ.get(env_name) if env_name else None
+    return v.strip() if v and v.strip() else None
+
+
+def available_backends() -> list[str]:
+    """Names of backends with sufficient credentials to instantiate a client.
+    Returns in canonical order (ALL_BACKENDS).
+
+    Reads via `backend_setting` (DB-then-env), so it reflects Settings-UI
+    changes immediately. Does NOT instantiate clients (no network calls)."""
     out: list[str] = []
-    if _os.environ.get("PLEX_URL") and _os.environ.get("PLEX_TOKEN"):
-        out.append("plex")
-    if (
-        _os.environ.get("JELLYFIN_URL")
-        and _os.environ.get("JELLYFIN_USERNAME")
-        and _os.environ.get("JELLYFIN_PASSWORD")
-    ):
-        out.append("jellyfin")
+    for _be in ALL_BACKENDS:
+        required = _BACKEND_REQUIRED[_be]
+        if all(backend_setting(k) for k in required):
+            out.append(_be)
     return out
 
 

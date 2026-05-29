@@ -34,6 +34,7 @@ from media_client import (
     normalize_title,
     titles_match,
 )
+from media_client import parse_backend_set, ALL_BACKENDS, primary_backend
 from rotation import PlaylistItem
 from trakt_client import get_trakt_client
 
@@ -95,6 +96,8 @@ class ShowConfig:
     plex_rating_key: str | None = None
     jellyfin_rating_key: str | None = None
     jellyfin_movie_rating_keys: list[str] = field(default_factory=list)
+    emby_rating_key: str | None = None
+    emby_movie_rating_keys: list[str] = field(default_factory=list)
     # v1.2.0 per-episode exclusions: set of (season, episode) pairs.
     # Backend-agnostic — works on both Plex and Jellyfin since episodes use
     # the same (season, episode) shape on both sides.
@@ -108,10 +111,12 @@ class ShowConfig:
             self.plex_rating_key = self.rating_key
 
     def id_for(self, backend: str) -> str | None:
-        return self.plex_rating_key if backend == "plex" else self.jellyfin_rating_key
+        return {"plex": self.plex_rating_key, "jellyfin": self.jellyfin_rating_key,
+                "emby": self.emby_rating_key}.get(backend)
 
     def movie_ids_for(self, backend: str) -> list[str]:
-        return self.movie_rating_keys if backend == "plex" else self.jellyfin_movie_rating_keys
+        return {"plex": self.movie_rating_keys, "jellyfin": self.jellyfin_movie_rating_keys,
+                "emby": self.emby_movie_rating_keys}.get(backend, [])
 
     @property
     def excluded_csv(self) -> str:
@@ -132,22 +137,24 @@ def _watched_keep() -> int:
 
 
 def _backends_for(row) -> list[str]:
-    """Backend names this playlist row targets ('plex', 'jellyfin', or both)."""
+    """Backend names this playlist row targets."""
     backend = row["backend"] if "backend" in row.keys() else "plex"
-    if backend == "both":
-        return ["plex", "jellyfin"]
-    return [backend]
+    return parse_backend_set(backend)
 
 
 def _client_for(backend: str) -> MediaClient:
     return get_client(backend)
 
 
+COLUMN_MAP = {"plex": "plex_rating_key", "jellyfin": "jellyfin_playlist_id", "emby": "emby_playlist_id"}
+
+
 def _playlist_id_on(row, backend: str) -> str | None:
     """The backend-specific playlist id stored on this row (None if not created)."""
-    if backend == "plex":
-        return row["plex_rating_key"] if "plex_rating_key" in row.keys() else None
-    return row["jellyfin_playlist_id"] if "jellyfin_playlist_id" in row.keys() else None
+    col = COLUMN_MAP.get(backend)
+    if not col:
+        return None
+    return row[col] if col in row.keys() else None
 
 
 def _clients_for_playlist(row) -> list[tuple[str, MediaClient, str | None]]:
@@ -254,6 +261,9 @@ def _config_from_row(row) -> ShowConfig:
     plex_movies = [k for k in (raw_plex_keys or "").split(",") if k]
     raw_jf_keys = row["jellyfin_movie_item_ids"] if "jellyfin_movie_item_ids" in row.keys() else ""
     jf_movies = [k for k in (raw_jf_keys or "").split(",") if k]
+    emby_id = row["emby_show_item_id"] if "emby_show_item_id" in row.keys() else None
+    emby_movie_raw = row["emby_movie_item_ids"] if "emby_movie_item_ids" in row.keys() else ""
+    emby_movies = [k for k in (emby_movie_raw or "").split(",") if k]
     plex_id = row["plex_show_item_id"] if "plex_show_item_id" in row.keys() else None
     jf_id = row["jellyfin_show_item_id"] if "jellyfin_show_item_id" in row.keys() else None
     # Legacy rows pre-migration don't have plex_show_item_id; fall back to the PK.
@@ -274,6 +284,8 @@ def _config_from_row(row) -> ShowConfig:
         plex_rating_key=plex_id,
         jellyfin_rating_key=jf_id,
         jellyfin_movie_rating_keys=jf_movies,
+        emby_rating_key=emby_id,
+        emby_movie_rating_keys=emby_movies,
         excluded_episodes=_parse_excluded_episodes(excluded_raw),
         weight=weight_val,
         is_excluded=is_excl,
@@ -313,7 +325,7 @@ def _tvdb_id_for_cfg(cfg: ShowConfig) -> str | None:
     """Look up the TVDB id for a config by asking whichever backend already
     has an id for this show. Returns None if the show can't be found or has
     no TVDB id."""
-    for backend in ("plex", "jellyfin"):
+    for backend in ("plex", "jellyfin", "emby"):
         target_id = cfg.id_for(backend)
         if not target_id:
             continue
@@ -370,12 +382,16 @@ def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: lis
                 mid = _find_match(cands("jellyfin"), cfg.title or "", year)
                 if mid:
                     cfg.jellyfin_rating_key = mid
+        if "emby" in target_backends and cfg.emby_rating_key is None:
+            mid = _find_match(cands("emby"), cfg.title or "", year)
+            if mid:
+                cfg.emby_rating_key = mid
 
 
 def _year_hint(cfg: ShowConfig) -> int | None:
     """Best-effort year for the ShowConfig — used to disambiguate matches.
     Tries whichever backend already has an id for this show; cheap, tolerant."""
-    for backend in ("plex", "jellyfin"):
+    for backend in ("plex", "jellyfin", "emby"):
         target_id = cfg.id_for(backend)
         if not target_id:
             continue
@@ -569,7 +585,7 @@ class PlaylistView:
     name: str
     plex_rating_key: str | None
     jellyfin_playlist_id: str | None
-    backend: str  # 'plex' | 'jellyfin' | 'both'
+    backend: str  # CSV backend set, e.g. 'plex,jellyfin' or 'emby'
     shows: list[dict]  # active (non-excluded) show rows
     item_count: int  # max across enabled backends
     sort_mode: str = "rotation"
@@ -593,6 +609,14 @@ class PlaylistView:
     # v2.3.0 — counts for index card stats
     movies_count: int = 0
     episodes_count: int = 0
+    # v3.0.0 — Emby playlist id
+    emby_playlist_id: str | None = None
+    # v3.0.0 — backend badge info for UI
+    badge_label: str = "P"
+    badge_css: str = "is-plex"
+    # v3.0.0 — franchise card cover (TMDB); franchise playlists store no
+    # playlist_shows rows, so the index card has no per-show posters to collage.
+    poster: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -616,8 +640,7 @@ def create_managed_playlist(
         raise ValueError("Need at least one show to create a playlist")
     if sort_mode not in rotation.VALID_SORT_MODES:
         raise ValueError(f"Invalid sort_mode: {sort_mode!r}")
-    if backend not in ("plex", "jellyfin", "both"):
-        raise ValueError(f"Invalid backend: {backend!r}")
+    db._validate_backend(backend)
 
     # Auto-generate a seed if creating in shuffle mode without one — gives
     # this playlist a stable shuffle that persists across syncs.
@@ -627,13 +650,13 @@ def create_managed_playlist(
 
     block_size = max(1, int(block_size))
 
-    target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
+    target_backends = parse_backend_set(backend)
 
     # Hydrate against the source backend(s) so titles/thumbs are filled in.
-    # For 'both' mode also attempt cross-backend matching.
+    # For multi-backend mode also attempt cross-backend matching.
     for tb in target_backends:
         _hydrate_configs(configs, tb)
-    if backend == "both":
+    if len(target_backends) > 1:
         _enrich_configs_with_matches(configs, target_backends)
 
     # Per-backend ordered key list (skip configs without an id on that backend).
@@ -720,6 +743,8 @@ def _config_to_db_dict(c: ShowConfig) -> dict:
         "include_movies": c.include_movies,
         "movie_rating_keys": c.movie_rating_keys,
         "jellyfin_movie_item_ids": c.jellyfin_movie_rating_keys,
+        "emby_show_item_id": c.emby_rating_key,
+        "emby_movie_item_ids": c.emby_movie_rating_keys,
         "excluded_episodes": c.excluded_episodes,
         "weight": c.weight,
     }
@@ -744,7 +769,7 @@ def add_shows_to_playlist(playlist_id: int, new_configs: list[ShowConfig]) -> No
     target_backends = _backends_for(row)
     for tb in target_backends:
         _hydrate_configs(new_configs, tb)
-    if "both" == row["backend"]:
+    if len(target_backends) > 1:
         _enrich_configs_with_matches(new_configs, target_backends)
 
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
@@ -964,6 +989,8 @@ def _dedup_show_summaries_to_configs(
                     out[match_idx].plex_rating_key = s.rating_key
                 if tb == "jellyfin" and out[match_idx].jellyfin_rating_key is None:
                     out[match_idx].jellyfin_rating_key = s.rating_key
+                if tb == "emby" and out[match_idx].emby_rating_key is None:
+                    out[match_idx].emby_rating_key = s.rating_key
                 if _years.get(match_idx) is None and s.year is not None:
                     _years[match_idx] = s.year
                 if not out[match_idx].thumb and s.thumb:
@@ -980,6 +1007,7 @@ def _dedup_show_summaries_to_configs(
                 thumb=s.thumb,
                 plex_rating_key=s.rating_key if tb == "plex" else None,
                 jellyfin_rating_key=s.rating_key if tb == "jellyfin" else None,
+                emby_rating_key=s.rating_key if tb == "emby" else None,
             )
             new_idx = len(out)
             seen_keys.setdefault(nk, []).append(new_idx)
@@ -988,7 +1016,7 @@ def _dedup_show_summaries_to_configs(
                 tvdb_seen[s.tvdb_id] = new_idx
             out.append(cfg)
 
-    if "plex" in target_backends and "jellyfin" in target_backends:
+    if len(target_backends) > 1:
         _enrich_configs_with_matches(out, target_backends)
     out.sort(key=lambda c: (c.title or "").lower())
     return out
@@ -1121,10 +1149,9 @@ def create_genre_playlist(
     cleaned_genres = [g.strip() for g in genres if g and g.strip()]
     if not cleaned_genres:
         raise ValueError("Need at least one genre to create a genre playlist")
-    if backend not in ("plex", "jellyfin", "both"):
-        raise ValueError(f"Invalid backend: {backend!r}")
+    db._validate_backend(backend)
 
-    target_backends = ["plex", "jellyfin"] if backend == "both" else [backend]
+    target_backends = parse_backend_set(backend)
     configs = _resolve_genre_shows(cleaned_genres, target_backends)
     # Apply per-show weights supplied from the creation form.
     if weights:
@@ -1199,14 +1226,18 @@ def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> 
     backend per sync run, regardless of how many shows need healing).
     """
     if row["backend"] != "both":
-        return
+        backends_list = parse_backend_set(row["backend"])
+        if len(backends_list) <= 1:
+            return
     needs_plex = [c for c in full_configs if c.plex_rating_key is None]
     needs_jf = [c for c in full_configs if c.jellyfin_rating_key is None]
-    if not needs_plex and not needs_jf:
+    needs_emby = [c for c in full_configs if c.emby_rating_key is None]
+    if not needs_plex and not needs_jf and not needs_emby:
         return
 
     plex_cands = _candidates_for("plex") if needs_plex else []
     jf_cands = _candidates_for("jellyfin") if needs_jf else []
+    emby_cands = _candidates_for("emby") if needs_emby else []
 
     for cfg in needs_plex:
         matched = (
@@ -1227,6 +1258,13 @@ def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> 
             cfg.jellyfin_rating_key = matched
             db.set_jellyfin_show_item_id(playlist_id, cfg.rating_key, matched)
             log.info("Healed Jellyfin id for '%s' on playlist %s: %s",
+                     cfg.title, playlist_id, matched)
+    for cfg in needs_emby:
+        matched = _find_match(emby_cands, cfg.title or "", _year_hint(cfg))
+        if matched:
+            cfg.emby_rating_key = matched
+            db.set_emby_show_item_id(playlist_id, cfg.rating_key, matched)
+            log.info("Healed Emby id for '%s' on playlist %s: %s",
                      cfg.title, playlist_id, matched)
 
 
@@ -1300,10 +1338,8 @@ def refresh_playlist_metadata(playlist_id: int) -> dict[str, int]:
         for show_row in db.list_shows(playlist_id):
             if show_row["is_excluded"]:
                 continue
-            key = (
-                show_row["plex_show_item_id"] if backend == "plex"
-                else show_row["jellyfin_show_item_id"]
-            )
+            cfg = _config_from_row(show_row)
+            key = cfg.id_for(backend)
             if not key:
                 continue
             try:
@@ -1327,6 +1363,8 @@ def link_show_backend(
         db.set_plex_show_item_id(playlist_id, show_rating_key, target_key)
     elif backend == "jellyfin":
         db.set_jellyfin_show_item_id(playlist_id, show_rating_key, target_key)
+    elif backend == "emby":
+        db.set_emby_show_item_id(playlist_id, show_rating_key, target_key)
     else:
         raise ValueError(f"Unknown backend: {backend!r}")
     row = db.get_playlist(playlist_id)
@@ -1359,6 +1397,7 @@ def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig
 
     existing_plex = {c.plex_rating_key for c in current_configs if c.plex_rating_key}
     existing_jf = {c.jellyfin_rating_key for c in current_configs if c.jellyfin_rating_key}
+    existing_emby = {c.emby_rating_key for c in current_configs if c.emby_rating_key}
     existing_pks = {c.rating_key for c in current_configs}
 
     new_configs: list[ShowConfig] = []
@@ -1368,6 +1407,8 @@ def _genre_sync_discover(playlist_id: int, row, current_configs: list[ShowConfig
         if cand.plex_rating_key and cand.plex_rating_key in existing_plex:
             continue
         if cand.jellyfin_rating_key and cand.jellyfin_rating_key in existing_jf:
+            continue
+        if cand.emby_rating_key and cand.emby_rating_key in existing_emby:
             continue
         new_configs.append(cand)
 
@@ -1424,6 +1465,72 @@ def _build_backend_cache(backend: str, client: MediaClient) -> dict:
         },
         "episode_cache": {},
     }
+
+
+def _franchise_poster_url(franchise_items: list[dict]) -> str | None:
+    """A representative TMDB poster URL (w500) for a franchise, taken from its
+    first resolvable item. Best-effort: returns None if TMDB is unavailable or
+    no item yields a poster (caller then leaves the playlist's auto-composite
+    art untouched)."""
+    try:
+        import tmdb_client
+    except Exception:
+        return None
+    for fi in (franchise_items or [])[:8]:
+        try:
+            poster = None
+            if fi.get("item_type") == "movie" and fi.get("tmdb_id"):
+                poster = (tmdb_client.get_movie(int(fi["tmdb_id"])) or {}).get("poster")
+            elif fi.get("show_tmdb_id"):
+                poster = (tmdb_client.get_tv(int(fi["show_tmdb_id"])) or {}).get("poster")
+            if poster:
+                # Bump the thumbnail size to a poster-suitable width.
+                return poster.replace("/t/p/w92/", "/t/p/w500/")
+        except Exception:
+            continue
+    return None
+
+
+_STATIC_FRANCHISE_POSTERS: dict[str, str] | None = None
+
+
+def _static_franchise_poster(key: str | None) -> str | None:
+    """Representative poster for a bundled franchise, by registry key, read
+    from defaults/franchises.json (cached). Lets index cards show art for
+    franchise definitions stored before poster_url existed — no DB backfill or
+    runtime TMDB calls needed."""
+    global _STATIC_FRANCHISE_POSTERS
+    if not key:
+        return None
+    if _STATIC_FRANCHISE_POSTERS is None:
+        try:
+            path = os.path.join(os.path.dirname(__file__), "defaults", "franchises.json")
+            with open(path) as f:
+                _STATIC_FRANCHISE_POSTERS = {
+                    e["key"]: e.get("poster") for e in json.load(f) if e.get("poster")
+                }
+        except Exception:
+            _STATIC_FRANCHISE_POSTERS = {}
+    return _STATIC_FRANCHISE_POSTERS.get(key)
+
+
+def _apply_franchise_poster(row) -> None:
+    """Best-effort: set a deterministic TMDB cover on each backend playlist for
+    this franchise row. Fire-and-forget. Shared by create / Maker-save / sync
+    so franchise playlists (including pre-existing and Maker-built ones) get a
+    real poster rather than the media server's inconsistent auto-composite."""
+    try:
+        defn_id = dict(row).get("franchise_definition_id")
+        if not defn_id:
+            return
+        poster_url = _franchise_poster_url(db.list_franchise_items(defn_id))
+        if not poster_url:
+            return
+        for _tb, client, pl_id in _clients_for_playlist(row):
+            if pl_id:
+                client.set_playlist_image(pl_id, poster_url)
+    except Exception:
+        log.warning("Failed to apply franchise poster", exc_info=True)
 
 
 def _fetch_and_store_franchise(
@@ -1565,11 +1672,15 @@ def _fetch_and_store_franchise_chronolists(
     payload = cl.fetch_list(chronolists_id)
     items = parse_chronolists_items(payload.get("items", []))
     new_hash = (payload.get("metadata") or {}).get("hash") or target_hash or ""
+    # Resolve a representative TMDB poster so the franchise's picker card gets
+    # frosted-glass art — including auto-discovered Chronolists lists, which
+    # flow through here too.
+    poster_url = _franchise_poster_url(items)
     definition_id = db.upsert_franchise_definition(
         key=key, name=name, source="chronolists",
         trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
         fetched_at=fetched_at, content_hash=new_hash, item_count=len(items),
-        auto_discovered=int(auto_discovered))
+        auto_discovered=int(auto_discovered), poster_url=poster_url)
     if existing is None or existing.get("content_hash") != new_hash:
         db.replace_franchise_items(definition_id, items)
         log.info("Franchise '%s' (chronolists): stored %d items", name, len(items))
@@ -1655,10 +1766,10 @@ def _match_franchise_to_library(
     definition_id: int,
     playlist_id: int,
     row: dict,
-) -> tuple[list[str], list[str], int]:
+) -> tuple[list[str], list[str], list[str], int]:
     franchise_items = db.list_franchise_items(definition_id)
     if not franchise_items:
-        return [], [], 0
+        return [], [], [], 0
 
     backend_caches: dict[str, dict] = {}
     for backend, client_q, _pl_id in _clients_for_playlist(row):
@@ -1669,6 +1780,7 @@ def _match_franchise_to_library(
 
     plex_keys: list[str] = []
     jellyfin_keys: list[str] = []
+    emby_keys: list[str] = []
     missing_count = 0
 
     for fi in franchise_items:
@@ -1676,6 +1788,8 @@ def _match_franchise_to_library(
         plex_item_id: str | None = None
         jellyfin_found = False
         jellyfin_item_id: str | None = None
+        emby_found = False
+        emby_item_id: str | None = None
 
         item_type = fi["item_type"]
         if item_type in ("show", "season"):
@@ -1686,10 +1800,14 @@ def _match_franchise_to_library(
                         plex_found = True
                         plex_item_id = keys[0]
                         plex_keys.extend(keys)
-                    else:
+                    elif backend == "jellyfin":
                         jellyfin_found = True
                         jellyfin_item_id = keys[0]
                         jellyfin_keys.extend(keys)
+                    else:
+                        emby_found = True
+                        emby_item_id = keys[0]
+                        emby_keys.extend(keys)
 
             db.upsert_franchise_match_state(
                 franchise_item_id=fi["id"],
@@ -1698,9 +1816,11 @@ def _match_franchise_to_library(
                 plex_item_id=plex_item_id,
                 jellyfin_found=jellyfin_found,
                 jellyfin_item_id=jellyfin_item_id,
+                emby_found=emby_found,
+                emby_item_id=emby_item_id,
             )
 
-            if not plex_found and not jellyfin_found:
+            if not plex_found and not jellyfin_found and not emby_found:
                 missing_count += 1
         else:
             for backend, cache in backend_caches.items():
@@ -1710,10 +1830,14 @@ def _match_franchise_to_library(
                         plex_found = True
                         plex_item_id = found_key
                         plex_keys.append(found_key)
-                    else:
+                    elif backend == "jellyfin":
                         jellyfin_found = True
                         jellyfin_item_id = found_key
                         jellyfin_keys.append(found_key)
+                    else:
+                        emby_found = True
+                        emby_item_id = found_key
+                        emby_keys.append(found_key)
 
             db.upsert_franchise_match_state(
                 franchise_item_id=fi["id"],
@@ -1722,12 +1846,14 @@ def _match_franchise_to_library(
                 plex_item_id=plex_item_id,
                 jellyfin_found=jellyfin_found,
                 jellyfin_item_id=jellyfin_item_id,
+                emby_found=emby_found,
+                emby_item_id=emby_item_id,
             )
 
-            if not plex_found and not jellyfin_found:
+            if not plex_found and not jellyfin_found and not emby_found:
                 missing_count += 1
 
-    return plex_keys, jellyfin_keys, missing_count
+    return plex_keys, jellyfin_keys, emby_keys, missing_count
 
 
 def _build_backend_ordered_keys(
@@ -1764,8 +1890,7 @@ def create_franchise_playlist(
 ) -> int:
     from datetime import datetime, timezone
 
-    if backend not in db.VALID_BACKENDS:
-        raise ValueError(f"Invalid backend: {backend}")
+    db._validate_backend(backend)
 
     definition_id = _fetch_and_store_franchise(
         key=franchise_key,
@@ -1789,17 +1914,22 @@ def create_franchise_playlist(
         playlist_id = cur.lastrowid
 
     row = db.get_playlist(playlist_id)
-    plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+    plex_keys, jellyfin_keys, emby_keys, missing_count = _match_franchise_to_library(
         definition_id, playlist_id, row
     )
 
     log.info(
-        "Creating franchise playlist '%s': %d plex keys, %d jellyfin keys, %d missing",
-        name, len(plex_keys), len(jellyfin_keys), missing_count,
+        "Creating franchise playlist '%s': %d plex keys, %d jellyfin keys, %d emby keys, %d missing",
+        name, len(plex_keys), len(jellyfin_keys), len(emby_keys), missing_count,
     )
 
+    # Deterministic franchise cover (TMDB) — set after each backend create so
+    # franchise playlists get a real poster rather than relying on the media
+    # server's inconsistent auto-composite. Best-effort; never blocks creation.
+    poster_url = _franchise_poster_url(db.list_franchise_items(definition_id))
+
     for tb, client, pl_id in _clients_for_playlist(row):
-        backend_keys = plex_keys if tb == "plex" else jellyfin_keys
+        backend_keys = {"plex": plex_keys, "jellyfin": jellyfin_keys, "emby": emby_keys}.get(tb, [])
         if backend_keys:
             try:
                 new_pl_id = client.create_playlist(name, backend_keys)
@@ -1809,12 +1939,16 @@ def create_franchise_playlist(
                             "UPDATE managed_playlists SET plex_rating_key=? WHERE id=?",
                             (new_pl_id, playlist_id),
                         )
-                else:
+                elif tb == "jellyfin":
                     with db.connection() as conn2:
                         conn2.execute(
                             "UPDATE managed_playlists SET jellyfin_playlist_id=? WHERE id=?",
                             (new_pl_id, playlist_id),
                         )
+                else:
+                    db.set_emby_playlist_id(playlist_id, new_pl_id)
+                if poster_url:
+                    client.set_playlist_image(new_pl_id, poster_url)
             except Exception:
                 log.warning("Failed to create franchise playlist on %s", tb, exc_info=True)
 
@@ -1842,12 +1976,12 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
         log.warning("Franchise playlist %d has no definition_id", playlist_id)
         return (0, 0)
 
-    plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+    plex_keys, jellyfin_keys, emby_keys, missing_count = _match_franchise_to_library(
         definition_id, playlist_id, row
     )
     log.debug(
-        "Franchise sync '%s': %d plex, %d jf, %d missing",
-        row["name"], len(plex_keys), len(jellyfin_keys), missing_count,
+        "Franchise sync '%s': %d plex, %d jf, %d emby, %d missing",
+        row["name"], len(plex_keys), len(jellyfin_keys), len(emby_keys), missing_count,
     )
 
     added = removed = 0
@@ -1873,6 +2007,11 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
                 tb, playlist_id, exc_info=True
             )
 
+    # Heal cover art when the playlist changed, or on any forced sync (the
+    # "Sync Now" button) — the latter backfills posters on franchise playlists
+    # created before deterministic covers existed.
+    if added or removed or force:
+        _apply_franchise_poster(row)
     if added or removed:
         try:
             _webhooks.fire(
@@ -1921,8 +2060,7 @@ def save_user_franchise_playlist(
 
     if not name.strip():
         raise ValueError("Playlist name is required")
-    if backend not in db.VALID_BACKENDS:
-        raise ValueError(f"Invalid backend: {backend!r}")
+    db._validate_backend(backend)
     if not items:
         raise ValueError("At least one franchise item is required")
 
@@ -1995,6 +2133,7 @@ def save_user_franchise_playlist(
 
         row2 = db.get_playlist(playlist_id)
         sync_franchise_playlist(playlist_id, force=True)
+        _apply_franchise_poster(db.get_playlist(playlist_id))
         try:
             _webhooks.fire(
                 "playlist.synced",
@@ -2044,17 +2183,17 @@ def save_user_franchise_playlist(
             )
 
         row = db.get_playlist(playlist_id)
-        plex_keys, jellyfin_keys, missing_count = _match_franchise_to_library(
+        plex_keys, jellyfin_keys, emby_keys, missing_count = _match_franchise_to_library(
             defn_id, playlist_id, row
         )
 
         log.info(
-            "Creating user franchise playlist '%s': %d plex keys, %d jellyfin keys, %d missing",
-            name, len(plex_keys), len(jellyfin_keys), missing_count,
+            "Creating user franchise playlist '%s': %d plex keys, %d jellyfin keys, %d emby keys, %d missing",
+            name, len(plex_keys), len(jellyfin_keys), len(emby_keys), missing_count,
         )
 
         for tb, client, pl_id in _clients_for_playlist(row):
-            backend_keys = plex_keys if tb == "plex" else jellyfin_keys
+            backend_keys = {"plex": plex_keys, "jellyfin": jellyfin_keys, "emby": emby_keys}.get(tb, [])
             if backend_keys:
                 try:
                     new_pl_id = client.create_playlist(name, backend_keys)
@@ -2064,14 +2203,18 @@ def save_user_franchise_playlist(
                                 "UPDATE managed_playlists SET plex_rating_key=? WHERE id=?",
                                 (new_pl_id, playlist_id),
                             )
-                    else:
+                    elif tb == "jellyfin":
                         with db.connection() as conn2:
                             conn2.execute(
                                 "UPDATE managed_playlists SET jellyfin_playlist_id=? WHERE id=?",
                                 (new_pl_id, playlist_id),
                             )
+                    else:
+                        db.set_emby_playlist_id(playlist_id, new_pl_id)
                 except Exception:
                     log.warning("Failed to create franchise playlist on %s", tb, exc_info=True)
+
+        _apply_franchise_poster(db.get_playlist(playlist_id))
 
         try:
             _webhooks.fire(
@@ -2373,6 +2516,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
     # v2.3.0 — movie + episode counts for index card stats
     playlist_type_val = _row_get(row, "playlist_type", "manual") or "manual"
     movies_count = 0
+    franchise_poster: str | None = None
     if playlist_type_val == "franchise":
         defn_id = _row_get(row, "franchise_definition_id", None)
         if defn_id:
@@ -2380,6 +2524,16 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
                 for fi in db.list_franchise_items(defn_id):
                     if fi.get("item_type") == "movie":
                         movies_count += 1
+            except Exception:
+                pass
+            try:
+                _defn = db.get_franchise_definition_by_id(defn_id)
+                if _defn:
+                    franchise_poster = (
+                        _defn.get("poster_url")
+                        or _static_franchise_poster(_defn.get("key"))
+                        or _static_franchise_poster(_defn.get("forked_from_key"))
+                    )
             except Exception:
                 pass
     else:
@@ -2405,12 +2559,24 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
 
     episodes_count = max(0, item_count - movies_count)
 
+    backend_val = row["backend"] if "backend" in row.keys() else "plex"
+    backend_set = parse_backend_set(backend_val)
+    badge_map = {"plex": "P", "jellyfin": "J", "emby": "E"}
+    badge_label = "+".join(badge_map.get(b, b.upper()) for b in backend_set)
+    if len(backend_set) == 1:
+        badge_css = f"is-{backend_set[0]}"
+    else:
+        badge_css = "is-multi"
+
     return PlaylistView(
         id=row["id"],
         name=row["name"],
         plex_rating_key=row["plex_rating_key"],
         jellyfin_playlist_id=(
             row["jellyfin_playlist_id"] if "jellyfin_playlist_id" in row.keys() else None
+        ),
+        emby_playlist_id=(
+            row["emby_playlist_id"] if "emby_playlist_id" in row.keys() else None
         ),
         backend=row["backend"] if "backend" in row.keys() else "plex",
         shows=shows,
@@ -2432,6 +2598,9 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         pruning_enabled=int(_row_get(row, "pruning_enabled", 1) or 1),
         movies_count=movies_count,
         episodes_count=episodes_count,
+        badge_label=badge_label,
+        badge_css=badge_css,
+        poster=franchise_poster,
     )
 
 

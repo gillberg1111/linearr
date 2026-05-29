@@ -6,11 +6,9 @@
   <div class="page-head">
     <h1>
       {{ playlist.name }}
-      {% if AVAILABLE_BACKENDS|length > 1 or playlist.backend != 'plex' %}
-        <span class="backend-badge backend-badge-inline is-{{ playlist.backend }}">
-          {% if playlist.backend == 'both' %}Plex + Jellyfin
-          {% elif playlist.backend == 'jellyfin' %}Jellyfin
-          {% else %}Plex{% endif %}
+      {% if AVAILABLE_BACKENDS|length > 1 or playlist.badge_label != 'P' %}
+        <span class="backend-badge backend-badge-inline {{ playlist.badge_css }}">
+          {{ playlist.badge_label }}
         </span>
       {% endif %}
     </h1>
@@ -45,23 +43,20 @@
         {% for m in missing_on %}
           <li>
             <strong>{{ m.title }}</strong> — not in your {{ m.missing }} library
-            {% if AVAILABLE_BACKENDS|length > 1 and playlist.backend == 'both' %}
+            {% if AVAILABLE_BACKENDS|length > 1 and ',' in playlist.backend %}
               <details class="link-manually" style="display:inline;margin-left:0.5rem">
                 <summary class="hint" style="cursor:pointer">Link manually…</summary>
                 <form method="post"
                       action="{{ url_for('link_show_backend', playlist_id=playlist.id, show_rating_key=m.rating_key) }}"
                       class="inline-form link-form" style="margin-top:0.25rem">
                   <input type="hidden" name="backend"
-                         value="{{ 'jellyfin' if m.missing == 'Jellyfin' else 'plex' }}">
+                         value="{{ {'Plex':'plex','Jellyfin':'jellyfin','Emby':'emby'}.get(m.missing, m.missing.lower()) }}">
                   <select name="link_to_key" class="link-select" required style="max-width:300px">
                     <option value="">— pick a show —</option>
                     {% for s in all_shows %}
-                      {% if (m.missing == 'Jellyfin' and s.jellyfin_rating_key)
-                         or (m.missing == 'Plex' and s.plex_rating_key) %}
-                        <option value="{{ s.jellyfin_rating_key if m.missing == 'Jellyfin'
-                                                        else s.plex_rating_key }}">
-                          {{ s.title }}{% if s.year %} ({{ s.year }}){% endif %}
-                        </option>
+                      {% set id_col = {'Plex': 'plex_rating_key', 'Jellyfin': 'jellyfin_rating_key', 'Emby': 'emby_rating_key'}.get(m.missing, '') %}
+                      {% if id_col and s.get(id_col) %}
+                        <option value="{{ s[id_col] }}">{{ s.title }}{% if s.year %} ({{ s.year }}){% endif %}</option>
                       {% endif %}
                     {% endfor %}
                   </select>
@@ -216,6 +211,7 @@
         {% for s in playlist.shows %}
           {% set on_plex = s.get('plex_show_item_id') %}
           {% set on_jf = s.get('jellyfin_show_item_id') %}
+          {% set on_emby = s.get('emby_show_item_id') %}
           <li class="rotation-row" data-key="{{ s.show_rating_key }}">
             <input type="hidden" name="order" value="{{ s.show_rating_key }}">
             <div class="rotation-poster">
@@ -230,10 +226,12 @@
             <div class="rotation-info">
               <div class="title">
                 {{ s.show_title }}
-                {% if playlist.backend == 'both' and not on_jf %}
+                {% if ',' in playlist.backend and not on_jf %}
                   <span class="backend-badge is-warn">Not on Jellyfin</span>
-                {% elif playlist.backend == 'both' and not on_plex %}
+                {% elif ',' in playlist.backend and not on_plex %}
                   <span class="backend-badge is-warn">Not on Plex</span>
+                {% elif ',' in playlist.backend and not on_emby %}
+                  <span class="backend-badge is-warn">Not on Emby</span>
                 {% endif %}
               </div>
               <div class="sub">
@@ -487,6 +485,7 @@
             {% set both = show_backends and (show_backends|length) > 1 %}
             {% set only_jf = show_backends and (show_backends|length == 1) and ('jellyfin' in show_backends) %}
             {% set only_px = show_backends and (show_backends|length == 1) and ('plex' in show_backends) %}
+            {% set only_emby = show_backends and (show_backends|length == 1) and ('emby' in show_backends) %}
             <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
               <input type="checkbox" name="shows" value="{{ s.rating_key }}"
                      {% if selected and s.rating_key in selected %}checked{% endif %}>
@@ -500,8 +499,8 @@
                 {% endif %}
                 <div class="check"></div>
                 {% if AVAILABLE_BACKENDS|length > 1 and show_backends and not both %}
-                  <div class="backend-badge {% if only_jf %}is-jellyfin{% else %}is-plex{% endif %}">
-                    {% if only_jf %}Jellyfin only{% else %}Plex only{% endif %}
+                  <div class="backend-badge {% if only_jf %}is-jellyfin{% elif only_emby %}is-emby{% else %}is-plex{% endif %}">
+                    {% if only_jf %}Jellyfin only{% elif only_emby %}Emby only{% else %}Plex only{% endif %}
                   </div>
                 {% endif %}
               </div>
@@ -524,11 +523,7 @@
     <section class="stats-section">
       <div class="section-head">
         <h2>Stats</h2>
-        <span class="hint">Updated each sync. Reflects
-          {%- if playlist.backend == 'both' %} Plex and Jellyfin
-          {%- elif playlist.backend == 'jellyfin' %} Jellyfin
-          {%- else %} Plex
-          {%- endif %} library state.</span>
+        <span class="hint">Updated each sync. Reflects the targeted backend{{ 's' if ',' in playlist.backend else '' }} library state.</span>
       </div>
       {% set total = playlist.last_stats.total_episodes or 0 %}
       <p class="stats-label" style="margin-top:0.8rem">{{ total }} episode{{ 's' if total != 1 else '' }} in playlist</p>
@@ -572,6 +567,8 @@
             <span class="franchise-status-badge franchise-status-partial">Plex only</span>
           {% elif item.lib_status == 'jellyfin_only' %}
             <span class="franchise-status-badge franchise-status-partial">Jellyfin only</span>
+          {% elif item.lib_status == 'emby_only' %}
+            <span class="franchise-status-badge franchise-status-partial">Emby only</span>
           {% else %}
             <span class="franchise-status-badge franchise-status-missing">Not in library</span>
           {% endif %}

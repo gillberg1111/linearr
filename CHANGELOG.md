@@ -3,6 +3,87 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.0] - 2026-05-29
+
+### Added
+
+- **Emby as a third backend.** Emby now appears everywhere Plex and Jellyfin
+  do — a playlist can target any one, any pair, or all three. New
+  `emby_client.py` (standalone `EmbyClient`, ~mirrors the Jellyfin client since
+  Jellyfin was forked from Emby) with **API-key auth** via the `X-Emby-Token`
+  header. Gated like the others: Emby is only ever contacted when `EMBY_URL`
+  **and** `EMBY_API_KEY` are set. Emby carries its own DELETE safety guard —
+  the "Linearr never deletes your media" guarantee now covers all three
+  backends.
+- **CSV-set backend model.** `managed_playlists.backend` now stores a
+  comma-separated set in canonical order (e.g. `plex,jellyfin,emby`) instead of
+  a 3-value enum, so all 7 combinations fall out naturally. `'both'` is kept as
+  a legacy alias for `plex,jellyfin`. New helpers in `media_client.py`:
+  `ALL_BACKENDS`, `parse_backend_set`, `format_backend_set`, `primary_backend`.
+- **Per-backend checkbox picker.** The "Push to" control on the configure,
+  genre, franchise, and Maker pages is now a checkbox per configured backend
+  (select any subset), replacing the old Both/Plex/Jellyfin radio.
+- **Deterministic franchise cover art.** Franchise playlists now get a real
+  TMDB poster uploaded on every backend (`MediaClient.set_playlist_image`)
+  rather than relying on the media server's inconsistent auto-composite —
+  applied on create, Maker-save, and forced sync (so existing playlists
+  backfill a cover via **Sync Now**).
+- **Frosted-glass posters on the New Franchise picker cards.** Each card shows
+  a representative TMDB poster behind a frosted layer (label stays crisp).
+  Auto-discovered Chronolists lists resolve and store a poster at fetch time,
+  so new cards get art automatically.
+- **Backend credentials in Settings.** Plex / Jellyfin / Emby connection fields
+  are now editable on the Settings page (with a per-backend "Test connection"
+  button), so a backend can be added or changed later without editing env vars
+  or recreating the container. Credentials read DB-value-then-env-fallback via
+  `media_client.backend_setting()`; saving clears the `get_client` cache so new
+  creds take effect immediately. Env vars still work unchanged as the fallback.
+
+### Database
+
+- `managed_playlists.emby_playlist_id`; `playlist_shows.emby_show_item_id` +
+  `emby_movie_item_ids`; `franchise_match_state.emby_found` + `emby_item_id`;
+  `franchise_definitions.poster_url` (introspection migrations).
+- The `backend` column's value-list `CHECK` is relaxed (table rebuild on
+  existing DBs) so set values like `plex,emby` are accepted;
+  `db._validate_backend()` replaces the old enum membership check and accepts
+  any set of `{plex, jellyfin, emby}` plus the legacy `both`.
+
+### Fixed
+
+- Emby library listing hit Jellyfin's `/UserViews` (404 on Emby) — switched to
+  `/Users/{id}/Views`. This was why nothing matched in Emby.
+- Emby `user_id` is now resolved lazily via a property, so it's populated
+  before a request's path/params are built (previously `/Users/None/Views`).
+- Emby playlist creation sent a JSON body (Emby 500 "Unrecognized Guid
+  format") — now uses query params. This had blocked all Emby playlist creation.
+- Emby playlist deletion was a silent no-op: `delete_playlist` and
+  `playlist_exists` checked `GET /Playlists/{id}` (which 404s on Emby), so the
+  delete early-returned "already gone" and the DELETE used a lowercase `ids`
+  param Emby ignores. Both now verify via `/Items?Ids=` (confirming
+  `Type == "Playlist"` before the destructive call) and DELETE with `Ids`.
+- Franchise preview 500 when Emby was selected (the cache error-fallback was
+  missing the `show_tmdb` key).
+- "Invalid backend: plex,jellyfin" when creating a franchise playlist
+  (validation ran against the old enum instead of `_validate_backend`).
+- `_match_franchise_to_library` returned a 3-tuple for empty definitions while
+  callers unpack 4 values.
+- Franchise preview over-reported library matches (it checked only whether the
+  *show* existed) — it now resolves the actual episode/movie, matching what the
+  build produces.
+- Index playlist-card poster strip was pinned to 1/5 width per show — now
+  auto-fits the column count (1–5) and shows up to 5 posters.
+- Configure-page preview sat at "0 episodes" until the first change — it now
+  fetches once on load.
+- Genre "Push to" picker was missing Emby; the pruning help text referenced the
+  `WATCHED_KEEP` variable name literally.
+
+### Tests
+
+- 384 total (Emby backend-set parsing, primary-backend, Emby DELETE safety
+  guard, `_validate_backend` set acceptance, franchise empty-match 4-tuple,
+  `set_playlist_image` presence).
+
 ## [2.5.0] - 2026-05-28
 
 ### Added

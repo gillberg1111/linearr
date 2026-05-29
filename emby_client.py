@@ -1,9 +1,9 @@
-"""Jellyfin implementation of `MediaClient`.
+"""Emby implementation of `MediaClient`.
 
 ============================================================================
-SAFETY GUARANTEE — this app NEVER deletes media files from Jellyfin.
+SAFETY GUARANTEE — this app NEVER deletes media files from Emby.
 ============================================================================
-Jellyfin's only "delete playlist" endpoint is `DELETE /Items?ids=X`, the same
+Emby's only "delete playlist" endpoint is `DELETE /Items?ids=X`, the same
 endpoint that permanently deletes library items + their files on disk. We
 defend against this two ways:
 
@@ -20,20 +20,17 @@ defend against this two ways:
 Even a future bug that constructs an arbitrary DELETE will be refused.
 ============================================================================
 
-Auth notes (see JELLYFIN_RESEARCH.md §1):
-  * API keys are broken on the playlist endpoints we need (Jellyfin issue
-    #15600, unresolved). So we authenticate via username/password against
-    `POST /Users/AuthenticateByName`, which yields an AccessToken + User.Id.
-  * The token is durable (no documented expiry) but we re-auth once on 401.
-  * DeviceId is a stable UUID persisted to `<DB_DIR>/device_id` so the
-    server's "one access token per (deviceId, user)" rule doesn't churn
-    every restart.
-
-Playlist write notes (see JELLYFIN_RESEARCH.md §3 & §4):
-  * `replace_playlist_items()` is overridden here with a single
-    `POST /Playlists/{id}` (UpdatePlaylistDto.Ids=[...]), which Jellyfin
-    implements as an atomic clear-and-rebuild in `PlaylistManager.cs`.
-    This sidesteps the PlaylistItemId-vs-Id distinction entirely.
+Auth notes:
+  * API key auth via `X-Emby-Token` header — EMBY_URL and EMBY_API_KEY are
+    required env vars.
+  * EMBY_USERNAME is optional. If set, that user's Id is used for playlist
+    ownership. Otherwise we pick the first admin from GET /Users (falling
+    back to the first user).
+  * User Id is resolved lazily once and cached. No re-auth on 401 — a 401
+    means a bad API key, not an expired token.
+  * DeviceId is a stable UUID persisted to `<DB_DIR>/emby_device_id` for
+    the server's device tracking.
+  * `X-Emby-Authorization` header carries client identity metadata.
 """
 
 from __future__ import annotations
@@ -57,17 +54,17 @@ from media_client import (
 
 _log = logging.getLogger(__name__)
 
-# Client identity sent in the Authorization header. The version string is
-# decorative on the server side but appears in the Jellyfin Devices list.
+# Client identity sent in the X-Emby-Authorization header. The version string
+# is decorative on the server side but appears in the Emby Devices list.
 _CLIENT_NAME = "Linearr"
-_CLIENT_VERSION = "1.8.0"
+_CLIENT_VERSION = "3.0.0"
 
 # Episode/movie metadata fields we always request from /Items and friends so
 # the response carries the data we need to build PlaylistItem / EpisodeRef.
 _EPISODE_FIELDS = "PremiereDate,Overview,ProviderIds"
 _MOVIE_FIELDS = "PremiereDate,ProductionYear,ProviderIds"
 
-# How long any single HTTP call may take. Generous because Jellyfin can be
+# How long any single HTTP call may take. Generous because Emby can be
 # slow on first scan after restart.
 _HTTP_TIMEOUT = 30
 
@@ -77,14 +74,14 @@ _HTTP_TIMEOUT = 30
 # --------------------------------------------------------------------------- #
 
 
-class JellyfinSafetyError(RuntimeError):
+class EmbySafetyError(RuntimeError):
     """Raised when a DELETE call would touch library items or other state we
     promised never to mutate. Defense-in-depth — should never fire in
     well-behaved code."""
 
 
-class JellyfinAPIError(RuntimeError):
-    """Raised when Jellyfin returns an unexpected non-2xx response."""
+class EmbyAPIError(RuntimeError):
+    """Raised when Emby returns an unexpected non-2xx response."""
 
 
 # The only DELETE we allow through the normal request path. Removing items
@@ -98,13 +95,13 @@ def _check_delete_safety(path: str) -> None:
     """Raise unless `path` matches an explicit allow-list entry.
 
     Intentional deletion of a playlist itself (DELETE /Items?ids=X) goes
-    through `JellyfinClient.delete_playlist`, which calls the HTTP layer
+    through `EmbyClient.delete_playlist`, which calls the HTTP layer
     via a dedicated bypass after verifying the target is a playlist.
     """
     for pat in _ALLOWED_DELETE_PATTERNS:
         if pat.match(path):
             return
-    raise JellyfinSafetyError(
+    raise EmbySafetyError(
         f"Refused DELETE {path!r}. Linearr's safety guard only permits "
         f"DELETE /Playlists/{{id}}/Items via the standard request path. "
         f"Deleting a playlist itself goes through delete_playlist()."
@@ -117,7 +114,7 @@ def _check_delete_safety(path: str) -> None:
 
 
 def _premiere_date_iso(value: str | None) -> str | None:
-    """Trim Jellyfin's ISO 8601 PremiereDate ('2008-04-15T00:00:00.0000000Z')
+    """Trim Emby's ISO 8601 PremiereDate ('2008-04-15T00:00:00.0000000Z')
     to a plain YYYY-MM-DD string, matching the shape used everywhere else."""
     if not value:
         return None
@@ -135,7 +132,7 @@ def _title_match(movie_title: str, show_title: str) -> bool:
 
 
 def _parse_tmdb_id(prov: dict) -> int | None:
-    """Extract TMDB numeric id from a Jellyfin ProviderIds dict."""
+    """Extract TMDB numeric id from an Emby ProviderIds dict."""
     raw = prov.get("Tmdb") or prov.get("tmdb")
     if raw and str(raw).isdigit():
         return int(raw)
@@ -147,7 +144,7 @@ def _device_id_path() -> str:
     rides along on the same persistent volume."""
     db_path = os.environ.get("DB_PATH", "rotator.db")
     d = os.path.dirname(db_path) or "."
-    return os.path.join(d, "device_id")
+    return os.path.join(d, "emby_device_id")
 
 
 def _load_or_create_device_id() -> str:
@@ -170,83 +167,103 @@ def _load_or_create_device_id() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# JellyfinClient
+# EmbyClient
 # --------------------------------------------------------------------------- #
 
 
-class JellyfinClient(MediaClient):
-    backend = "jellyfin"
+class EmbyClient(MediaClient):
+    backend = "emby"
 
     def __init__(self) -> None:
         from media_client import backend_setting
-        self._url = (backend_setting("jellyfin_url") or "").rstrip("/")
-        self._username = backend_setting("jellyfin_username") or ""
-        self._password = backend_setting("jellyfin_password") or ""
+        self._url = (backend_setting("emby_url") or "").rstrip("/")
+        self._api_key = backend_setting("emby_api_key") or ""
+        self._username = backend_setting("emby_username")
         self._device_id = _load_or_create_device_id()
         self._session = requests.Session()
-        self._token: str | None = None
-        self._user_id: str | None = None
-        # Concurrent re-auth from threaded callers is a theoretical risk
-        # (scheduler + web request); guard the auth dance.
-        self._auth_lock = threading.Lock()
+        self._user_id_cache: str | None = None
+        self._user_lock = threading.Lock()
 
     # ----- auth -------------------------------------------------------------
 
-    def _auth_header(self, with_token: bool = True) -> str:
+    @property
+    def _user_id(self) -> str | None:
+        """User Id, resolved lazily on first access.
+
+        Exposed as a property (not a plain attribute) so that ANY call site
+        interpolating user_id into a request path or params dict triggers
+        resolution first — request paths/params are evaluated before
+        `_request` runs, so resolving inside `_request` would be too late.
+        """
+        if self._user_id_cache is None:
+            self._resolve_user_id()
+        return self._user_id_cache
+
+    def _emby_auth_header(self) -> str:
         parts = [
             f'Client="{_CLIENT_NAME}"',
             f'Device="{_CLIENT_NAME}-host"',
             f'DeviceId="{self._device_id}"',
             f'Version="{_CLIENT_VERSION}"',
         ]
-        if with_token and self._token:
-            parts.insert(0, f'Token="{self._token}"')
         return "MediaBrowser " + ", ".join(parts)
 
-    def _authenticate(self) -> None:
-        """POST /Users/AuthenticateByName → AccessToken + User.Id.
+    def _resolve_user_id(self) -> None:
+        """Resolve the Emby user Id once. Called lazily by _ensure_authenticated.
 
-        Idempotent — safe to call from multiple threads via the lock.
+        If EMBY_USERNAME is set, find that user by name. Otherwise pick the
+        first administrator, falling back to the first user.
         """
-        with self._auth_lock:
-            if self._token is not None:
-                return  # another thread won the race
-            resp = self._session.post(
-                self._url + "/Users/AuthenticateByName",
-                json={"Username": self._username, "Pw": self._password},
+        with self._user_lock:
+            if self._user_id_cache is not None:
+                return
+            resp = self._session.get(
+                self._url + "/Users",
                 headers={
-                    "Authorization": self._auth_header(with_token=False),
-                    "Content-Type": "application/json",
+                    "X-Emby-Token": self._api_key,
+                    "X-Emby-Authorization": self._emby_auth_header(),
                 },
                 timeout=_HTTP_TIMEOUT,
             )
-            if resp.status_code == 401:
-                raise JellyfinAPIError(
-                    "Jellyfin rejected username/password (401 from /Users/AuthenticateByName). "
-                    "Check JELLYFIN_USERNAME and JELLYFIN_PASSWORD."
-                )
             if not resp.ok:
-                raise JellyfinAPIError(
-                    f"Jellyfin auth failed: {resp.status_code} {resp.text[:200]}"
+                raise EmbyAPIError(
+                    f"GET /Users failed: {resp.status_code} {resp.text[:200]}"
                 )
-            data = resp.json()
-            token = data.get("AccessToken")
-            user = data.get("User") or {}
-            user_id = user.get("Id")
-            if not token or not user_id:
-                raise JellyfinAPIError(
-                    "Jellyfin auth succeeded but response was missing AccessToken/User.Id"
+            users = resp.json()
+            if not users:
+                raise EmbyAPIError(
+                    "No users found on Emby server. Create at least one user."
                 )
-            self._token = token
-            self._user_id = user_id
-            _log.info("Jellyfin auth OK as user_id=%s", user_id)
+            if self._username:
+                for u in users:
+                    if u.get("Name") == self._username:
+                        self._user_id_cache = u["Id"]
+                        _log.info("Emby user_id=%s resolved by EMBY_USERNAME", self._user_id_cache)
+                        return
+                raise EmbyAPIError(
+                    f"User {self._username!r} not found on Emby server. "
+                    f"Check EMBY_USERNAME."
+                )
+            # No EMBY_USERNAME specified — prefer admin, else first user.
+            for u in users:
+                policy = u.get("Policy") or {}
+                if policy.get("IsAdministrator"):
+                    self._user_id_cache = u["Id"]
+                    _log.info("Emby user_id=%s resolved as first admin", self._user_id_cache)
+                    return
+            # Fall back to first user.
+            self._user_id_cache = users[0]["Id"]
+            _log.info("Emby user_id=%s resolved as first user", self._user_id_cache)
 
     def _ensure_authenticated(self) -> None:
-        if self._token is None:
-            self._authenticate()
+        if self._user_id_cache is None:
+            self._resolve_user_id()
 
-    def _headers(self) -> dict:
-        return {"Authorization": self._auth_header()}
+    def _headers(self) -> dict[str, str]:
+        return {
+            "X-Emby-Token": self._api_key,
+            "X-Emby-Authorization": self._emby_auth_header(),
+        }
 
     # ----- HTTP wrapper (the safety boundary) -------------------------------
 
@@ -273,18 +290,11 @@ class JellyfinClient(MediaClient):
             timeout=_HTTP_TIMEOUT,
         )
         if resp.status_code == 401:
-            # Token may have been revoked. Re-auth once and retry.
-            _log.info("Jellyfin returned 401; re-authenticating")
-            self._token = None
-            self._ensure_authenticated()
-            resp = self._session.request(
-                method_u, url,
-                params=params, json=json, stream=stream,
-                headers=self._headers(),
-                timeout=_HTTP_TIMEOUT,
+            raise EmbyAPIError(
+                f"{method_u} {path} -> 401 Unauthorized. Check EMBY_API_KEY."
             )
         if not resp.ok and resp.status_code != 404:
-            raise JellyfinAPIError(
+            raise EmbyAPIError(
                 f"{method_u} {path} -> {resp.status_code}: {resp.text[:200]}"
             )
         return resp
@@ -294,7 +304,9 @@ class JellyfinClient(MediaClient):
     def _tv_library_ids(self) -> list[tuple[str, str]]:
         """Returns [(libraryId, libraryName)] for every TV library, optionally
         filtered by the TV_LIBRARIES env var (same convention as Plex)."""
-        resp = self._request("GET", "/UserViews", params={"userId": self._user_id})
+        # Emby exposes user views at /Users/{id}/Views (NOT Jellyfin's /UserViews,
+        # which 404s on Emby).
+        resp = self._request("GET", f"/Users/{self._user_id}/Views")
         items = resp.json().get("Items") or []
         tv = [
             (it["Id"], it.get("Name", ""))
@@ -307,7 +319,7 @@ class JellyfinClient(MediaClient):
         return tv
 
     def _movie_library_ids(self) -> list[str]:
-        resp = self._request("GET", "/UserViews", params={"userId": self._user_id})
+        resp = self._request("GET", f"/Users/{self._user_id}/Views")
         items = resp.json().get("Items") or []
         return [it["Id"] for it in items if it.get("CollectionType") == "movies"]
 
@@ -323,7 +335,7 @@ class JellyfinClient(MediaClient):
 
     @staticmethod
     def _item_to_playlist_item(item: dict) -> PlaylistItem:
-        """Convert a Jellyfin BaseItemDto (Episode or Movie) to PlaylistItem."""
+        """Convert an Emby BaseItemDto (Episode or Movie) to PlaylistItem."""
         kind = "movie" if item.get("Type") == "Movie" else "episode"
         user = item.get("UserData") or {}
         season = (
@@ -374,7 +386,7 @@ class JellyfinClient(MediaClient):
                 if g.get("Name")
             )
         except Exception:
-            _log.exception("list_all_genres failed on Jellyfin")
+            _log.exception("list_all_genres failed on Emby")
             return []
 
     def list_tv_sections(self) -> list[str]:
@@ -383,7 +395,7 @@ class JellyfinClient(MediaClient):
             data = resp.json() if resp.ok else []
             return [f["Name"] for f in data if f.get("CollectionType") == "tvshows"]
         except Exception:
-            _log.exception("list_tv_sections failed on Jellyfin")
+            _log.exception("list_tv_sections failed on Emby")
             return []
 
     def _list_series_via_items(self, extra_params: dict) -> list[ShowSummary]:
@@ -428,7 +440,7 @@ class JellyfinClient(MediaClient):
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         item = self._fetch_item(rating_key)
         if item is None:
-            raise JellyfinAPIError(f"Jellyfin show {rating_key!r} not found")
+            raise EmbyAPIError(f"Emby show {rating_key!r} not found")
         prov = item.get("ProviderIds") or {}
         return ShowSummary(
             rating_key=str(item["Id"]),
@@ -593,7 +605,7 @@ class JellyfinClient(MediaClient):
                 ))
             return movies
         except Exception:
-            _log.warning("list_all_movies failed (Jellyfin)", exc_info=True)
+            _log.warning("list_all_movies failed (Emby)", exc_info=True)
             return []
 
     def find_show_by_tvdb_id(self, tvdb_id: int) -> ShowSummary | None:
@@ -659,10 +671,17 @@ class JellyfinClient(MediaClient):
     # ----- playlist read ----------------------------------------------------
 
     def playlist_exists(self, rating_key: str | None) -> bool:
+        # Emby has no GET /Playlists/{id} (it 404s); look the item up via
+        # /Items?Ids= and confirm it's still a Playlist.
         if not rating_key:
             return False
-        resp = self._request("GET", f"/Playlists/{rating_key}")
-        return resp.status_code == 200
+        resp = self._request(
+            "GET", "/Items",
+            params={"Ids": rating_key, "userId": self._user_id},
+        )
+        if not resp.ok:
+            return False
+        return any(it.get("Type") == "Playlist" for it in (resp.json().get("Items") or []))
 
     def get_playlist_items(self, rating_key: str) -> list[PlaylistItem]:
         if not rating_key:
@@ -695,41 +714,49 @@ class JellyfinClient(MediaClient):
 
     def create_playlist(self, title: str, ordered_rating_keys: list[str]) -> str:
         if not ordered_rating_keys:
-            raise ValueError("Cannot create a Jellyfin playlist with zero items")
-        resp = self._request("POST", "/Playlists", json={
+            raise ValueError("Cannot create an Emby playlist with zero items")
+        # Emby reads these from the query string, NOT a JSON body (a JSON body
+        # yields "Unrecognized Guid format"). Ids is comma-delimited.
+        resp = self._request("POST", "/Playlists", params={
             "Name": title,
-            "Ids": ordered_rating_keys,
+            "Ids": ",".join(str(k) for k in ordered_rating_keys),
             "UserId": self._user_id,
             "MediaType": "Video",
-            "IsPublic": False,
         })
         body = resp.json()
         new_id = body.get("Id")
         if not new_id:
-            raise JellyfinAPIError(f"Create playlist response missing Id: {body!r}")
+            raise EmbyAPIError(f"Create playlist response missing Id: {body!r}")
         return str(new_id)
 
     def delete_playlist(self, rating_key: str) -> None:
         """Delete the playlist itself.
 
-        This is the ONE place where we intentionally hit `DELETE /Items?ids=X`
-        (the same endpoint that deletes library content). We verify the target
-        is a playlist via `GET /Playlists/{id}` first, then bypass the
-        DELETE-safety check for this one call only.
+        This is the ONE place where we intentionally hit `DELETE /Items?Ids=X`
+        (the same endpoint that deletes library content). Emby has no
+        `GET /Playlists/{id}`, so we verify via an `/Items?Ids=` lookup that the
+        target both exists AND is a `Playlist` before bypassing the DELETE
+        safety check for this one call. The param is `Ids` (PascalCase) — Emby
+        is case-sensitive and silently ignores a lowercase `ids`.
         """
         if not rating_key:
             return
-        check = self._request("GET", f"/Playlists/{rating_key}")
-        if check.status_code == 404:
+        check = self._request(
+            "GET", "/Items",
+            params={"Ids": rating_key, "userId": self._user_id},
+        )
+        items = (check.json().get("Items") or []) if check.ok else []
+        if not items:
             return  # already gone, no-op
-        if check.status_code != 200:
-            raise JellyfinAPIError(
-                f"Refusing to delete: GET /Playlists/{rating_key} returned {check.status_code}"
+        if items[0].get("Type") != "Playlist":
+            raise EmbySafetyError(
+                f"Refusing to DELETE item {rating_key!r}: it is a "
+                f"{items[0].get('Type')!r}, not a Playlist."
             )
         # Verified target is a playlist; safe to bypass for this one call.
         self._request(
             "DELETE", "/Items",
-            params={"ids": rating_key},
+            params={"Ids": rating_key},
             _bypass_delete_check=True,
         )
 
@@ -747,9 +774,10 @@ class JellyfinClient(MediaClient):
         self, rating_key: str, item_rating_keys: list[str]
     ) -> None:
         """Remove by underlying media-item id. We have to map id → PlaylistItemId
-        first because Jellyfin's DELETE /Playlists/{id}/Items takes entry ids.
+        first because Emby's DELETE /Playlists/{id}/Items takes entry ids.
 
-        Used as a fallback only — `replace_playlist_items` is the preferred path.
+        This is used by the ABC's default replace_playlist_items() fallback
+        (remove-all + add-all).
         """
         if not rating_key or not item_rating_keys:
             return
@@ -774,35 +802,17 @@ class JellyfinClient(MediaClient):
             "entryIds": ",".join(entries),
         })
 
-    def replace_playlist_items(
-        self, rating_key: str, ordered_rating_keys: list[str]
-    ) -> None:
-        """Atomically replace playlist contents in a single API call.
-
-        Uses Jellyfin's `POST /Playlists/{id}` with UpdatePlaylistDto.Ids,
-        which clears `LinkedChildren` then re-adds from the given ordered
-        list in one transaction (see PlaylistManager.UpdatePlaylistAsync).
-        This is the single biggest API ergonomics win Jellyfin has over Plex
-        for our use case — no PlaylistItemId bookkeeping, no partial-state
-        window during rebuilds.
-        """
-        if not rating_key:
-            return
-        self._request("POST", f"/Playlists/{rating_key}", json={
-            "Ids": list(ordered_rating_keys),
-        })
-
     def set_playlist_image(self, rating_key: str, image_url: str) -> None:
         """Set the playlist cover via POST /Items/{id}/Images/Primary.
 
-        Jellyfin expects the body to be the base64-encoded image bytes with a
-        Content-Type matching the image format. Fire-and-forget: never raises.
+        Emby (like Jellyfin) expects the body to be the base64-encoded image
+        bytes with a Content-Type matching the image format. Fire-and-forget:
+        never raises.
         """
         if not rating_key or not image_url:
             return
         try:
             import base64
-            self._ensure_authenticated()
             img = requests.get(image_url, timeout=_HTTP_TIMEOUT)
             if not img.ok or not img.content:
                 return
@@ -814,9 +824,9 @@ class JellyfinClient(MediaClient):
                 timeout=_HTTP_TIMEOUT,
             )
             if not resp.ok:
-                _log.warning("set_playlist_image: Jellyfin returned %s for %s", resp.status_code, rating_key)
+                _log.warning("set_playlist_image: Emby returned %s for %s", resp.status_code, rating_key)
         except Exception:
-            _log.warning("set_playlist_image failed for Jellyfin playlist %s", rating_key, exc_info=True)
+            _log.warning("set_playlist_image failed for Emby playlist %s", rating_key, exc_info=True)
 
     # ----- images -----------------------------------------------------------
 
@@ -827,12 +837,12 @@ class JellyfinClient(MediaClient):
         height: int | None = None,
     ) -> tuple[bytes, str]:
         """Fetch a poster/thumb. `image_ref` is the underlying item id
-        (Jellyfin's image URL is always derivable from the id)."""
+        (Emby's image URL is always derivable from the id)."""
         params: dict = {}
         if width:
-            params["fillWidth"] = width
+            params["maxWidth"] = width
         if height:
-            params["fillHeight"] = height
+            params["maxHeight"] = height
         # Force a JPEG so the browser caches it consistently.
         params["format"] = "Jpg"
         resp = self._request(
@@ -840,7 +850,7 @@ class JellyfinClient(MediaClient):
             params=params, stream=True,
         )
         if resp.status_code == 404:
-            raise JellyfinAPIError(f"Jellyfin image not found for item {image_ref!r}")
+            raise EmbyAPIError(f"Emby image not found for item {image_ref!r}")
         content = resp.content
         ctype = resp.headers.get("Content-Type", "image/jpeg")
         return content, ctype
@@ -859,7 +869,7 @@ class JellyfinClient(MediaClient):
             },
         )
         if resp.status_code not in (200, 204):
-            raise JellyfinAPIError(
+            raise EmbyAPIError(
                 f"Refresh failed for {rating_key}: {resp.status_code}"
             )
 
