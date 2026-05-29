@@ -2054,6 +2054,122 @@ def test_maker_import_trakt_invalid_url():
             shutil.rmtree(tmp)
 
 
+# --------------------------------------------------------------------------- #
+# v2.4.0 — Chronolists integration tests
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_chronolists_movie():
+    from chronolists_client import parse_chronolists_items
+    raw = [{"type": "movie", "name": "Iron Man",
+            "tmdbId": 1726, "imdbId": "tt0371746"}]
+    items = parse_chronolists_items(raw)
+    check("chronolist_movie: count", len(items) == 1, str(len(items)))
+    check("chronolist_movie: item_type", items[0]["item_type"] == "movie")
+    check("chronolist_movie: rank", items[0]["rank"] == 1)
+    check("chronolist_movie: tmdb_id", items[0]["tmdb_id"] == 1726)
+    check("chronolist_movie: imdb_id", items[0]["imdb_id"] == "tt0371746")
+    check("chronolist_movie: show_tmdb_id is None", items[0]["show_tmdb_id"] is None)
+    check("chronolist_movie: season is None", items[0]["season_number"] is None)
+
+
+def test_parse_chronolists_tv():
+    from chronolists_client import parse_chronolists_items
+    raw = [{"type": "tv", "name": "Marvel's Agent Carter",
+            "season": 1, "episode": 1,
+            "tmdbId": 61550, "tmdbSeasonId": 63213, "tmdbEpisodeId": 1013214,
+            "imdbId": "tt3475734"}]
+    items = parse_chronolists_items(raw)
+    check("chronolist_tv: count", len(items) == 1)
+    check("chronolist_tv: item_type", items[0]["item_type"] == "episode")
+    check("chronolist_tv: show_tmdb_id", items[0]["show_tmdb_id"] == 61550)
+    check("chronolist_tv: tmdb_id is None", items[0]["tmdb_id"] is None)
+    check("chronolist_tv: season", items[0]["season_number"] == 1)
+    check("chronolist_tv: episode", items[0]["episode_number"] == 1)
+    check("chronolist_tv: show_tvdb_id is None", items[0]["show_tvdb_id"] is None)
+    check("chronolist_tv: show_title", items[0]["show_title"] == "Marvel's Agent Carter")
+
+
+def test_parse_chronolists_rank_ordering():
+    from chronolists_client import parse_chronolists_items
+    raw = [
+        {"type": "movie", "name": "A", "tmdbId": 1},
+        {"type": "movie", "name": "B", "tmdbId": 2},
+        {"type": "tv", "name": "C", "season": 1, "episode": 1, "tmdbId": 3},
+    ]
+    items = parse_chronolists_items(raw)
+    check("chronolist_ranks: count", len(items) == 3, str(len(items)))
+    ranks = [it["rank"] for it in items]
+    check("chronolist_ranks: [1,2,3]", ranks == [1, 2, 3], str(ranks))
+
+
+def test_parse_chronolists_unknown_type_skipped():
+    from chronolists_client import parse_chronolists_items
+    raw = [
+        {"type": "movie", "name": "A", "tmdbId": 1},
+        {"type": "collection", "name": "Skip me"},
+        {"type": "tv", "name": "C", "season": 1, "episode": 1, "tmdbId": 3},
+    ]
+    items = parse_chronolists_items(raw)
+    check("chronolist_unknown: count", len(items) == 2, str(len(items)))
+    check("chronolist_unknown: item 1 is movie", items[0]["item_type"] == "movie")
+    check("chronolist_unknown: item 2 is episode", items[1]["item_type"] == "episode")
+
+
+def test_show_summary_tmdb_id_default():
+    from media_client import ShowSummary
+    s = ShowSummary(rating_key="123", title="Test", year=2020, library="TV", thumb=None)
+    check("ShowSummary.tmdb_id default is None", s.tmdb_id is None)
+
+
+def test_valid_franchise_sources_has_chronolists():
+    import db as _db
+    check("chronolists in VALID_FRANCHISE_SOURCES",
+          "chronolists" in _db.VALID_FRANCHISE_SOURCES)
+
+
+def test_franchise_registry_integrity():
+    import json as _json
+    import os as _os
+    path = _os.path.join(_os.path.dirname(__file__), "defaults", "franchises.json")
+    with open(path) as f:
+        reg = _json.load(f)
+    check("registry: 23 entries", len(reg) == 23, f"got {len(reg)}")
+    keys = [e["key"] for e in reg]
+    check("registry: unique keys", len(keys) == len(set(keys)))
+    check("registry: no x_men", "x_men" not in keys)
+    check("registry: xmen_a present", "xmen_a" in keys)
+    check("registry: xmen_b present", "xmen_b" in keys)
+    for e in reg:
+        if e["source"] == "chronolists":
+            check(f"registry: {e['key']} has chronolists_id",
+                  e.get("chronolists_id") is not None)
+        if e["source"] == "trakt":
+            check(f"registry: {e['key']} has trakt_user",
+                  e.get("trakt_user") is not None)
+            check(f"registry: {e['key']} has trakt_slug",
+                  e.get("trakt_slug") is not None)
+
+
+def test_resolve_show_for_item_tmdb_fallback():
+    from service import _resolve_show_for_item
+    from media_client import ShowSummary
+    show = ShowSummary(
+        rating_key="jf_show_99", title="Agent Carter", year=2015,
+        library="TV", thumb=None, tvdb_id=None, tmdb_id=61550,
+    )
+    cache = {
+        "show_by_tvdb": {},
+        "show_by_tmdb": {61550: show},
+        "show_by_title_year": {},
+    }
+    item = {"show_tvdb_id": None, "show_tmdb_id": 61550,
+            "show_title": "Agent Carter", "year": 2015}
+    result = _resolve_show_for_item(item, cache)
+    check("resolve_tmdb: show found", result is not None)
+    check("resolve_tmdb: correct show", result.rating_key == "jf_show_99")
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

@@ -78,7 +78,7 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 VALID_BACKENDS = ("plex", "jellyfin", "both")
 VALID_PLAYLIST_TYPES = ("manual", "genre", "franchise")
-VALID_FRANCHISE_SOURCES = ("trakt", "local", "user")
+VALID_FRANCHISE_SOURCES = ("trakt", "local", "user", "chronolists")
 
 
 def init_db() -> None:
@@ -325,6 +325,7 @@ def init_db() -> None:
                     source       TEXT NOT NULL DEFAULT 'trakt',
                     trakt_user   TEXT,
                     trakt_slug   TEXT,
+                    chronolists_id TEXT,
                     fetched_at   TEXT,
                     content_hash TEXT,
                     item_count   INTEGER NOT NULL DEFAULT 0
@@ -347,6 +348,7 @@ def init_db() -> None:
                     episode_number   INTEGER,
                     show_title       TEXT,
                     show_tvdb_id     INTEGER,
+                    show_tmdb_id     INTEGER,
                     FOREIGN KEY (definition_id) REFERENCES franchise_definitions(id)
                         ON DELETE CASCADE
                 )"""
@@ -375,6 +377,17 @@ def init_db() -> None:
         if "forked_from_key" not in fd_cols:
             conn.execute(
                 "ALTER TABLE franchise_definitions ADD COLUMN forked_from_key TEXT"
+            )
+
+        # v2.4.0 — Chronolists integration
+        if "show_tmdb_id" not in _columns(conn, "franchise_items"):
+            conn.execute(
+                "ALTER TABLE franchise_items ADD COLUMN show_tmdb_id INTEGER"
+            )
+        fd_cols_v24 = _columns(conn, "franchise_definitions")
+        if "chronolists_id" not in fd_cols_v24:
+            conn.execute(
+                "ALTER TABLE franchise_definitions ADD COLUMN chronolists_id TEXT"
             )
 
 
@@ -913,9 +926,10 @@ def upsert_franchise_definition(
     source: str,
     trakt_user: str | None,
     trakt_slug: str | None,
-    fetched_at: str,
-    content_hash: str,
-    item_count: int,
+    chronolists_id: str | None = None,
+    fetched_at: str = "",
+    content_hash: str = "",
+    item_count: int = 0,
 ) -> int:
     with connection() as conn:
         existing = conn.execute(
@@ -925,9 +939,10 @@ def upsert_franchise_definition(
             conn.execute(
                 """UPDATE franchise_definitions
                    SET name=?, source=?, trakt_user=?, trakt_slug=?,
+                       chronolists_id=?,
                        fetched_at=?, content_hash=?, item_count=?
                    WHERE key=?""",
-                (name, source, trakt_user, trakt_slug,
+                (name, source, trakt_user, trakt_slug, chronolists_id,
                  fetched_at, content_hash, item_count, key),
             )
             return existing["id"]
@@ -935,10 +950,10 @@ def upsert_franchise_definition(
             cur = conn.execute(
                 """INSERT INTO franchise_definitions
                    (key, name, source, trakt_user, trakt_slug,
-                    fetched_at, content_hash, item_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    chronolists_id, fetched_at, content_hash, item_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (key, name, source, trakt_user, trakt_slug,
-                 fetched_at, content_hash, item_count),
+                 chronolists_id, fetched_at, content_hash, item_count),
             )
             return cur.lastrowid
 
@@ -969,8 +984,8 @@ def replace_franchise_items(definition_id: int, items: list[dict]) -> None:
             """INSERT INTO franchise_items
                (definition_id, rank, item_type, title, year,
                 tmdb_id, tvdb_id, imdb_id,
-                season_number, episode_number, show_title, show_tvdb_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                season_number, episode_number, show_title, show_tvdb_id, show_tmdb_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     definition_id,
@@ -985,6 +1000,7 @@ def replace_franchise_items(definition_id: int, items: list[dict]) -> None:
                     item.get("episode_number"),
                     item.get("show_title"),
                     item.get("show_tvdb_id"),
+                    item.get("show_tmdb_id"),
                 )
                 for item in items
             ],

@@ -247,10 +247,12 @@ fall-asleep buffer.
   Genre. Build a chronologically ordered playlist mixing movies, full
   series, individual seasons, and individual episodes — perfect for MCU
   watch orders, Star Wars chronological viewing, Star Trek timelines, etc.
-  17 pre-baked franchises ship with the app sourced from curated community
-  Trakt.tv lists: MCU, Star Wars, DCEU, DCU (James Gunn's new universe),
-  Arrowverse, Star Trek, Stargate, Doctor Who, Buffy & Angel, X-Men,
-  Mission: Impossible, Jurassic Park, MonsterVerse, John Wick, Alien &
+  23 pre-baked franchises ship with the app, sourced from
+  [Chronolists](https://chronolists.com) and curated community Trakt.tv
+  lists: MCU, Star Wars, DCEU, DCU (James Gunn's new universe), Arrowverse,
+  Star Trek, Stargate, Doctor Who, Buffy & Angel, X-Men (two timelines),
+  Mission: Impossible, Harry Potter, Chicago, Battlestar Galactica, The
+  Walking Dead, Underworld, Jurassic Park, MonsterVerse, John Wick, Alien &
   Predator, Conjuring Universe, James Bond. Override any with a custom
   Trakt list URL per-playlist. Items not yet in your library are flagged
   in red and added automatically once you add them and the next sync runs.
@@ -909,9 +911,11 @@ Linearr was built collaboratively with [Claude Code](https://claude.com/claude-c
 Architecture, naming, testing against a real Plex / Unraid setup,
 deployment, and ongoing maintenance are mine.
 
-Franchise watch-order playlists are powered by community-maintained lists on
-[Trakt.tv](https://trakt.tv). Linearr uses the Trakt API under a registered
-application key. Trakt® is a trademark of Trakt, LLC.
+Franchise watch-order playlists are powered by [Chronolists](https://chronolists.com)
+and community-maintained lists on [Trakt.tv](https://trakt.tv). Linearr uses the
+Chronolists public API and the Trakt API (under a registered application key).
+Trakt® is a trademark of Trakt, LLC. Chronolists is an independent project; with
+thanks to its maintainer for the public list API.
 
 ---
 

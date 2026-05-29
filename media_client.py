@@ -50,6 +50,7 @@ class ShowSummary:
     library: str
     thumb: str | None  # backend-specific image reference (path for Plex, item-id for Jellyfin)
     tvdb_id: str | None = None  # TVDB numeric ID for cross-backend matching
+    tmdb_id: int | None = None  # TMDB numeric ID (Chronolists episode matching)
     status: str | None = None
     content_rating: str | None = None
     season_count: int | None = None

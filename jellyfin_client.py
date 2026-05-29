@@ -134,6 +134,14 @@ def _title_match(movie_title: str, show_title: str) -> bool:
     return bool(re.search(pattern, movie_title.lower()))
 
 
+def _parse_tmdb_id(prov: dict) -> int | None:
+    """Extract TMDB numeric id from a Jellyfin ProviderIds dict."""
+    raw = prov.get("Tmdb") or prov.get("tmdb")
+    if raw and str(raw).isdigit():
+        return int(raw)
+    return None
+
+
 def _device_id_path() -> str:
     """Where to persist our stable DeviceId. Lives next to the SQLite DB so it
     rides along on the same persistent volume."""
@@ -407,6 +415,7 @@ class JellyfinClient(MediaClient):
                     library=lib_name,
                     thumb=rk if item.get("ImageTags", {}).get("Primary") else None,
                     tvdb_id=prov.get("Tvdb") or None,
+                    tmdb_id=_parse_tmdb_id(prov),
                     status=item.get("Status"),
                     content_rating=item.get("OfficialRating"),
                     season_count=item.get("ChildCount"),
@@ -428,6 +437,7 @@ class JellyfinClient(MediaClient):
             library="",  # not exposed on the item dto
             thumb=str(item["Id"]) if item.get("ImageTags", {}).get("Primary") else None,
             tvdb_id=prov.get("Tvdb") or None,
+            tmdb_id=_parse_tmdb_id(prov),
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:

@@ -103,6 +103,18 @@ def _tvdb_id_from_guids(guids) -> str | None:
     return None
 
 
+def _tmdb_id_from_guids(guids) -> int | None:
+    """Extract numeric TMDB id from a list of plexapi Guid objects."""
+    for g in (guids or []):
+        gid = getattr(g, "id", "") or ""
+        if gid.startswith("tmdb://"):
+            try:
+                return int(gid[len("tmdb://"):].split("?")[0])
+            except ValueError:
+                return None
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # PlexClient
 # --------------------------------------------------------------------------- #
@@ -199,6 +211,7 @@ class PlexClient(MediaClient):
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
+                        tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
                         status=getattr(show, "status", None),
                         content_rating=getattr(show, "contentRating", None),
                         season_count=getattr(show, "childCount", None),
@@ -235,6 +248,7 @@ class PlexClient(MediaClient):
                         library=section.title,
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
+                        tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
                         status=getattr(show, "status", None),
                         content_rating=getattr(show, "contentRating", None),
                         season_count=getattr(show, "childCount", None),
@@ -269,6 +283,7 @@ class PlexClient(MediaClient):
             library=show.librarySectionTitle if hasattr(show, "librarySectionTitle") else "",
             thumb=getattr(show, "thumb", None),
             tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
+            tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:

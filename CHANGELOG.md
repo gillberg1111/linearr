@@ -3,6 +3,49 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-05-28
+
+### Added
+
+- **Chronolists as a franchise source.** Franchise watch orders can now be
+  sourced from [Chronolists](https://chronolists.com) alongside Trakt. New
+  `chronolists_client.py` (read-only public JSON API, no key required;
+  override base URL with `CHRONOLISTS_BASE_URL`). Change detection uses
+  Chronolists' own list hash from the index endpoint, so a refresh is a single
+  cheap request unless a list actually changed.
+- **Expanded franchise registry — 23 bundled franchises** (was 17). Added
+  Harry Potter, Chicago (One Chicago), Battlestar Galactica, The Walking Dead,
+  Underworld, and split X-Men into two timelines (Timeline A / Timeline B).
+  16 franchises now pull from Chronolists; DCU, Jurassic Park, MonsterVerse,
+  John Wick, Alien & Predator, Conjuring Universe, and James Bond remain on
+  their existing Trakt/local sources.
+- **TMDB-based show matching for franchise episodes.** `ShowSummary` gained a
+  `tmdb_id` field (populated by both Plex and Jellyfin); the franchise matcher
+  resolves a show by TVDB → TMDB → title+year, so Chronolists' TMDB-only data
+  resolves against the library without TVDB ids.
+- **`FRANCHISE_REFRESH_DAYS`** env var (default `7`) controls how often
+  franchise definitions refresh from upstream. Set `30` for ~monthly.
+- **Automatic source migration.** Existing franchise playlists whose bundled
+  definition moved from Trakt to Chronolists are upgraded and re-synced
+  automatically (one-shot job at startup + on each refresh cycle).
+
+### Changed
+
+- New Franchise Playlist picker credits Chronolists in the source line
+  (Trakt retained). Edit on a Chronolists-sourced card opens the Maker
+  pre-loaded from Chronolists with fork-on-edit semantics.
+
+### Database
+
+- `franchise_items.show_tmdb_id` and `franchise_definitions.chronolists_id`
+  columns added (introspection migrations; existing DBs upgrade in place).
+- `VALID_FRANCHISE_SOURCES` now includes `chronolists`.
+
+### Tests
+
+- 326/326 (was 269): Chronolists parser, TMDB show resolution, registry
+  integrity, `ShowSummary.tmdb_id` default, source-enum coverage.
+
 ## [2.3.0] - 2026-05-28
 
 ### Added

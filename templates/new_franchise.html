@@ -7,7 +7,9 @@
   </div>
 
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.4rem;margin-bottom:1rem;font-size:0.8rem;color:var(--text-muted)">
-    <span>Franchise watch orders sourced from community-maintained lists on</span>
+    <span>Franchise watch orders sourced from</span>
+    <a href="https://chronolists.com" target="_blank" rel="noopener">Chronolists</a>
+    <span>and community-maintained lists on</span>
     <a href="https://trakt.tv" target="_blank" rel="noopener" style="line-height:0">
       <img src="{{ url_for('static', filename='trakt-logo-dark.svg') }}"
            alt="Trakt.tv" height="14" style="opacity:0.85">
@@ -16,12 +18,13 @@
 
   <div class="franchise-grid">
     {% for f in franchises %}
-      <div class="franchise-card"
-           data-trakt-user="{{ f.trakt_user }}"
-           data-trakt-slug="{{ f.trakt_slug }}"
-           data-franchise-key="{{ f.key }}"
-           data-franchise-name="{{ f.name }}"
-           data-franchise-source="{{ f.source | default('trakt') }}">
+       <div class="franchise-card"
+            data-trakt-user="{{ f.trakt_user }}"
+            data-trakt-slug="{{ f.trakt_slug }}"
+            data-franchise-key="{{ f.key }}"
+            data-franchise-name="{{ f.name }}"
+            data-franchise-source="{{ f.source | default('trakt') }}"
+            data-chronolists-id="{{ f.chronolists_id | default('') }}">
         <div class="franchise-card-name">{{ f.name }}</div>
       </div>
     {% endfor %}
@@ -62,6 +65,7 @@
       <input type="hidden" name="franchise_key" id="hiddenFranchiseKey">
       <input type="hidden" name="franchise_name" id="hiddenFranchiseName">
       <input type="hidden" name="franchise_source" id="hiddenFranchiseSource">
+      <input type="hidden" name="chronolists_id" id="hiddenChronolistsId">
       <input type="hidden" name="trakt_user" id="hiddenTraktUser">
       <input type="hidden" name="trakt_slug" id="hiddenTraktSlug">
 
@@ -115,7 +119,7 @@
     var listToggle   = document.getElementById('listSourceToggle');
     var presetUrlRow = document.getElementById('presetCustomUrlRow');
 
-    var defaultUser = '', defaultSlug = '';
+    var defaultUser = '', defaultSlug = '', defaultSource = 'trakt';
 
     function getBackend() {
       if (!backendPicker) return 'plex';
@@ -137,11 +141,13 @@
       if (editBtn) editBtn.disabled = true;
       var src = document.getElementById('hiddenFranchiseSource').value || 'trakt';
       var fkey = document.getElementById('hiddenFranchiseKey').value || '';
+      var clId = document.getElementById('hiddenChronolistsId').value || '';
       fetch('/api/franchise/preview?trakt_user=' + encodeURIComponent(user)
           + '&trakt_slug=' + encodeURIComponent(slug)
           + '&backend=' + encodeURIComponent(getBackend())
           + '&source=' + encodeURIComponent(src)
-          + '&franchise_key=' + encodeURIComponent(fkey))
+          + '&franchise_key=' + encodeURIComponent(fkey)
+          + '&chronolists_id=' + encodeURIComponent(clId))
         .then(function(r) { return r.text(); })
         .then(function(html) {
           previewCont.innerHTML = html;
@@ -158,14 +164,16 @@
         var key = document.getElementById('hiddenFranchiseKey').value || '';
         var traktUser = document.getElementById('hiddenTraktUser').value || '';
         var traktSlug = document.getElementById('hiddenTraktSlug').value || '';
+        var src = document.getElementById('hiddenFranchiseSource').value || 'trakt';
 
-        // Pre-baked franchise (key matches one of our defaults): pass
-        // import_local so the Maker preloads from the correct source AND
-        // sets forked_from_key for the Restore default button.
         var params = new URLSearchParams();
         var isCustom = key.indexOf('custom_') === 0 || key.indexOf('_override') >= 0;
         if (key && !isCustom) {
-          params.set('import_local', key);
+          if (src === 'chronolists') {
+            params.set('import_chronolists', key);
+          } else {
+            params.set('import_local', key);
+          }
         } else if (traktUser && traktSlug) {
           params.set('import_trakt_user', traktUser);
           params.set('import_trakt_slug', traktSlug);
@@ -187,6 +195,7 @@
 
         defaultUser = card.dataset.traktUser;
         defaultSlug = card.dataset.traktSlug;
+        defaultSource = card.dataset.franchiseSource || 'trakt';
 
         // Reset list-source toggle to Default
         listToggle.querySelectorAll('.pill').forEach(function(p) {
@@ -197,6 +206,7 @@
 
         setHidden(defaultUser, defaultSlug, card.dataset.franchiseKey, card.dataset.franchiseName);
         document.getElementById('hiddenFranchiseSource').value = card.dataset.franchiseSource || 'trakt';
+        document.getElementById('hiddenChronolistsId').value = card.dataset.chronolistsId || '';
 
         franchiseOpts.hidden = false;
         presetOpts.hidden    = false;
@@ -220,11 +230,14 @@
         previewCont.innerHTML = '';
         createBtn.disabled = true;
       } else {
-        // Revert to default list
+        // Revert to default list — restore the card's original source + ids
+        // (a Trakt-URL override may have switched source to 'trakt').
         document.getElementById('presetCustomTraktUrl').value = '';
         var activeCard = document.querySelector('.franchise-card.selected:not(.franchise-card-custom)');
         if (activeCard) {
           setHidden(defaultUser, defaultSlug, activeCard.dataset.franchiseKey, activeCard.dataset.franchiseName);
+          document.getElementById('hiddenFranchiseSource').value = activeCard.dataset.franchiseSource || 'trakt';
+          document.getElementById('hiddenChronolistsId').value = activeCard.dataset.chronolistsId || '';
           fetchPreview(defaultUser, defaultSlug);
         }
       }

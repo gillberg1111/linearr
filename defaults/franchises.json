@@ -2,26 +2,130 @@
   {
     "key": "mcu",
     "name": "Marvel (MCU)",
-    "source": "trakt",
-    "trakt_user": "ggthev",
-    "trakt_slug": "marvel-cinematic-universe-chronological-order",
-    "chronolists_id": null
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "mcu"
   },
   {
     "key": "star_wars",
     "name": "Star Wars",
-    "source": "trakt",
-    "trakt_user": "notahtoomah",
-    "trakt_slug": "star-wars-chronological-order-of-canon-media",
-    "chronolists_id": null
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "star-wars"
+  },
+  {
+    "key": "star_trek",
+    "name": "Star Trek",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "star-trek"
+  },
+  {
+    "key": "doctor_who",
+    "name": "Doctor Who",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "doctor-who"
+  },
+  {
+    "key": "arrowverse",
+    "name": "DC Arrowverse",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "dctv"
   },
   {
     "key": "dceu",
     "name": "DC (DCEU)",
-    "source": "trakt",
-    "trakt_user": "gratiskeder",
-    "trakt_slug": "dc-extended-universe-dceu",
-    "chronolists_id": null
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "dceu"
+  },
+  {
+    "key": "stargate",
+    "name": "Stargate",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "stargate"
+  },
+  {
+    "key": "buffy_angel",
+    "name": "Buffy & Angel",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "buffy"
+  },
+  {
+    "key": "mission_impossible",
+    "name": "Mission: Impossible",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "mi"
+  },
+  {
+    "key": "harry_potter",
+    "name": "Harry Potter",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "harry-potter"
+  },
+  {
+    "key": "chicago",
+    "name": "Chicago (One Chicago)",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "chicago"
+  },
+  {
+    "key": "bsg",
+    "name": "Battlestar Galactica",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "bsg"
+  },
+  {
+    "key": "walking_dead",
+    "name": "The Walking Dead",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "walking-dead"
+  },
+  {
+    "key": "underworld",
+    "name": "Underworld",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "underworld"
+  },
+  {
+    "key": "xmen_a",
+    "name": "X-Men: Timeline A",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "xmen-a"
+  },
+  {
+    "key": "xmen_b",
+    "name": "X-Men: Timeline B",
+    "source": "chronolists",
+    "trakt_user": null,
+    "trakt_slug": null,
+    "chronolists_id": "xmen-b"
   },
   {
     "key": "dcu",
@@ -29,62 +133,6 @@
     "source": "trakt",
     "trakt_user": "FistyTristy",
     "trakt_slug": "dc-universe-james-gunn-s-dcu",
-    "chronolists_id": null
-  },
-  {
-    "key": "arrowverse",
-    "name": "DC Arrowverse",
-    "source": "trakt",
-    "trakt_user": "the_t-man",
-    "trakt_slug": "arrowverse-ultimate-watching-order",
-    "chronolists_id": null
-  },
-  {
-    "key": "star_trek",
-    "name": "Star Trek",
-    "source": "trakt",
-    "trakt_user": "puhran",
-    "trakt_slug": "star-trek-chronological",
-    "chronolists_id": null
-  },
-  {
-    "key": "stargate",
-    "name": "Stargate",
-    "source": "trakt",
-    "trakt_user": "baarpeter79",
-    "trakt_slug": "stargate-recommended-viewing-order",
-    "chronolists_id": null
-  },
-  {
-    "key": "doctor_who",
-    "name": "Doctor Who",
-    "source": "trakt",
-    "trakt_user": "grendelcrusher",
-    "trakt_slug": "watching-order-doctor-who-universe",
-    "chronolists_id": null
-  },
-  {
-    "key": "buffy_angel",
-    "name": "Buffy & Angel",
-    "source": "trakt",
-    "trakt_user": "stoneyclan",
-    "trakt_slug": "buffy-angel-viewing-order",
-    "chronolists_id": null
-  },
-  {
-    "key": "x_men",
-    "name": "X-Men",
-    "source": "trakt",
-    "trakt_user": "AraChn0id",
-    "trakt_slug": "x-men-movies",
-    "chronolists_id": null
-  },
-  {
-    "key": "mission_impossible",
-    "name": "Mission: Impossible",
-    "source": "trakt",
-    "trakt_user": "jjjonesjr33",
-    "trakt_slug": "mission-impossible-cinematic-universe-in-timeline-order",
     "chronolists_id": null
   },
   {

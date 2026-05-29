@@ -1412,6 +1412,9 @@ def _build_backend_cache(backend: str, client: MediaClient) -> dict:
         "show_by_tvdb": {
             int(s.tvdb_id): s for s in all_shows if s.tvdb_id
         },
+        "show_by_tmdb": {
+            int(s.tmdb_id): s for s in all_shows if s.tmdb_id
+        },
         "show_by_title_year": {
             (_normalize_for_match(s.title), s.year): s for s in all_shows
         },
@@ -1425,9 +1428,15 @@ def _fetch_and_store_franchise(
     source: str = "trakt",
     trakt_user: str | None = None,
     trakt_slug: str | None = None,
+    chronolists_id: str | None = None,
 ) -> int:
     if source == "local":
         return _fetch_and_store_franchise_local(key, name)
+
+    if source == "chronolists":
+        if not chronolists_id:
+            raise ValueError("chronolists_id is required for source='chronolists'")
+        return _fetch_and_store_franchise_chronolists(key, name, chronolists_id)
 
     if source == "user":
         defn = db.get_franchise_definition(key)
@@ -1500,6 +1509,7 @@ def _fetch_and_store_franchise_local(key: str, name: str) -> int:
         item.setdefault("episode_number", None)
         item.setdefault("show_title", None)
         item.setdefault("show_tvdb_id", None)
+        item.setdefault("show_tmdb_id", None)
         normalised.append(item)
 
     new_hash = get_trakt_client().content_hash(normalised)
@@ -1526,6 +1536,59 @@ def _fetch_and_store_franchise_local(key: str, name: str) -> int:
     return definition_id
 
 
+def _fetch_and_store_franchise_chronolists(
+    key: str, name: str, chronolists_id: str, known_hash: str | None = None,
+) -> int:
+    from datetime import datetime, timezone
+    if not chronolists_id:
+        raise ValueError("chronolists_id is required for source='chronolists'")
+    from chronolists_client import get_chronolists_client, parse_chronolists_items
+    cl = get_chronolists_client()
+    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    existing = db.get_franchise_definition(key)
+
+    target_hash = known_hash if known_hash is not None else cl.list_hash(chronolists_id)
+
+    if existing and target_hash and existing.get("content_hash") == target_hash:
+        return db.upsert_franchise_definition(
+            key=key, name=name, source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
+            fetched_at=fetched_at, content_hash=target_hash,
+            item_count=existing.get("item_count", 0))
+
+    payload = cl.fetch_list(chronolists_id)
+    items = parse_chronolists_items(payload.get("items", []))
+    new_hash = (payload.get("metadata") or {}).get("hash") or target_hash or ""
+    definition_id = db.upsert_franchise_definition(
+        key=key, name=name, source="chronolists",
+        trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
+        fetched_at=fetched_at, content_hash=new_hash, item_count=len(items))
+    if existing is None or existing.get("content_hash") != new_hash:
+        db.replace_franchise_items(definition_id, items)
+        log.info("Franchise '%s' (chronolists): stored %d items", name, len(items))
+    return definition_id
+
+
+def _resolve_show_for_item(fi: dict, cache: dict):
+    """Resolve a show from a franchise item dict using TVDB, TMDB, or title+year.
+
+    Uses the backend cache's indexes in priority order: TVDB first (Trakt lists),
+    then TMDB (Chronolists), then normalized title+year fallback.
+    """
+    show_tvdb = fi.get("show_tvdb_id") or fi.get("tvdb_id")
+    if show_tvdb:
+        s = cache["show_by_tvdb"].get(int(show_tvdb))
+        if s:
+            return s
+    show_tmdb = fi.get("show_tmdb_id")
+    if show_tmdb:
+        s = cache["show_by_tmdb"].get(int(show_tmdb))
+        if s:
+            return s
+    key = (_normalize_for_match(fi.get("show_title") or fi.get("title") or ""), fi.get("year"))
+    return cache["show_by_title_year"].get(key)
+
+
 def _resolve_franchise_item(fi: dict, cache: dict) -> str | None:
     item_type = fi["item_type"]
     client: MediaClient = cache["client"]
@@ -1540,27 +1603,17 @@ def _resolve_franchise_item(fi: dict, cache: dict) -> str | None:
         return m.rating_key if m else None
 
     elif item_type == "episode":
-        show_tvdb = fi.get("show_tvdb_id")
-        if not show_tvdb:
+        show = _resolve_show_for_item(fi, cache)
+        if not show:
             return None
         ep_cache = cache["episode_cache"]
-        if show_tvdb not in ep_cache:
-            show = cache["show_by_tvdb"].get(show_tvdb)
-            if show:
-                try:
-                    eps = client.episodes_for_show(
-                        show.rating_key, include_specials=True
-                    )
-                    ep_cache[show_tvdb] = {
-                        (e.season, e.episode): e for e in eps
-                    }
-                except Exception:
-                    ep_cache[show_tvdb] = {}
-            else:
-                ep_cache[show_tvdb] = {}
-        ep = ep_cache[show_tvdb].get(
-            (fi["season_number"], fi["episode_number"])
-        )
+        if show.rating_key not in ep_cache:
+            try:
+                eps = client.episodes_for_show(show.rating_key, include_specials=True)
+                ep_cache[show.rating_key] = {(e.season, e.episode): e for e in eps}
+            except Exception:
+                ep_cache[show.rating_key] = {}
+        ep = ep_cache[show.rating_key].get((fi["season_number"], fi["episode_number"]))
         return ep.rating_key if ep else None
 
     elif item_type in ("show", "season"):
@@ -1571,14 +1624,7 @@ def _resolve_franchise_item(fi: dict, cache: dict) -> str | None:
 
 def _expand_franchise_show_item(fi: dict, cache: dict) -> list[str]:
     client: MediaClient = cache["client"]
-    show_tvdb = fi.get("tvdb_id") or fi.get("show_tvdb_id")
-    if not show_tvdb:
-        return []
-
-    show = cache["show_by_tvdb"].get(show_tvdb)
-    if not show:
-        key = (_normalize_for_match(fi.get("show_title") or fi["title"]), fi.get("year"))
-        show = cache["show_by_title_year"].get(key)
+    show = _resolve_show_for_item(fi, cache)
     if not show:
         return []
 
@@ -1706,6 +1752,7 @@ def create_franchise_playlist(
     source: str = "trakt",
     trakt_user: str | None = None,
     trakt_slug: str | None = None,
+    chronolists_id: str | None = None,
     franchise_name: str = "",
 ) -> int:
     from datetime import datetime, timezone
@@ -1719,6 +1766,7 @@ def create_franchise_playlist(
         source=source,
         trakt_user=trakt_user,
         trakt_slug=trakt_slug,
+        chronolists_id=chronolists_id,
     )
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1847,6 +1895,7 @@ def franchise_items_for_maker(definition_id: int) -> list[dict]:
             "episode_number": r.get("episode_number"),
             "show_title": r.get("show_title"),
             "show_tvdb_id": r.get("show_tvdb_id"),
+            "show_tmdb_id": r.get("show_tmdb_id"),
         })
     return out
 
@@ -1884,6 +1933,7 @@ def save_user_franchise_playlist(
         item.setdefault("episode_number", None)
         item.setdefault("show_title", None)
         item.setdefault("show_tvdb_id", None)
+        item.setdefault("show_tmdb_id", None)
         normalised.append(item)
 
     new_hash = get_trakt_client().content_hash(normalised)
@@ -2059,21 +2109,67 @@ def restore_bundled_franchise(playlist_id: int) -> bool:
     return True
 
 
+def migrate_bundled_franchise_sources() -> None:
+    """Auto-migrate existing franchise playlists from Trakt to Chronolists when
+    the bundled registry has switched sources. Runs once on refresh cycles.
+
+    Only upgrades definitions that are currently trakt-sourced; user and local
+    definitions are left alone. Chronolists-sourced definitions are already
+    migrated — skip them.
+    """
+    registry = {f["key"]: f for f in _load_prebaked_franchises()}
+    for defn in db.list_franchise_definitions():
+        reg = registry.get(defn["key"])
+        if not reg or reg.get("source") != "chronolists":
+            continue
+        if defn["source"] == "chronolists":
+            continue
+        try:
+            definition_id = _fetch_and_store_franchise(
+                defn["key"], reg["name"], source="chronolists",
+                chronolists_id=reg["chronolists_id"])
+            for pl in db.get_playlists_by_franchise_definition(definition_id):
+                try:
+                    sync_franchise_playlist(pl["id"], force=True)
+                except Exception:
+                    log.warning("migrate: re-sync failed for pl=%s", pl["id"], exc_info=True)
+            log.info("Migrated franchise '%s' Trakt -> Chronolists", defn["key"])
+        except Exception:
+            log.warning("Source migration failed for '%s'", defn["key"], exc_info=True)
+
+
 def refresh_franchise_definitions() -> None:
     definitions = db.list_franchise_definitions()
+
+    # One shared index read for ALL chronolists franchises this run.
+    cl_index: dict[str, dict] = {}
+    if any(d["source"] == "chronolists" for d in definitions):
+        try:
+            from chronolists_client import get_chronolists_client
+            cl_index = get_chronolists_client().fetch_index()
+        except Exception:
+            log.warning("Chronolists index fetch failed; skipping cl refresh", exc_info=True)
+
     for defn in definitions:
-        if defn["source"] in ("local", "user"):
-            continue
-        if defn["source"] != "trakt":
+        src = defn["source"]
+        if src in ("local", "user"):
             continue
         try:
             old_hash = defn.get("content_hash")
-            definition_id = _fetch_and_store_franchise(
-                key=defn["key"],
-                name=defn["name"],
-                trakt_user=defn["trakt_user"],
-                trakt_slug=defn["trakt_slug"],
-            )
+            if src == "trakt":
+                definition_id = _fetch_and_store_franchise(
+                    key=defn["key"], name=defn["name"],
+                    source="trakt", trakt_user=defn["trakt_user"],
+                    trakt_slug=defn["trakt_slug"])
+            elif src == "chronolists":
+                cid = defn.get("chronolists_id")
+                if not cl_index or cid not in cl_index:
+                    continue
+                definition_id = _fetch_and_store_franchise_chronolists(
+                    defn["key"], defn["name"], cid,
+                    known_hash=cl_index[cid].get("hash"))
+            else:
+                continue
             new_defn = db.get_franchise_definition(defn["key"])
             if new_defn and new_defn.get("content_hash") != old_hash:
                 log.info(

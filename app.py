@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 import logging
 import os
@@ -167,6 +167,7 @@ def _franchise_library_cache(backend: str) -> dict:
             "movie_tmdb": {m.tmdb_id: True for m in _movies if m.tmdb_id},
             "movie_ty":   {(service._normalize_for_match(m.title), m.year): True for m in _movies},
             "show_tvdb":  {int(s.tvdb_id): True for s in _shows if s.tvdb_id},
+            "show_tmdb":  {int(s.tmdb_id): True for s in _shows if s.tmdb_id},
             "show_ty":    {(service._normalize_for_match(s.title), s.year): True for s in _shows},
         }
     except Exception:
@@ -1158,13 +1159,18 @@ def create_app() -> Flask:
         franchise_source = request.form.get("franchise_source", "trakt").strip()
         trakt_user = request.form.get("trakt_user", "").strip()
         trakt_slug = request.form.get("trakt_slug", "").strip()
+        chronolists_id = request.form.get("chronolists_id", "").strip() or None
         franchise_name = request.form.get("franchise_name", "").strip()
 
         if not name:
             existing = [r["name"] for r in db.list_playlists()]
             name = _next_auto_name(existing)
 
-        if not trakt_user or not trakt_slug:
+        if franchise_source == "chronolists":
+            if not chronolists_id:
+                flash("Please select a franchise.")
+                return redirect(url_for("new_franchise"))
+        elif not trakt_user or not trakt_slug:
             flash("Please select a franchise or enter a valid Trakt list URL.")
             return redirect(url_for("new_franchise"))
 
@@ -1181,6 +1187,7 @@ def create_app() -> Flask:
                 source=franchise_source,
                 trakt_user=trakt_user,
                 trakt_slug=trakt_slug,
+                chronolists_id=chronolists_id,
                 franchise_name=franchise_name,
             )
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
@@ -1196,8 +1203,20 @@ def create_app() -> Flask:
         backend = request.args.get("backend", "plex")
         source = request.args.get("source", "trakt").strip()
         franchise_key = request.args.get("franchise_key", "").strip()
+        chronolists_id = request.args.get("chronolists_id", "").strip()
 
-        if source == "local" and franchise_key:
+        raw_items: list[dict] = []
+        if source == "chronolists" and chronolists_id:
+            try:
+                from chronolists_client import get_chronolists_client
+                raw_items = get_chronolists_client().fetch_list_items(chronolists_id)
+            except Exception as e:
+                return render_template(
+                    "_franchise_preview_partial.html",
+                    error=f"Could not fetch Chronolists list: {e}",
+                    items=[], found_count=0, total_count=0, missing_count=0,
+                )
+        elif source == "local" and franchise_key:
             local_path = os.path.join(
                 os.path.dirname(__file__), "defaults", "franchise_data", f"{franchise_key}.json"
             )
@@ -1245,6 +1264,9 @@ def create_app() -> Flask:
             tvdb = fi.get("show_tvdb_id") or fi.get("tvdb_id")
             if tvdb:
                 return bool(cache["show_tvdb"].get(int(tvdb)))
+            tmdb = fi.get("show_tmdb_id")
+            if tmdb:
+                return bool(cache["show_tmdb"].get(int(tmdb)))
             title = fi.get("show_title") or fi["title"]
             return bool(cache["show_ty"].get((service._normalize_for_match(title), fi.get("year"))))
 
@@ -1310,6 +1332,7 @@ def create_app() -> Flask:
         import_local = (request.args.get("import_local") or "").strip()
         import_trakt_user = (request.args.get("import_trakt_user") or "").strip()
         import_trakt_slug = (request.args.get("import_trakt_slug") or "").strip()
+        import_chronolists = (request.args.get("import_chronolists") or "").strip()
 
         if import_local:
             for f in _load_prebaked_franchises():
@@ -1334,6 +1357,22 @@ def create_app() -> Flask:
                     except Exception as e:
                         log.warning("franchise maker preload from %s failed: %s",
                                     import_local, e)
+                    break
+        elif import_chronolists:
+            for f in _load_prebaked_franchises():
+                if f.get("key") == import_chronolists:
+                    franchise_name = f.get("name", "")
+                    forked_from_key = import_chronolists
+                    bundled_origin_name = f.get("name")
+                    is_bundled = True
+                    try:
+                        from chronolists_client import get_chronolists_client
+                        items = get_chronolists_client().fetch_list_items(
+                            f.get("chronolists_id", "")
+                        )
+                    except Exception as e:
+                        log.warning("franchise maker preload from chronolists %s failed: %s",
+                                    import_chronolists, e)
                     break
         elif import_trakt_user and import_trakt_slug:
             try:

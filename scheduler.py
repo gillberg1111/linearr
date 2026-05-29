@@ -9,6 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import service
 from service import refresh_franchise_definitions as _refresh_franchise_definitions
+from service import migrate_bundled_franchise_sources
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,13 @@ def _interval_minutes() -> int:
         return max(1, int(os.environ.get("PRUNE_INTERVAL_MINUTES", "10")))
     except ValueError:
         return 10
+
+
+def _franchise_refresh_days() -> int:
+    try:
+        return max(1, int(os.environ.get("FRANCHISE_REFRESH_DAYS", "7")))
+    except ValueError:
+        return 7
 
 
 def _auto_sync_enabled() -> bool:
@@ -83,13 +91,20 @@ def start() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
-    # v2.2.0 — weekly franchise definition refresh
+    # v2.2.0 — franchise definition refresh (configurable interval, default weekly)
     sched.add_job(
         _refresh_franchise_definitions_job,
         "interval",
-        weeks=1,
+        days=_franchise_refresh_days(),
         id="refresh_franchise_definitions",
         replace_existing=True,
+    )
+    # v2.4.0 — one-shot migration of bundled franchises from Trakt to Chronolists
+    sched.add_job(
+        migrate_bundled_franchise_sources,
+        "date",
+        id="migrate_franchise_sources",
+        misfire_grace_time=600,
     )
     sched.start()
     log.info(
