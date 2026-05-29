@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.2"
+__version__ = "3.0.3"
 
 import logging
 import os
@@ -717,7 +717,7 @@ def create_app() -> Flask:
         try:
             preview = service.preview_playlist(
                 configs, limit=2000, sort_mode=sort_mode, unwatched_only=unwatched_only,
-                backend=primary_backend, block_size=block_size,
+                backend=primary_be, block_size=block_size,
                 shuffle_seed=12345 if sort_mode == "shuffle_chronological" else None,
             )
         except Exception:
@@ -914,7 +914,7 @@ def create_app() -> Flask:
                 limit=2000,
                 sort_mode=view.sort_mode,
                 unwatched_only=view.unwatched_only,
-                backend=primary_backend,
+                backend=primary_be,
                 block_size=view.block_size,
                 shuffle_seed=view.shuffle_seed,
             )

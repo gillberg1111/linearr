@@ -705,6 +705,8 @@ def create_managed_playlist(
         db.set_plex_rating_key(playlist_id, created_ids["plex"])
     if "jellyfin" in created_ids:
         db.set_jellyfin_playlist_id(playlist_id, created_ids["jellyfin"])
+    if "emby" in created_ids:
+        db.set_emby_playlist_id(playlist_id, created_ids["emby"])
     if block_size != 1:
         db.set_block_size(playlist_id, block_size)
     if shuffle_seed is not None:

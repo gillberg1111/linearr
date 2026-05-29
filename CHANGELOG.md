@@ -3,6 +3,23 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.3] - 2026-05-29
+
+### Fixed
+
+- **Emby (and any backend) playlists created via the Show/Genre builder were
+  never deletable** — the real root cause behind "Playlist deleted" while the
+  playlist stayed on the server. `create_managed_playlist` created the playlist
+  on each backend but only persisted the new id for Plex and Jellyfin; the
+  **Emby id was dropped**, so `managed_playlists.emby_playlist_id` stayed NULL
+  and the delete loop skipped Emby entirely (reporting "no failures"). Now
+  persists `emby_playlist_id` too. (Franchise playlists already stored it, which
+  is why only Show/Genre playlists were affected.)
+- Show/Genre **preview crash** (`Unknown backend: <function primary_backend>`):
+  two `service.preview_playlist(...)` calls passed the `primary_backend`
+  function object instead of the resolved backend string. Now pass the computed
+  `primary_be`.
+
 ## [3.0.2] - 2026-05-29
 
 ### Fixed
