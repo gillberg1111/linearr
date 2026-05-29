@@ -3,6 +3,20 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.2] - 2026-05-29
+
+### Fixed
+
+- Emby playlists silently not deleting (reported as "Playlist deleted" while the
+  playlist stayed on Emby). The existence/Type pre-check in `delete_playlist`
+  and `playlist_exists` queried `/Items?Ids=&userId=<resolved user>`; when the
+  playlist was owned by a different user than the lazily-resolved one (e.g. a
+  different "first admin" after a restart, or an `EMBY_USERNAME`), the lookup
+  returned empty and `delete_playlist` took its "already gone" no-op path — no
+  DELETE, no error, false success. Both checks are now **owner-agnostic** (no
+  `userId` filter), and `delete_playlist` logs the lookup result and the DELETE
+  status code for diagnosis.
+
 ## [3.0.1] - 2026-05-29
 
 ### Fixed

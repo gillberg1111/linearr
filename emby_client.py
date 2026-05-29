@@ -672,13 +672,12 @@ class EmbyClient(MediaClient):
 
     def playlist_exists(self, rating_key: str | None) -> bool:
         # Emby has no GET /Playlists/{id} (it 404s); look the item up via
-        # /Items?Ids= and confirm it's still a Playlist.
+        # /Items?Ids= and confirm it's still a Playlist. NO userId filter — the
+        # query must be owner-agnostic, otherwise a playlist owned by a user
+        # other than the resolved one looks "gone" (see delete_playlist).
         if not rating_key:
             return False
-        resp = self._request(
-            "GET", "/Items",
-            params={"Ids": rating_key, "userId": self._user_id},
-        )
+        resp = self._request("GET", "/Items", params={"Ids": rating_key})
         if not resp.ok:
             return False
         return any(it.get("Type") == "Playlist" for it in (resp.json().get("Items") or []))
@@ -738,15 +737,18 @@ class EmbyClient(MediaClient):
         target both exists AND is a `Playlist` before bypassing the DELETE
         safety check for this one call. The param is `Ids` (PascalCase) — Emby
         is case-sensitive and silently ignores a lowercase `ids`.
+
+        The lookup has NO `userId` filter on purpose: a playlist owned by a user
+        other than the lazily-resolved one would otherwise look "gone" and we'd
+        silently skip the delete (the reported bug — "Playlist deleted" yet it
+        stays on Emby).
         """
         if not rating_key:
             return
-        check = self._request(
-            "GET", "/Items",
-            params={"Ids": rating_key, "userId": self._user_id},
-        )
+        check = self._request("GET", "/Items", params={"Ids": rating_key})
         items = (check.json().get("Items") or []) if check.ok else []
         if not items:
+            _log.info("Emby delete_playlist: %s not found (already gone)", rating_key)
             return  # already gone, no-op
         if items[0].get("Type") != "Playlist":
             raise EmbySafetyError(
@@ -754,11 +756,12 @@ class EmbyClient(MediaClient):
                 f"{items[0].get('Type')!r}, not a Playlist."
             )
         # Verified target is a playlist; safe to bypass for this one call.
-        self._request(
+        resp = self._request(
             "DELETE", "/Items",
             params={"Ids": rating_key},
             _bypass_delete_check=True,
         )
+        _log.info("Emby delete_playlist: DELETE /Items?Ids=%s -> %s", rating_key, resp.status_code)
 
     def add_items_to_playlist(
         self, rating_key: str, item_rating_keys: list[str]
