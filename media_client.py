@@ -56,6 +56,7 @@ class ShowSummary:
     thumb: str | None  # backend-specific image reference (path for Plex, item-id for Jellyfin)
     tvdb_id: str | None = None  # TVDB numeric ID for cross-backend matching
     tmdb_id: int | None = None  # TMDB numeric ID (Chronolists episode matching)
+    imdb_id: str | None = None  # IMDB ID (e.g. 'tt0903747'); franchise fallback
     status: str | None = None
     content_rating: str | None = None
     season_count: int | None = None
@@ -94,6 +95,7 @@ class MovieSummary:
     air_date: str | None
     view_count: int
     tmdb_id: int | None = None
+    imdb_id: str | None = None  # IMDB ID (e.g. 'tt0848228'); franchise fallback
 
 
 # --------------------------------------------------------------------------- #

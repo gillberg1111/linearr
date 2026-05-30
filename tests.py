@@ -2455,6 +2455,39 @@ def test_match_franchise_empty_returns_quad():
             pass
 
 
+def test_franchise_external_id_bridge():
+    """TMDB-keyed franchise items match a TVDB/IMDB-scraped library (no TMDB ids)
+    via the cached external-id bridge. No network: we pre-seed the cache."""
+    import service as _svc
+
+    class _Item:
+        def __init__(self, rk):
+            self.rating_key = rk
+
+    show, movie = _Item("show-1"), _Item("movie-1")
+    cache = {
+        "client": None,
+        "movie_by_tmdb": {}, "movie_by_imdb": {"tt100": movie}, "movie_by_title_year": {},
+        "show_by_tvdb": {999: show}, "show_by_tmdb": {}, "show_by_imdb": {},
+        "show_by_title_year": {}, "episode_cache": {},
+    }
+    # Pre-seed so _franchise_external_ids returns without calling TMDB.
+    _svc._EXTERNAL_ID_CACHE[("tv", 12345)] = {"tvdb_id": "999", "imdb_id": None}
+    _svc._EXTERNAL_ID_CACHE[("movie", 555)] = {"imdb_id": "tt100", "tvdb_id": None}
+
+    got = _svc._resolve_show_for_item({"show_tmdb_id": 12345, "title": "X"}, cache)
+    check("franchise show bridges tmdb->tvdb", got is show)
+
+    rk = _svc._resolve_franchise_item(
+        {"item_type": "movie", "tmdb_id": 555, "title": "X", "year": 2000}, cache)
+    check("franchise movie bridges tmdb->imdb", rk == "movie-1")
+
+    # Library that does carry tmdb still matches directly (no bridge needed).
+    cache["show_by_tmdb"] = {777: show}
+    got2 = _svc._resolve_show_for_item({"show_tmdb_id": 777}, cache)
+    check("franchise show direct tmdb still works", got2 is show)
+
+
 def test_set_playlist_image_present():
     """v3.0.0 franchise cover art: the ABC exposes a non-abstract no-op
     set_playlist_image, and every backend client overrides it."""

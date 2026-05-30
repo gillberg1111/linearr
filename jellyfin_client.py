@@ -417,6 +417,7 @@ class JellyfinClient(MediaClient):
                     thumb=rk if item.get("ImageTags", {}).get("Primary") else None,
                     tvdb_id=prov.get("Tvdb") or None,
                     tmdb_id=_parse_tmdb_id(prov),
+                    imdb_id=prov.get("Imdb") or None,
                     status=item.get("Status"),
                     content_rating=item.get("OfficialRating"),
                     season_count=item.get("ChildCount"),
@@ -439,6 +440,7 @@ class JellyfinClient(MediaClient):
             thumb=str(item["Id"]) if item.get("ImageTags", {}).get("Primary") else None,
             tvdb_id=prov.get("Tvdb") or None,
             tmdb_id=_parse_tmdb_id(prov),
+            imdb_id=prov.get("Imdb") or None,
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:
@@ -591,6 +593,7 @@ class JellyfinClient(MediaClient):
                     air_date=air_date,
                     view_count=user_data.get("PlayCount", 0) or 0,
                     tmdb_id=tmdb_id,
+                    imdb_id=provider_ids.get("Imdb") or provider_ids.get("imdb") or None,
                 ))
             return movies
         except Exception:

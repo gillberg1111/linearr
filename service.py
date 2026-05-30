@@ -1456,16 +1456,20 @@ def _build_backend_cache(backend: str, client: MediaClient) -> dict:
     #   "0 movies"            -> the resolved user can't see the movie libraries
     #   "N movies (0 w/ tmdb)"-> movies present but no TMDB ids (TVDB-scraped)
     log.info(
-        "Franchise lib cache [%s]: %d movies (%d w/ tmdb), %d shows (%d w/ tvdb, %d w/ tmdb)",
+        "Franchise lib cache [%s]: %d movies (%d tmdb, %d imdb), "
+        "%d shows (%d tvdb, %d tmdb, %d imdb)",
         backend,
         len(all_movies), sum(1 for m in all_movies if m.tmdb_id),
+        sum(1 for m in all_movies if m.imdb_id),
         len(all_shows),
         sum(1 for s in all_shows if s.tvdb_id),
         sum(1 for s in all_shows if s.tmdb_id),
+        sum(1 for s in all_shows if s.imdb_id),
     )
     return {
         "client": client,
         "movie_by_tmdb": {m.tmdb_id: m for m in all_movies if m.tmdb_id},
+        "movie_by_imdb": {m.imdb_id: m for m in all_movies if m.imdb_id},
         "movie_by_title_year": {
             (_normalize_for_match(m.title), m.year): m for m in all_movies
         },
@@ -1475,11 +1479,38 @@ def _build_backend_cache(backend: str, client: MediaClient) -> dict:
         "show_by_tmdb": {
             int(s.tmdb_id): s for s in all_shows if s.tmdb_id
         },
+        "show_by_imdb": {s.imdb_id: s for s in all_shows if s.imdb_id},
         "show_by_title_year": {
             (_normalize_for_match(s.title), s.year): s for s in all_shows
         },
         "episode_cache": {},
     }
+
+
+# TMDB external-id resolution, cached per process. Franchise data is TMDB-keyed;
+# this bridges it to libraries scraped with a TVDB/IMDB-only agent (no TMDB ids).
+_EXTERNAL_ID_CACHE: dict[tuple[str, int], dict] = {}
+
+
+def _franchise_external_ids(kind: str, tmdb_id) -> dict:
+    """{'imdb_id', 'tvdb_id'} for a franchise item's TMDB id, via TMDB
+    external_ids (cached). Returns {} if TMDB is unconfigured or the lookup
+    fails — callers then fall through to title+year matching."""
+    try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        return {}
+    key = (kind, tmdb_id)
+    if key in _EXTERNAL_ID_CACHE:
+        return _EXTERNAL_ID_CACHE[key]
+    out: dict = {}
+    try:
+        import tmdb_client
+        out = tmdb_client.external_ids(kind, tmdb_id) or {}
+    except Exception:
+        out = {}
+    _EXTERNAL_ID_CACHE[key] = out
+    return out
 
 
 def _franchise_poster_url(franchise_items: list[dict]) -> str | None:
@@ -1718,6 +1749,15 @@ def _resolve_show_for_item(fi: dict, cache: dict):
         s = cache["show_by_tmdb"].get(int(show_tmdb))
         if s:
             return s
+        # Bridge TMDB-keyed franchise data to a TVDB/IMDB-scraped library:
+        # resolve the show's TMDB id to its TVDB/IMDB id via TMDB and retry.
+        ext = _franchise_external_ids("tv", show_tmdb)
+        ext_tvdb = ext.get("tvdb_id")
+        if ext_tvdb and cache["show_by_tvdb"].get(int(ext_tvdb)):
+            return cache["show_by_tvdb"][int(ext_tvdb)]
+        ext_imdb = ext.get("imdb_id")
+        if ext_imdb and cache.get("show_by_imdb", {}).get(ext_imdb):
+            return cache["show_by_imdb"][ext_imdb]
     key = (_normalize_for_match(fi.get("show_title") or fi.get("title") or ""), fi.get("year"))
     return cache["show_by_title_year"].get(key)
 
@@ -1731,6 +1771,11 @@ def _resolve_franchise_item(fi: dict, cache: dict) -> str | None:
             m = cache["movie_by_tmdb"].get(fi["tmdb_id"])
             if m:
                 return m.rating_key
+            # Bridge to an IMDB-scraped library (no TMDB ids): resolve the
+            # franchise movie's TMDB id to its IMDB id via TMDB and retry.
+            ext_imdb = _franchise_external_ids("movie", fi["tmdb_id"]).get("imdb_id")
+            if ext_imdb and cache.get("movie_by_imdb", {}).get(ext_imdb):
+                return cache["movie_by_imdb"][ext_imdb].rating_key
         key = (_normalize_for_match(fi["title"]), fi.get("year"))
         m = cache["movie_by_title_year"].get(key)
         return m.rating_key if m else None

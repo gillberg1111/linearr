@@ -103,6 +103,15 @@ def _tvdb_id_from_guids(guids) -> str | None:
     return None
 
 
+def _imdb_id_from_guids(guids) -> str | None:
+    """Extract IMDB id (e.g. 'tt0903747') from a list of plexapi Guid objects."""
+    for g in (guids or []):
+        gid = getattr(g, "id", "") or ""
+        if gid.startswith("imdb://"):
+            return gid[len("imdb://"):].split("?")[0]
+    return None
+
+
 def _tmdb_id_from_guids(guids) -> int | None:
     """Extract numeric TMDB id from a list of plexapi Guid objects."""
     for g in (guids or []):
@@ -213,6 +222,7 @@ class PlexClient(MediaClient):
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
                         tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
+                        imdb_id=_imdb_id_from_guids(getattr(show, "guids", None)),
                         status=getattr(show, "status", None),
                         content_rating=getattr(show, "contentRating", None),
                         season_count=getattr(show, "childCount", None),
@@ -250,6 +260,7 @@ class PlexClient(MediaClient):
                         thumb=getattr(show, "thumb", None),
                         tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
                         tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
+                        imdb_id=_imdb_id_from_guids(getattr(show, "guids", None)),
                         status=getattr(show, "status", None),
                         content_rating=getattr(show, "contentRating", None),
                         season_count=getattr(show, "childCount", None),
@@ -285,6 +296,7 @@ class PlexClient(MediaClient):
             thumb=getattr(show, "thumb", None),
             tvdb_id=_tvdb_id_from_guids(getattr(show, "guids", None)),
             tmdb_id=_tmdb_id_from_guids(getattr(show, "guids", None)),
+            imdb_id=_imdb_id_from_guids(getattr(show, "guids", None)),
         )
 
     def season_summaries(self, rating_key: str) -> list[SeasonSummary]:
@@ -404,6 +416,7 @@ class PlexClient(MediaClient):
                         ),
                         view_count=getattr(movie, "viewCount", 0) or 0,
                         tmdb_id=tmdb_id,
+                        imdb_id=_imdb_id_from_guids(movie.guids),
                     ))
             return movies
         except Exception:

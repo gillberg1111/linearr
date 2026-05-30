@@ -3,6 +3,24 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.8] - 2026-05-30
+
+### Added
+
+- **TMDB → TVDB/IMDB fallback matching for franchises.** Bundled franchises are
+  TMDB-keyed, so libraries scraped with a TVDB- or IMDB-only metadata agent (no
+  TMDB ids) previously matched only by fuzzy title+year and often showed items
+  as "not in library". Linearr now resolves each franchise item's TMDB id to its
+  TVDB/IMDB id via TMDB's `external_ids` endpoint (cached per process) and
+  matches against the library by those ids:
+  - movies: TMDB id → IMDB id → library `movie_by_imdb`
+  - shows/episodes: show TMDB id → TVDB or IMDB id → library `show_by_tvdb` /
+    `show_by_imdb`
+  `ShowSummary`/`MovieSummary` now carry `imdb_id` (populated by all three
+  backends). Requires a TMDB API key (the same one the Franchise Maker uses);
+  without it, matching falls back to title+year as before. The franchise
+  library-cache diagnostic log now also reports IMDB coverage.
+
 ## [3.0.7] - 2026-05-30
 
 ### Added

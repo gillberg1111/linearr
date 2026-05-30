@@ -89,6 +89,24 @@ def get_movie(tmdb_id: int) -> dict:
     }
 
 
+def external_ids(media_type: str, tmdb_id: int) -> dict:
+    """Resolve a TMDB id to its IMDB and (TV-only) TVDB ids.
+
+    `media_type` is 'movie' or 'tv'. Returns {'imdb_id', 'tvdb_id'} with None
+    for any id TMDB doesn't have. Cheap single endpoint; used to bridge
+    TMDB-keyed franchise data to libraries scraped with a TVDB/IMDB-only agent.
+    """
+    path = (f"/movie/{tmdb_id}/external_ids" if media_type == "movie"
+            else f"/tv/{tmdb_id}/external_ids")
+    data = _tmdb_get(path)
+    tvdb = data.get("tvdb_id")
+    imdb = data.get("imdb_id")
+    return {
+        "imdb_id": imdb or None,
+        "tvdb_id": str(tvdb) if tvdb else None,
+    }
+
+
 def get_tv(tmdb_id: int) -> dict:
     data = _tmdb_get(f"/tv/{tmdb_id}", append_to_response="external_ids")
     ext = data.get("external_ids", {})
