@@ -3,6 +3,15 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.5] - 2026-05-29
+
+### Changed
+
+- New Playlist type picker (By Show / By Genre / By Franchise) is now centered
+  on the page and uses the frosted-glass card treatment to match the franchise
+  picker and settings cards.
+- README: added genre / franchise / build-your-own screenshots.
+
 ## [3.0.4] - 2026-05-29
 
 ### Fixed

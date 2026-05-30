@@ -87,17 +87,17 @@ untouched; the future portion regenerates instantly.
 </p>
 
 <p align="center">
-  <img src="images/05-genre.png" alt="Configure page" width="900">
+  <img src="images/05-genre.png" alt="Create a genre playlist" width="900">
   <br><sub><em>Create playlist based on genre.</em></sub>
 </p>
 
 <p align="center">
-  <img src="images/06-franchise.png" alt="Configure page" width="900">
+  <img src="images/06-franchise.png" alt="Franchise playlist picker" width="900">
   <br><sub><em>Select franchise based playlist that are build in chronological order from Chronolists.com.</em></sub>
 </p>
 
 <p align="center">
-  <img src="images/07-buildyourown.png" alt="Configure page" width="900">
+  <img src="images/07-buildyourown.png" alt="Franchise Playlist Maker" width="900">
   <br><sub><em>Build your own franchise (or any style really) playlist, import an existing list from Trakt to use or edit, or edit one of the existing franchise playlists.</em></sub>
 </p>
 

@@ -837,24 +837,31 @@ a { color: var(--accent); }
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 1.2rem;
-  margin-top: 1.5rem;
+  margin: 1.5rem auto 0;     /* centered on the page */
   max-width: 960px;
 }
 .type-card {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
+  /* Frosted glass — matches the franchise picker / settings cards. */
+  background: rgba(14, 15, 19, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
   padding: 1.6rem 1.4rem;
   text-decoration: none;
   color: var(--fg);
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease,
+              box-shadow 0.15s ease, transform 0.15s ease;
 }
 .type-card:hover {
   border-color: var(--accent);
-  background: rgba(77,150,255,0.05);
+  background: rgba(77, 150, 255, 0.08);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 .type-card-title {
   font-size: 1.25rem;
