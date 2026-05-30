@@ -67,9 +67,10 @@ _CLIENT_VERSION = "1.8.0"
 _EPISODE_FIELDS = "PremiereDate,Overview,ProviderIds"
 _MOVIE_FIELDS = "PremiereDate,ProductionYear,ProviderIds"
 
-# How long any single HTTP call may take. Generous because Jellyfin can be
-# slow on first scan after restart.
-_HTTP_TIMEOUT = 30
+# Per-call timeout as (connect, read). Short connect so an unreachable Jellyfin
+# fails fast (~5s) instead of hanging 30s; generous read for slow first scans.
+_CONNECT_TIMEOUT = 5
+_HTTP_TIMEOUT = (_CONNECT_TIMEOUT, 30)
 
 
 # --------------------------------------------------------------------------- #

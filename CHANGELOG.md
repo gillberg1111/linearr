@@ -3,6 +3,17 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.6] - 2026-05-30
+
+### Changed
+
+- **Fast-fail on an unreachable backend.** Jellyfin/Emby HTTP calls now use a
+  split `(connect, read)` timeout with a **5-second connect timeout** (read
+  stays 30s). An unreachable server (wrong URL, server down, firewall) now
+  fails in ~5s instead of hanging the request for 30s. The show picker already
+  skips a failing backend and surfaces a flash, so a down backend no longer
+  stalls the page — it just isn't listed until reachable.
+
 ## [3.0.5] - 2026-05-29
 
 ### Changed

@@ -64,9 +64,11 @@ _CLIENT_VERSION = "3.0.0"
 _EPISODE_FIELDS = "PremiereDate,Overview,ProviderIds"
 _MOVIE_FIELDS = "PremiereDate,ProductionYear,ProviderIds"
 
-# How long any single HTTP call may take. Generous because Emby can be
-# slow on first scan after restart.
-_HTTP_TIMEOUT = 30
+# Per-call timeout as (connect, read). The connect timeout is short so an
+# unreachable Emby fails fast (~5s) instead of hanging the whole request for
+# 30s; the read timeout stays generous because Emby can be slow on first scan.
+_CONNECT_TIMEOUT = 5
+_HTTP_TIMEOUT = (_CONNECT_TIMEOUT, 30)
 
 
 # --------------------------------------------------------------------------- #
