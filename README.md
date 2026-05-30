@@ -148,9 +148,13 @@ untouched; the future portion regenerates instantly.
   with a "Test connection" button). UI values override the matching env var,
   take effect immediately with no restart, and env vars remain the fallback.
 - **Cross-backend matching.** Shows added to a multi-backend playlist are
-  matched on the other side(s) by **TVDB ID first**, then normalized title +
-  year. TVDB ID bridges title disagreements (e.g. "Stargirl" on Plex ↔ "DC's
-  Stargirl" on Jellyfin). Matched IDs are persisted per backend.
+  matched on the other side(s) by **any shared provider id — TVDB, TMDB, or
+  IMDB** — then normalized title + year as a fallback. Matching on any shared id
+  bridges libraries scraped with different metadata agents and title
+  disagreements (e.g. "Stargirl" on Plex ↔ "DC's Stargirl" on Jellyfin). Matched
+  IDs are persisted per backend. (Bundled **franchise** playlists are TMDB-keyed,
+  so they additionally resolve TMDB→TVDB/IMDB via TMDB to match a TVDB/IMDB-only
+  library — that bridge needs a free TMDB API key.)
 - **Heal-on-sync + manual link.** Every sync re-attempts matching for shows
   missing an ID on one side. An informational (never blocking) banner lists
   shows not on every targeted backend; add the show to that library and the
