@@ -1450,6 +1450,19 @@ def _normalize_cl_key(cl_id: str) -> str:
 def _build_backend_cache(backend: str, client: MediaClient) -> dict:
     all_movies = client.list_all_movies()
     all_shows = client.list_all_shows()
+    # Diagnostic: franchise lists are TMDB-keyed, so a library scraped with a
+    # TVDB-only agent (no TMDB ids) will fail TMDB matching and fall back to
+    # fuzzy title+year. These counts make the cause obvious in the logs:
+    #   "0 movies"            -> the resolved user can't see the movie libraries
+    #   "N movies (0 w/ tmdb)"-> movies present but no TMDB ids (TVDB-scraped)
+    log.info(
+        "Franchise lib cache [%s]: %d movies (%d w/ tmdb), %d shows (%d w/ tvdb, %d w/ tmdb)",
+        backend,
+        len(all_movies), sum(1 for m in all_movies if m.tmdb_id),
+        len(all_shows),
+        sum(1 for s in all_shows if s.tvdb_id),
+        sum(1 for s in all_shows if s.tmdb_id),
+    )
     return {
         "client": client,
         "movie_by_tmdb": {m.tmdb_id: m for m in all_movies if m.tmdb_id},

@@ -3,6 +3,18 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.7] - 2026-05-30
+
+### Added
+
+- Diagnostic log line when building the franchise library cache, e.g.
+  `Franchise lib cache [emby]: 412 movies (0 w/ tmdb), 150 shows (150 w/ tvdb,
+  0 w/ tmdb)`. Franchise lists are TMDB-keyed, so a library scraped with a
+  TVDB-only metadata agent (no TMDB ids) matches only by fuzzy title+year and
+  items can show as "not in library" even though they're present. This line
+  makes the cause visible (0 movies = the resolved user can't see the movie
+  libraries; N movies but 0 w/ tmdb = TVDB-only scrape).
+
 ## [3.0.6] - 2026-05-30
 
 ### Changed
