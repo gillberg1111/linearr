@@ -286,6 +286,9 @@ class PlexClient(MediaClient):
     def list_tv_sections(self) -> list[str]:
         return [s.title for s in self._tv_sections()]
 
+    def list_movie_sections(self) -> list[str]:
+        return [s.title for s in self._movie_sections()]
+
     def get_show_summary(self, rating_key: str) -> ShowSummary:
         show = self._get_show(rating_key)
         return ShowSummary(

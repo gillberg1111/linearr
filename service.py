@@ -349,6 +349,48 @@ def _find_match_by_tvdb_for_cfg(
     return _find_match_by_tvdb(candidates, tvdb_id)
 
 
+def _show_id_set(summary) -> set:
+    """Provider-id set for a ShowSummary, e.g. {('tvdb','75682'),
+    ('tmdb','1668'), ('imdb','tt0386676')}. Two shows that share ANY of these
+    are the same show — this is what bridges backends scraped with different
+    metadata agents (TVDB-only vs TMDB-only vs IMDB)."""
+    ids: set = set()
+    if summary is None:
+        return ids
+    if summary.tvdb_id:
+        ids.add(("tvdb", str(summary.tvdb_id)))
+    if summary.tmdb_id:
+        ids.add(("tmdb", str(summary.tmdb_id)))
+    if getattr(summary, "imdb_id", None):
+        ids.add(("imdb", str(summary.imdb_id)))
+    return ids
+
+
+def _summary_for_cfg(cfg: ShowConfig):
+    """The ShowSummary from whichever backend already has this show (one network
+    call). Source of the config's provider ids + year for cross-backend match."""
+    for backend in ("plex", "jellyfin", "emby"):
+        target_id = cfg.id_for(backend)
+        if not target_id:
+            continue
+        try:
+            return _client_for(backend).get_show_summary(target_id)
+        except Exception:
+            continue
+    return None
+
+
+def _find_match_by_ids(candidates: list, want_ids: set) -> str | None:
+    """rating_key of the candidate that shares ANY provider id (TVDB/TMDB/IMDB)
+    with `want_ids`, else None."""
+    if not want_ids:
+        return None
+    for s in candidates:
+        if _show_id_set(s) & want_ids:
+            return s.rating_key
+    return None
+
+
 def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: list[str]) -> None:
     """For each config missing an id on a target backend, attempt to find it
     by TVDB ID first, then by title+year. Populates the appropriate *_rating_key
@@ -364,28 +406,24 @@ def _enrich_configs_with_matches(configs: list[ShowConfig], target_backends: lis
             cache[b] = _candidates_for(b)
         return cache[b]
 
+    _fields = {
+        "plex": "plex_rating_key",
+        "jellyfin": "jellyfin_rating_key",
+        "emby": "emby_rating_key",
+    }
     for cfg in configs:
-        year = _year_hint(cfg)
-        if "plex" in target_backends and cfg.plex_rating_key is None:
-            mid = _find_match_by_tvdb_for_cfg(cfg, cands("plex"), "jellyfin")
+        # Read the source show's provider ids once and match every other backend
+        # by any shared TVDB/TMDB/IMDB id, then title+year as a last resort.
+        summary = _summary_for_cfg(cfg)
+        want_ids = _show_id_set(summary)
+        year = (summary.year if summary else None) or _year_hint(cfg)
+        for be, field in _fields.items():
+            if be not in target_backends or getattr(cfg, field) is not None:
+                continue
+            mid = (_find_match_by_ids(cands(be), want_ids)
+                   or _find_match(cands(be), cfg.title or "", year))
             if mid:
-                cfg.plex_rating_key = mid
-            else:
-                mid = _find_match(cands("plex"), cfg.title or "", year)
-                if mid:
-                    cfg.plex_rating_key = mid
-        if "jellyfin" in target_backends and cfg.jellyfin_rating_key is None:
-            mid = _find_match_by_tvdb_for_cfg(cfg, cands("jellyfin"), "plex")
-            if mid:
-                cfg.jellyfin_rating_key = mid
-            else:
-                mid = _find_match(cands("jellyfin"), cfg.title or "", year)
-                if mid:
-                    cfg.jellyfin_rating_key = mid
-        if "emby" in target_backends and cfg.emby_rating_key is None:
-            mid = _find_match(cands("emby"), cfg.title or "", year)
-            if mid:
-                cfg.emby_rating_key = mid
+                setattr(cfg, field, mid)
 
 
 def _year_hint(cfg: ShowConfig) -> int | None:
@@ -964,7 +1002,7 @@ def _dedup_show_summaries_to_configs(
     setups."""
     out: list[ShowConfig] = []
     seen_keys: dict[str, list[int]] = {}
-    tvdb_seen: dict[str, int] = {}
+    id_seen: dict[tuple, int] = {}   # (idtype, idval) -> index in out
     _years: dict[int, int | None] = {}
 
     for tb in target_backends:
@@ -983,8 +1021,12 @@ def _dedup_show_summaries_to_configs(
                 match_idx = idx
                 break
 
-            if match_idx is None and s.tvdb_id:
-                match_idx = tvdb_seen.get(s.tvdb_id)
+            if match_idx is None:
+                # Any shared provider id (TVDB/TMDB/IMDB) = same show.
+                for pid in _show_id_set(s):
+                    if pid in id_seen:
+                        match_idx = id_seen[pid]
+                        break
 
             if match_idx is not None:
                 if tb == "plex" and out[match_idx].plex_rating_key is None:
@@ -999,8 +1041,8 @@ def _dedup_show_summaries_to_configs(
                     out[match_idx].thumb = s.thumb
                 if nk not in seen_keys or match_idx not in seen_keys[nk]:
                     seen_keys.setdefault(nk, []).append(match_idx)
-                if s.tvdb_id and s.tvdb_id not in tvdb_seen:
-                    tvdb_seen[s.tvdb_id] = match_idx
+                for pid in _show_id_set(s):
+                    id_seen.setdefault(pid, match_idx)
                 continue
 
             cfg = ShowConfig(
@@ -1014,8 +1056,8 @@ def _dedup_show_summaries_to_configs(
             new_idx = len(out)
             seen_keys.setdefault(nk, []).append(new_idx)
             _years[new_idx] = s.year
-            if s.tvdb_id:
-                tvdb_seen[s.tvdb_id] = new_idx
+            for pid in _show_id_set(s):
+                id_seen.setdefault(pid, new_idx)
             out.append(cfg)
 
     if len(target_backends) > 1:
@@ -1241,28 +1283,36 @@ def _heal_missing_ids(playlist_id: int, row, full_configs: list[ShowConfig]) -> 
     jf_cands = _candidates_for("jellyfin") if needs_jf else []
     emby_cands = _candidates_for("emby") if needs_emby else []
 
+    # One ShowSummary lookup per config, reused across the three backends.
+    _summ: dict[int, object] = {}
+    def ids_year(cfg):
+        if id(cfg) not in _summ:
+            _summ[id(cfg)] = _summary_for_cfg(cfg)
+        s = _summ[id(cfg)]
+        return _show_id_set(s), (s.year if s else None)
+
     for cfg in needs_plex:
-        matched = (
-            _find_match_by_tvdb_for_cfg(cfg, plex_cands, "jellyfin")
-            or _find_match(plex_cands, cfg.title or "", _year_hint(cfg))
-        )
+        want_ids, year = ids_year(cfg)
+        matched = (_find_match_by_ids(plex_cands, want_ids)
+                   or _find_match(plex_cands, cfg.title or "", year))
         if matched:
             cfg.plex_rating_key = matched
             db.set_plex_show_item_id(playlist_id, cfg.rating_key, matched)
             log.info("Healed Plex id for '%s' on playlist %s: %s",
                      cfg.title, playlist_id, matched)
     for cfg in needs_jf:
-        matched = (
-            _find_match_by_tvdb_for_cfg(cfg, jf_cands, "plex")
-            or _find_match(jf_cands, cfg.title or "", _year_hint(cfg))
-        )
+        want_ids, year = ids_year(cfg)
+        matched = (_find_match_by_ids(jf_cands, want_ids)
+                   or _find_match(jf_cands, cfg.title or "", year))
         if matched:
             cfg.jellyfin_rating_key = matched
             db.set_jellyfin_show_item_id(playlist_id, cfg.rating_key, matched)
             log.info("Healed Jellyfin id for '%s' on playlist %s: %s",
                      cfg.title, playlist_id, matched)
     for cfg in needs_emby:
-        matched = _find_match(emby_cands, cfg.title or "", _year_hint(cfg))
+        want_ids, year = ids_year(cfg)
+        matched = (_find_match_by_ids(emby_cands, want_ids)
+                   or _find_match(emby_cands, cfg.title or "", year))
         if matched:
             cfg.emby_rating_key = matched
             db.set_emby_show_item_id(playlist_id, cfg.rating_key, matched)

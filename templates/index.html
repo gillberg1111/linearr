@@ -1,5 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
+{% if not tmdb_key_set %}
+<div class="info-banner">
+  <span class="info-banner-icon">🎬</span>
+  <div>
+    <strong>Add a free TMDB API key for the best franchise matching.</strong>
+    Franchise playlists (and the Maker) use TheMovieDB to match items in your
+    library — without a key, library matching is less accurate and some items
+    may show as “not in library” even when you have them. It's free:
+    <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">get a key</a>,
+    then add it on the <a href="{{ url_for('settings') }}">Settings</a> page.
+  </div>
+</div>
+{% endif %}
 <div class="page-head">
   <h1>Your playlists</h1>
   <p class="subtitle">

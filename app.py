@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.8"
+__version__ = "3.0.9"
 
 import logging
 import os
@@ -64,10 +64,12 @@ def _aggregated_shows() -> list[dict]:
     backends = available_backends()
     out: list[dict] = []
     # Primary key: normalized title (year disambiguates reboots).
-    # Secondary key: TVDB ID — catches title discrepancies between backends
-    # (e.g. "Yellowstone (2018)" on Plex ↔ "Yellowstone" on Jellyfin).
+    # Secondary key: any shared provider id (TVDB/TMDB/IMDB) — catches title
+    # discrepancies between backends (e.g. "Yellowstone (2018)" on Plex ↔
+    # "Yellowstone" on Jellyfin) even when they were scraped with different
+    # metadata agents.
     seen: dict[str, list[int]] = {}  # normalized title -> indices in out
-    tvdb_seen: dict[str, int] = {}   # tvdb_id -> index in out
+    id_seen: dict = {}               # (idtype, idval) -> index in out
 
     for backend in backends:
         try:
@@ -93,9 +95,12 @@ def _aggregated_shows() -> list[dict]:
                 match_idx = idx
                 break
 
-            # 2. Fall back to TVDB ID if titles didn't match.
-            if match_idx is None and s.tvdb_id:
-                match_idx = tvdb_seen.get(s.tvdb_id)
+            # 2. Fall back to any shared provider id if titles didn't match.
+            if match_idx is None:
+                for pid in service._show_id_set(s):
+                    if pid in id_seen:
+                        match_idx = id_seen[pid]
+                        break
 
             if match_idx is not None:
                 existing = out[match_idx]
@@ -106,11 +111,11 @@ def _aggregated_shows() -> list[dict]:
                 if not existing["thumb"] and s.thumb:
                     existing["thumb"] = s.thumb
                     existing["thumb_backend"] = backend
-                # Index this backend's title too, and record tvdb_id if new.
+                # Index this backend's title too, and record its provider ids.
                 if nk not in seen or match_idx not in seen[nk]:
                     seen.setdefault(nk, []).append(match_idx)
-                if s.tvdb_id and s.tvdb_id not in tvdb_seen:
-                    tvdb_seen[s.tvdb_id] = match_idx
+                for pid in service._show_id_set(s):
+                    id_seen.setdefault(pid, match_idx)
                 continue
 
             # New entry.
@@ -128,8 +133,8 @@ def _aggregated_shows() -> list[dict]:
                 "backends": {backend},
             }
             seen.setdefault(nk, []).append(new_idx)
-            if s.tvdb_id:
-                tvdb_seen[s.tvdb_id] = new_idx
+            for pid in service._show_id_set(s):
+                id_seen.setdefault(pid, new_idx)
             out.append(row)
 
     out.sort(key=lambda r: r["title"].lower())
@@ -595,7 +600,10 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         views = service.list_playlist_views()
-        return render_template("index.html", playlists=views)
+        tmdb_key_set = bool(db.get_setting("tmdb_api_key") or os.environ.get("TMDB_API_KEY"))
+        return render_template(
+            "index.html", playlists=views, tmdb_key_set=tmdb_key_set,
+        )
 
     # ------------------------------------------------------------------ #
     # Create playlist: type picker → pick → configure → commit
@@ -1976,13 +1984,18 @@ def create_app() -> Flask:
                     flash(f"{tb.title()} is not fully configured — fill in and Save first.", "error")
                 else:
                     try:
-                        sections = get_client(tb).list_tv_sections()
-                        flash(
-                            f"{tb.title()} OK — reachable"
-                            + (f" ({len(sections)} TV librar"
-                               + ("y" if len(sections) == 1 else "ies") + ")" if sections else ""),
-                            "ok",
-                        )
+                        client = get_client(tb)
+                        n_tv = len(client.list_tv_sections())
+                        n_movie = len(client.list_movie_sections())
+                        parts = []
+                        if n_tv:
+                            parts.append(f"{n_tv} TV")
+                        if n_movie:
+                            parts.append(f"{n_movie} movie")
+                        detail = (" (" + " + ".join(parts) + " "
+                                  + ("library" if (n_tv + n_movie) == 1 else "libraries")
+                                  + ")") if parts else ""
+                        flash(f"{tb.title()} OK — reachable{detail}", "ok")
                     except Exception as exc:
                         flash(f"{tb.title()} connection failed: {exc}", "error")
 

@@ -161,6 +161,11 @@ class MediaClient(ABC):
     def list_tv_sections(self) -> list[str]:
         """Return a list of TV library section names (lightweight health probe)."""
 
+    def list_movie_sections(self) -> list[str]:
+        """Return a list of movie library section names. Default no-op; backends
+        override. Used for the Settings 'Test connection' summary."""
+        return []
+
     @abstractmethod
     def find_associated_movies(self, show_title: str) -> list[MovieSummary]:
         """Movies whose title contains the show's name as a word boundary."""

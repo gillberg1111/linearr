@@ -2137,3 +2137,20 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   color: var(--muted);
   margin-bottom: 0.2rem;
 }
+
+/* ---------- Informational banner (e.g. TMDB key suggestion) ---------- */
+.info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin-bottom: 1.2rem;
+  padding: 0.85rem 1.1rem;
+  background: rgba(77, 150, 255, 0.10);
+  border: 1px solid rgba(77, 150, 255, 0.35);
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.info-banner-icon { font-size: 1.1rem; line-height: 1.4; }
+.info-banner a { color: var(--accent); font-weight: 600; }

@@ -3,6 +3,27 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.9] - 2026-05-30
+
+### Changed
+
+- **Cross-backend show matching now uses TVDB + TMDB + IMDB on all three
+  backends.** Linking the same show across Plex/Jellyfin/Emby (for multi-backend
+  show & genre playlists), the heal-on-sync pass, and the picker/genre
+  deduplication previously matched Plex/Jellyfin by TVDB only and Emby by title
+  alone. They now match on ANY shared provider id (TVDB/TMDB/IMDB) before
+  falling back to title+year, so libraries scraped with different metadata
+  agents still link up — and Emby gets ID matching it never had.
+- **"Test connection" now reports movie libraries too**, e.g. `Emby OK —
+  reachable (3 TV + 4 movie libraries)`. New `list_movie_sections()` on each
+  client.
+
+### Added
+
+- **Main-page notice when no TMDB API key is set**, explaining that a free TMDB
+  key improves franchise library matching, with links to get a key and to the
+  Settings page.
+
 ## [3.0.8] - 2026-05-30
 
 ### Added

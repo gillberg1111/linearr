@@ -2488,6 +2488,29 @@ def test_franchise_external_id_bridge():
     check("franchise show direct tmdb still works", got2 is show)
 
 
+def test_cross_backend_id_matching():
+    """Cross-backend show matching links the same show across backends by ANY
+    shared provider id (TVDB/TMDB/IMDB), not just TVDB."""
+    import service as _svc
+
+    class _S:
+        def __init__(self, rk, tvdb=None, tmdb=None, imdb=None):
+            self.rating_key = rk
+            self.tvdb_id = tvdb
+            self.tmdb_id = tmdb
+            self.imdb_id = imdb
+
+    cands = [_S("a", tvdb="111"), _S("b", imdb="tt999"), _S("c", tmdb=222)]
+    check("match by imdb", _svc._find_match_by_ids(cands, {("imdb", "tt999")}) == "b")
+    check("match by tmdb", _svc._find_match_by_ids(cands, {("tmdb", "222")}) == "c")
+    check("no shared id -> None", _svc._find_match_by_ids(cands, {("tvdb", "999")}) is None)
+    check("empty want -> None", _svc._find_match_by_ids(cands, set()) is None)
+
+    s = _S("x", tvdb=75682, tmdb=1668, imdb="tt0386676")
+    check("id set has all three",
+          _svc._show_id_set(s) == {("tvdb", "75682"), ("tmdb", "1668"), ("imdb", "tt0386676")})
+
+
 def test_set_playlist_image_present():
     """v3.0.0 franchise cover art: the ABC exposes a non-abstract no-op
     set_playlist_image, and every backend client overrides it."""

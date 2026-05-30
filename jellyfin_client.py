@@ -387,6 +387,15 @@ class JellyfinClient(MediaClient):
             _log.exception("list_tv_sections failed on Jellyfin")
             return []
 
+    def list_movie_sections(self) -> list[str]:
+        try:
+            resp = self._request("GET", "/Library/VirtualFolders")
+            data = resp.json() if resp.ok else []
+            return [f["Name"] for f in data if f.get("CollectionType") == "movies"]
+        except Exception:
+            _log.exception("list_movie_sections failed on Jellyfin")
+            return []
+
     def _list_series_via_items(self, extra_params: dict) -> list[ShowSummary]:
         """Shared core for list_all_shows / list_shows_by_genres. Iterates
         TV libraries and unions matching series, deduplicated by Id."""
