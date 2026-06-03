@@ -6,11 +6,12 @@
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <WebUI>http://[IP]:[PORT:8080]</WebUI>
-  <Overview>Self-hosted position-ceiling tracker. Set a maximum weight (ceiling) for each holding; TrimPoint pulls live prices, shows where every position sits, and flags the ones over your line with the exact trim back to your floor. Optional notifications (ntfy/Discord/webhook) and daily history. Informational only - it executes the plan you set; it is not financial advice.</Overview>
+  <Overview>Self-hosted position-ceiling tracker. Set a maximum weight (ceiling) for each holding.</Overview>
   <Project>https://github.com/gillberg1111/trimpoint</Project>
   <Support>https://github.com/gillberg1111/trimpoint/issues</Support>
   <ReadMe>https://raw.githubusercontent.com/gillberg1111/trimpoint/main/README.md</ReadMe>
-  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/linear/main/templates/trimpoint.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/gillberg1111/trimpoint/main/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/gillberg1111/linearr/main/templates/trimpoint.xml</TemplateURL>
   <Category>Tools: Productivity:</Category>
   <License>MIT</License>
   <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the TrimPoint web interface." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
