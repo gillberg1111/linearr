@@ -3,6 +3,22 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.10] - 2026-06-05
+
+### Fixed
+
+- **Crash on startup after upgrading: `NOT NULL constraint failed:
+  managed_playlists_new.block_size`.** init_db()'s one-time `managed_playlists`
+  rebuild — the migration that relaxes the `backend` CHECK from an enum to a
+  CSV set — copied rows with `INSERT INTO managed_playlists_new SELECT *`. That
+  copy is positional, but a database's physical column order depends on its
+  upgrade history: columns added by `ALTER TABLE` are appended last, so
+  `emby_playlist_id` (5th in the rebuilt table) and the v2.x columns sit
+  elsewhere on disk. The ordinal mismatch shifted a NULL-able value (e.g.
+  `shuffle_seed`) into a NOT NULL column and aborted startup. The rebuild now
+  copies by explicit column name, so every value lands in its own column
+  regardless of on-disk order. (#8)
+
 ## [3.0.9] - 2026-05-30
 
 ### Changed

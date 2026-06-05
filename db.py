@@ -461,7 +461,25 @@ def init_db() -> None:
                     rule_mode            TEXT NOT NULL DEFAULT 'genre',
                     last_stats           TEXT
                 );
-                INSERT INTO managed_playlists_new SELECT * FROM managed_playlists;
+                -- Copy by explicit column NAME, never SELECT *: the live
+                -- managed_playlists physical column order depends on upgrade
+                -- history (columns added by ALTER are appended last), so a
+                -- positional copy misaligns — e.g. NULL shuffle_seed landing in
+                -- NOT NULL block_size (issue #8).
+                INSERT INTO managed_playlists_new (
+                    id, name, plex_rating_key, jellyfin_playlist_id,
+                    emby_playlist_id, backend, playlist_type, genre_filter,
+                    created_at, sort_mode, block_size, shuffle_seed,
+                    unwatched_only, auto_sync, franchise_definition_id,
+                    pruning_enabled, rule_mode, last_stats
+                )
+                SELECT
+                    id, name, plex_rating_key, jellyfin_playlist_id,
+                    emby_playlist_id, backend, playlist_type, genre_filter,
+                    created_at, sort_mode, block_size, shuffle_seed,
+                    unwatched_only, auto_sync, franchise_definition_id,
+                    pruning_enabled, rule_mode, last_stats
+                FROM managed_playlists;
                 DROP TABLE managed_playlists;
                 ALTER TABLE managed_playlists_new RENAME TO managed_playlists;
                 PRAGMA foreign_key_check;
