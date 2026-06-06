@@ -561,8 +561,8 @@
       })
       .then(function(data) {
         var seen = new Set();
-        Object.keys(data).forEach(function(backend) {
-          (data[backend] || []).forEach(function(g) {
+        Object.keys(data.genres).forEach(function(backend) {
+          (data.genres[backend] || []).forEach(function(g) {
             if (!seen.has(g)) {
               seen.add(g);
               allGenres.push({ label: g, backend: backend });
@@ -572,6 +572,15 @@
         allGenres.sort(function(a, b) { return a.label.localeCompare(b.label); });
         pillGrid.innerHTML = '';
         renderPills();
+        if (data.errors && Object.keys(data.errors).length) {
+          var warnDiv = document.createElement('div');
+          warnDiv.className = 'genre-fetch-warning';
+          Object.keys(data.errors).forEach(function(be) {
+            warnDiv.appendChild(document.createTextNode(data.errors[be]));
+            warnDiv.appendChild(document.createElement('br'));
+          });
+          pillGrid.parentNode.insertBefore(warnDiv, pillGrid);
+        }
       })
       .catch(function() {
         pillGrid.innerHTML =

@@ -181,6 +181,7 @@ a { color: var(--accent); }
 }
 .flash-ok    { background: rgba(46,204,113,0.12); border-color: rgba(46,204,113,0.35); }
 .flash-error { background: rgba(231,76,60,0.12); border-color: rgba(231,76,60,0.4); }
+.flash-warning { background: rgba(255,155,77,0.12); border-color: rgba(255,155,77,0.4); }
 
 /* ---------- empty / hints ---------- */
 .empty-state {
@@ -991,6 +992,15 @@ a { color: var(--accent); }
   flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.2rem;
+}
+.genre-fetch-warning {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(255,155,77,0.4);
+  background: rgba(255,155,77,0.12);
+  border-radius: 8px;
+  color: var(--fg-dim);
+  font-size: 0.9rem;
 }
 .genre-pill {
   font-size: 0.8rem;

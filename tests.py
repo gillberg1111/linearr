@@ -2903,6 +2903,86 @@ def test_decoupled_season_meta():
     check("decoupled: agg title fallback", meta4["rk4"]["_show_title"] == "Aggregated Title")
 
 
+# --------------------------------------------------------------------------- #
+# _backend_unreachable_message classification
+# --------------------------------------------------------------------------- #
+
+def test_backend_unreachable_message_classification():
+    import app as _app
+
+    class ConnectTimeout(Exception):
+        pass
+
+    class ConnectionError(Exception):
+        pass
+
+    class MaxRetryError(Exception):
+        pass
+
+    msg = _app._backend_unreachable_message("emby", ConnectTimeout())
+    check("unreachable: ConnectTimeout mentions Emby", "Emby" in msg)
+    check("unreachable: ConnectTimeout mentions timed out", "timed out" in msg)
+
+    msg2 = _app._backend_unreachable_message("emby", ConnectionError())
+    check("unreachable: ConnectionError mentions Emby", "Emby" in msg2)
+    check("unreachable: ConnectionError mentions timed out", "timed out" in msg2)
+
+    msg3 = _app._backend_unreachable_message("emby", MaxRetryError())
+    check("unreachable: MaxRetryError mentions Emby", "Emby" in msg3)
+    check("unreachable: MaxRetryError mentions timed out", "timed out" in msg3)
+
+    msg4 = _app._backend_unreachable_message("emby", ValueError("boom"))
+    check("unreachable: ValueError mentions Emby", "Emby" in msg4)
+    check("unreachable: ValueError mentions boom", "boom" in msg4)
+    check("unreachable: ValueError does NOT claim timeout",
+          "timed out" not in msg4)
+
+    msg5 = _app._backend_unreachable_message("plex", ConnectTimeout())
+    check("unreachable: Plex display name", msg5.startswith("Couldn't reach Plex"))
+
+    msg6 = _app._backend_unreachable_message("jellyfin", ConnectTimeout())
+    check("unreachable: Jellyfin display name", msg6.startswith("Couldn't reach Jellyfin"))
+
+    msg7 = _app._backend_unreachable_message("emby", ConnectTimeout())
+    check("unreachable: Emby display name", msg7.startswith("Couldn't reach Emby"))
+
+
+def test_aggregated_shows_collects_errors():
+    import app as _app
+    from media_client import ShowSummary
+
+    class ConnectTimeout(Exception):
+        pass
+
+    class _FakePlexClient:
+        def list_all_shows(self):
+            return [ShowSummary("rk1", "Test Show", year=2020, library="TV", thumb=None)]
+
+    class _FakeEmbyClient:
+        def list_all_shows(self):
+            raise ConnectTimeout("timed out")
+
+    _fake_clients = {"plex": _FakePlexClient(), "emby": _FakeEmbyClient()}
+    _orig_avail = _app.available_backends
+    _orig_get_client = _app.get_client
+
+    try:
+        _app.available_backends = lambda: ["plex", "emby"]
+        _app.get_client = lambda be: _fake_clients[be]
+
+        result = _app._aggregated_shows()
+        check("_aggregated_shows returns 2-tuple", isinstance(result, tuple) and len(result) == 2)
+        rows, errors = result
+
+        check("_aggregated_shows: rows has Plex show", len(rows) == 1 and rows[0]["title"] == "Test Show")
+        check("_aggregated_shows: errors has one entry", len(errors) == 1)
+        check("_aggregated_shows: error backend is emby", errors[0][0] == "emby")
+        check("_aggregated_shows: error message mentions Emby", "Emby" in errors[0][1])
+    finally:
+        _app.available_backends = _orig_avail
+        _app.get_client = _orig_get_client
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

@@ -3,6 +3,22 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.12] - 2026-06-05
+
+### Changed
+
+- **Unreachable backends now show a clear banner instead of an empty picker.**
+  When a configured backend can't be listed (e.g. Emby times out because the
+  container can't route to it), the "New Playlist → By Show" picker, the
+  configure step, the add-shows picker, and the genre builder previously failed
+  silently and rendered nothing — leaving users to conclude Linearr "wasn't
+  detecting their libraries." These flows now surface a per-backend warning
+  (e.g. *"Couldn't reach Emby — the connection timed out or was refused. Check
+  its URL in Settings and that the server is reachable from the Linearr
+  container."*) while still listing whatever the reachable backends returned.
+  `/api/genres` returns per-backend errors and the genre picker shows an inline
+  note. (#5)
+
 ## [3.0.11] - 2026-06-05
 
 ### Fixed

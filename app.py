@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.11"
+__version__ = "3.0.12"
 
 import logging
 import os
@@ -53,16 +53,39 @@ log = logging.getLogger("app")
 # --------------------------------------------------------------------------- #
 
 
-def _aggregated_shows() -> list[dict]:
+_BACKEND_DISPLAY = {"plex": "Plex", "jellyfin": "Jellyfin", "emby": "Emby"}
+
+_UNREACHABLE_EXC_NAMES = {
+    "ConnectTimeout", "ConnectTimeoutError", "ConnectionError",
+    "ReadTimeout", "Timeout", "MaxRetryError", "NewConnectionError",
+}
+
+
+def _backend_unreachable_message(backend: str, exc: Exception) -> str:
+    """Turn a list-shows/list-genres failure into a user-facing one-liner."""
+    name = _BACKEND_DISPLAY.get(backend, backend.capitalize())
+    if type(exc).__name__ in _UNREACHABLE_EXC_NAMES:
+        return (f"Couldn't reach {name} — the connection timed out or was refused. "
+                f"Check its URL in Settings and that the server is reachable from the "
+                f"Linearr container.")
+    short = str(exc).strip().splitlines()[0][:160] if str(exc).strip() else type(exc).__name__
+    return f"Couldn't list from {name}: {short}"
+
+
+def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
     """List every show across configured backends, deduplicated by
     title+year. Each row carries `plex_rating_key` and `jellyfin_rating_key`
     (each nullable) plus a `backends` set indicating which backends have it.
 
     Single-backend installs get the same list shape that `client.list_all_shows()`
     returns, just wrapped in dicts.
+
+    Returns (rows, errors) where errors is a list of (backend, message) for
+    backends that failed to list.
     """
     backends = available_backends()
     out: list[dict] = []
+    errors: list[tuple[str, str]] = []
     # Primary key: normalized title (year disambiguates reboots).
     # Secondary key: any shared provider id (TVDB/TMDB/IMDB) — catches title
     # discrepancies between backends (e.g. "Yellowstone (2018)" on Plex ↔
@@ -74,8 +97,9 @@ def _aggregated_shows() -> list[dict]:
     for backend in backends:
         try:
             shows = get_client(backend).list_all_shows()
-        except Exception:
+        except Exception as exc:
             log.exception("Failed to list shows on %s", backend)
+            errors.append((backend, _backend_unreachable_message(backend, exc)))
             continue
         for s in shows:
             nk = normalize_title(s.title)
@@ -138,7 +162,7 @@ def _aggregated_shows() -> list[dict]:
             out.append(row)
 
     out.sort(key=lambda r: r["title"].lower())
-    return out
+    return out, errors
 
 
 def _lookup_show_record(aggregated: list[dict], rating_key: str) -> dict | None:
@@ -577,6 +601,7 @@ def create_app() -> Flask:
     @app.route("/api/genres")
     def api_genres():
         result: dict[str, list[str]] = {}
+        errors: dict[str, str] = {}
         for backend in available_backends():
             cached = db.get_genre_cache(backend)
             if cached is None:
@@ -584,11 +609,12 @@ def create_app() -> Flask:
                     genres = get_client(backend).list_all_genres()
                     db.set_genre_cache(backend, genres)
                     cached = genres
-                except Exception:
+                except Exception as exc:
                     log.exception("live genre fetch failed for %s", backend)
+                    errors[backend] = _backend_unreachable_message(backend, exc)
                     cached = []
             result[backend] = cached
-        return jsonify(result)
+        return jsonify({"genres": result, "errors": errors})
 
     # ------------------------------------------------------------------ #
     # AJAX preview (returns rendered HTML partial)
@@ -598,7 +624,7 @@ def create_app() -> Flask:
     def api_preview(playlist_id: int | None = None):
         show_keys = request.form.getlist("shows")
         # Aggregated lookup only needed when both backends are configured.
-        agg = _aggregated_shows() if len(available_backends()) > 1 else None
+        agg = _aggregated_shows()[0] if len(available_backends()) > 1 else None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
 
         if playlist_id is not None:
@@ -675,7 +701,9 @@ def create_app() -> Flask:
             return render_template("new.html", shows=[], prev_name="", selected=set(),
                                    default_backend="plex", existing_names=existing_names)
         try:
-            shows = _aggregated_shows()
+            shows, agg_errors = _aggregated_shows()
+            for _be, _msg in agg_errors:
+                flash(_msg, "warning")
         except Exception as e:
             log.exception("listing shows failed")
             flash(f"Couldn't reach backend: {e}", "error")
@@ -730,7 +758,12 @@ def create_app() -> Flask:
         backend_choice = _backend_from_form(request.form, backends)
         primary_be = primary_backend(backend_choice)
 
-        agg = _aggregated_shows() if len(backends) > 1 else None
+        if len(backends) > 1:
+            agg, agg_errors = _aggregated_shows()
+            for _be, _msg in agg_errors:
+                flash(_msg, "warning")
+        else:
+            agg = None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
         meta = _gather_season_meta(configs, primary_be)
         _compute_display_titles(meta, configs, agg)
@@ -814,7 +847,9 @@ def create_app() -> Flask:
 
         # Available-to-add list, filtered to exclude shows already in the playlist.
         try:
-            agg = _aggregated_shows()
+            agg, agg_errors = _aggregated_shows()
+            for _be, _msg in agg_errors:
+                flash(_msg, "warning")
         except Exception:
             agg = []
         existing_keys = {s["show_rating_key"] for s in view.shows}
@@ -949,7 +984,7 @@ def create_app() -> Flask:
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
         action = request.form.get("action", "preview")
-        agg = _aggregated_shows() if len(available_backends()) > 1 else None
+        agg = _aggregated_shows()[0] if len(available_backends()) > 1 else None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
         primary_be = primary_backend(view.backend)
         meta = _gather_season_meta(configs, primary_be)
