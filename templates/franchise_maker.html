@@ -283,6 +283,18 @@ function addEpisode(tmdbId, seasonNum, episodeNum, epTitle, showTitle, showTvdbI
   if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = '\u2713'; btn.replaceWith(b); }
 }
 
+// Swap the "+" on every rendered episode row in `epList` to a \u2713 badge, so a
+// bulk add reflects immediately instead of only after the next search.
+function markEpisodeListAdded(epList) {
+  if (!epList) return;
+  epList.querySelectorAll('.maker-episode-row button').forEach(function(b) {
+    var s = document.createElement('span');
+    s.className = 'maker-added-badge';
+    s.textContent = '\u2713';
+    b.replaceWith(s);
+  });
+}
+
 function addAllSeasonEpisodes(tmdbId, seasonNum, showTitle, showTvdbId, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
   fetch('/api/franchise-maker/tv/' + tmdbId + '/season/' + seasonNum)
@@ -302,6 +314,10 @@ function addAllSeasonEpisodes(tmdbId, seasonNum, showTitle, showTvdbId, btn) {
         added++;
       });
       renderItems();
+      // Refresh this season's open episode rows (if expanded) before the button
+      // is swapped out — they're all added now.
+      var seasonRow = btn ? btn.closest('.season-row') : null;
+      if (seasonRow) markEpisodeListAdded(seasonRow.parentElement.querySelector('.maker-episode-list'));
       if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
       showStatus('Added ' + added + ' episode' + (added !== 1 ? 's' : ''), 'ok');
     })
@@ -335,6 +351,14 @@ function addAllSeriesEpisodes(tmdbId, btn) {
           added++;
         });
         renderItems();
+        // Refresh any open episode lists for regular seasons (specials weren't added).
+        var resultRow = btn ? btn.closest('.maker-result-row') : null;
+        var acc = resultRow && resultRow.nextElementSibling;
+        if (acc && acc.classList.contains('maker-tv-accordion')) {
+          acc.querySelectorAll('.maker-episode-list').forEach(function(el) {
+            if (parseInt(el.dataset.season || '0', 10) >= 1) markEpisodeListAdded(el);
+          });
+        }
         if (btn) { btn.disabled = false; btn.textContent = '+ Add all eps'; }
         showStatus('Added ' + added + ' episode' + (added !== 1 ? 's' : '') + ' from ' + show.title, 'ok');
       });
@@ -483,6 +507,7 @@ function loadTV(tmdbId, btn) {
 
         var epList = document.createElement('div');
         epList.className = 'maker-episode-list';
+        epList.dataset.season = s.season_number;
 
         seasonDiv.querySelector('.season-row').addEventListener('click', function() {
           var arrow = this.querySelector('.season-arrow');

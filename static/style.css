@@ -1624,7 +1624,13 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 }
 
 @media (max-width: 480px) {
-  .topbar-actions .btn:not(.btn-primary) { display: none; }
+  /* Keep the Settings button reachable on phones (it used to be display:none).
+     Tighten the bar — drop the wordmark (keep the logo), shrink the actions —
+     so "+ New Playlist" and "Settings" both fit. */
+  .topbar-inner { padding: 0.7rem 0.9rem; }
+  .brand-name { display: none; }
+  .topbar-actions { gap: 0.4rem; }
+  .topbar-actions .btn { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
 
   .poster-grid { grid-template-columns: repeat(2, 1fr); }
 
@@ -1916,6 +1922,7 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 .maker-result-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.6rem;
   padding: 0.5rem;
   border-radius: var(--radius-sm);
@@ -1936,7 +1943,9 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   flex-shrink: 0;
 }
 
-.maker-result-info { flex: 1; min-width: 0; }
+/* Keep a readable minimum for the title so a 3rd action button can't squeeze
+   it to "B.."; on narrow panels the actions wrap to their own line instead. */
+.maker-result-info { flex: 1 1 130px; min-width: 130px; }
 .maker-result-title {
   font-size: 0.85rem;
   font-weight: 500;
@@ -1945,7 +1954,9 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   text-overflow: ellipsis;
 }
 .maker-result-year { font-size: 0.72rem; color: var(--muted); }
-.maker-result-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.maker-result-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; flex-shrink: 0; }
+/* Whole buttons wrap to the next line; their labels never break mid-word. */
+.maker-result-actions .btn, .season-row .btn { white-space: nowrap; }
 
 .maker-added-badge {
   font-size: 0.68rem;
@@ -1964,6 +1975,7 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 .season-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.4rem;
   padding: 0.25rem 0.4rem;
   font-size: 0.78rem;

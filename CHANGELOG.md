@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.1] - 2026-06-06
+
+### Fixed
+
+- **Franchise Maker rows overflowed on narrow screens.** The third action button
+  ("+ Add all eps") squeezed show titles down to "B.." and made season buttons
+  wrap mid-word. Result rows and season rows now wrap their action buttons to a
+  new line and keep the title readable.
+- **Franchise Maker: "+ Add all eps" now marks the episodes as added
+  immediately** (✓ on each row) instead of only after the next search.
+- **Settings button was hidden on mobile.** A rule hid every non-primary topbar
+  button below 480px, which removed the only one — Settings. The topbar now keeps
+  Settings visible on phones (the wordmark drops and the buttons compact so both
+  fit).
+
 ## [3.1.0] - 2026-06-06
 
 ### Added
