@@ -1625,10 +1625,9 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 
 @media (max-width: 480px) {
   /* Keep the Settings button reachable on phones (it used to be display:none).
-     Tighten the bar — drop the wordmark (keep the logo), shrink the actions —
-     so "+ New Playlist" and "Settings" both fit. */
+     Tighten the bar — shrink the actions — so the "Linearr" wordmark,
+     "+ New Playlist", and "Settings" all fit. */
   .topbar-inner { padding: 0.7rem 0.9rem; }
-  .brand-name { display: none; }
   .topbar-actions { gap: 0.4rem; }
   .topbar-actions .btn { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
 
@@ -1642,8 +1641,12 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   .builder-toolbar .name-input,
   .builder-toolbar .filter-input { flex: 0 0 auto; height: auto; width: 100%; }
 
-  /* Mobile: tighter margin, pill button */
+  /* Mobile: tighter margin, pill button. The card spans the viewport and wraps
+     so the name input gets its own full-width row instead of overflowing off the
+     left edge; the Edit/Create buttons wrap below it. */
   .commit-bar { padding-right: 0.75rem; bottom: 1rem; }
+  .commit-card { flex-wrap: wrap; width: 100%; box-sizing: border-box; }
+  .commit-card .name-input { flex: 1 1 100% !important; max-width: none !important; }
   .commit-card .btn { border-radius: 999px; justify-content: center; }
 
   .genre-preview-section { max-width: 100%; }

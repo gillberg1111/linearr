@@ -3,6 +3,18 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.2] - 2026-06-06
+
+### Fixed
+
+- **Mobile: the "Linearr" wordmark is back in the top bar.** v3.1.1's fix for the
+  hidden Settings button over-corrected and dropped the wordmark too; the
+  compacted buttons leave room for icon + "Linearr" + both actions.
+- **Mobile: the franchise create bar no longer clips the playlist-name field off
+  the screen.** The commit card now wraps on phones — the name input gets a
+  full-width row and the Edit / Create Playlist buttons sit below it (applies to
+  every create bar, not just franchises).
+
 ## [3.1.1] - 2026-06-06
 
 ### Fixed
