@@ -188,15 +188,15 @@
         {% set regular_seasons = m.seasons | rejectattr('index', 'equalto', 0) | list if m else [] %}
         <article class="config-card">
           <div class="config-head">
-            {% if m and m.summary.thumb %}
+            {% if m and m.summary and m.summary.thumb %}
               <img class="config-poster" loading="lazy"
                    src="{{ url_for('thumb') }}?path={{ m.summary.thumb|urlencode }}&w=180&h=270"
                    alt="{{ m.summary.title }}">
             {% else %}
-              <div class="config-poster poster-fallback">{{ (m.summary.title if m else '?')[:1] }}</div>
+              <div class="config-poster poster-fallback">{{ (m._show_title if m else '?')[:1] }}</div>
             {% endif %}
             <div class="config-head-text">
-              <h2 class="config-title">{{ m.summary.title if m else rk }}</h2>
+              <h2 class="config-title">{{ m._show_title if m else rk }}</h2>
               <p class="meta">
                 {{ regular_seasons|length }} regular season{{ '' if regular_seasons|length == 1 else 's' }}
                 {% if has_specials %} · Season 0 (specials) available{% endif %}

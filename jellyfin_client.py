@@ -72,6 +72,18 @@ _MOVIE_FIELDS = "PremiereDate,ProductionYear,ProviderIds"
 _CONNECT_TIMEOUT = 5
 _HTTP_TIMEOUT = (_CONNECT_TIMEOUT, 30)
 
+# Playlist add/remove pass item ids in the query string. A large genre playlist
+# can carry thousands of 32-char GUIDs, which overruns server/proxy URI limits
+# (HTTP 414). Chunk every such call. 100 ids ≈ 3.3 KB of query string — safely
+# under the common 4 KB reverse-proxy cap.
+_MAX_IDS_PER_REQUEST = 100
+
+
+def _chunked(seq, n):
+    """Yield successive n-sized lists from seq (n >= 1)."""
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
 
 # --------------------------------------------------------------------------- #
 # Safety guard (module-level, testable without a connected client)
@@ -313,14 +325,18 @@ class JellyfinClient(MediaClient):
         return [it["Id"] for it in items if it.get("CollectionType") == "movies"]
 
     def _fetch_item(self, item_id: str) -> dict | None:
-        """GET a single item by Id. Returns the BaseItemDto dict or None on 404."""
-        resp = self._request(
-            "GET", f"/Items/{item_id}",
-            params={"userId": self._user_id, "fields": _MOVIE_FIELDS},
-        )
-        if resp.status_code == 404:
+        """GET a single item by Id via the list form (/Items?Ids=…), which is
+        stable across server versions. Returns the BaseItemDto dict or None when
+        the id resolves to nothing."""
+        resp = self._request("GET", "/Items", params={
+            "Ids": str(item_id),
+            "userId": self._user_id,
+            "Fields": _MOVIE_FIELDS,
+        })
+        if not resp.ok:
             return None
-        return resp.json()
+        items = (resp.json() or {}).get("Items") or []
+        return items[0] if items else None
 
     @staticmethod
     def _item_to_playlist_item(item: dict) -> PlaylistItem:
@@ -751,10 +767,11 @@ class JellyfinClient(MediaClient):
     ) -> None:
         if not rating_key or not item_rating_keys:
             return
-        self._request("POST", f"/Playlists/{rating_key}/Items", params={
-            "ids": ",".join(item_rating_keys),
-            "userId": self._user_id,
-        })
+        for chunk in _chunked(list(item_rating_keys), _MAX_IDS_PER_REQUEST):
+            self._request("POST", f"/Playlists/{rating_key}/Items", params={
+                "ids": ",".join(chunk),
+                "userId": self._user_id,
+            })
 
     def remove_items_from_playlist(
         self, rating_key: str, item_rating_keys: list[str]
@@ -783,9 +800,10 @@ class JellyfinClient(MediaClient):
                     entries.append(str(pid))
         if not entries:
             return
-        self._request("DELETE", f"/Playlists/{rating_key}/Items", params={
-            "entryIds": ",".join(entries),
-        })
+        for chunk in _chunked(entries, _MAX_IDS_PER_REQUEST):
+            self._request("DELETE", f"/Playlists/{rating_key}/Items", params={
+                "entryIds": ",".join(chunk),
+            })
 
     def replace_playlist_items(
         self, rating_key: str, ordered_rating_keys: list[str]

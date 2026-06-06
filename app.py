@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.9"
+__version__ = "3.0.10"
 
 import logging
 import os
@@ -380,20 +380,70 @@ def _gather_season_meta(configs: list[ShowConfig], primary_be: str) -> dict:
             target_id = cfg.id_for(be)
             if not target_id:
                 continue
+
+            try:
+                seasons = clients[be].season_summaries(target_id)
+            except Exception:
+                log.warning("season_summaries failed on %s for %s", be, target_id, exc_info=True)
+                continue
+            if not seasons:
+                continue
+
             try:
                 summary = clients[be].get_show_summary(target_id)
-                seasons = clients[be].season_summaries(target_id)
-                movies = clients[be].find_associated_movies(summary.title)
-                out[cfg.rating_key] = {
-                    "summary": summary,
-                    "seasons": seasons,
-                    "movies": movies,
-                    "source_backend": be,
-                }
-                break
             except Exception:
-                continue
+                log.warning("get_show_summary failed on %s for %s; using fallback title", be, target_id, exc_info=True)
+                summary = None
+
+            try:
+                movies = clients[be].find_associated_movies(summary.title) if summary else []
+            except Exception:
+                log.warning("find_associated_movies failed on %s for %s", be, target_id, exc_info=True)
+                movies = []
+
+            out[cfg.rating_key] = {
+                "summary": summary,
+                "seasons": seasons,
+                "movies": movies,
+                "source_backend": be,
+            }
+            break
     return out
+
+
+def _compute_display_titles(
+    meta: dict, configs: list[ShowConfig], agg: list[dict] | None
+) -> None:
+    """Annotate each meta entry with a safe '_show_title' for templates, falling
+    back through summary title → config title → aggregated-show title →
+    rating_key when get_show_summary returned None.
+
+    `agg` is the list returned by `_aggregated_shows()` (or None for single-
+    backend installs). Each row is a dict carrying `rating_key`, `title`, and
+    the per-backend `*_rating_key` aliases; we index by every id a config might
+    reference."""
+    configs_by_rk = {c.rating_key: c for c in configs}
+    agg_title_by_rk: dict[str, str] = {}
+    for row in agg or []:
+        title = row.get("title")
+        if not title:
+            continue
+        for key in ("rating_key", "plex_rating_key",
+                    "jellyfin_rating_key", "emby_rating_key"):
+            rid = row.get(key)
+            if rid:
+                agg_title_by_rk.setdefault(rid, title)
+    for rk, m in meta.items():
+        if m.get("summary") and m["summary"].title:
+            m["_show_title"] = m["summary"].title
+        else:
+            cfg = configs_by_rk.get(rk)
+            if cfg and cfg.title:
+                m["_show_title"] = cfg.title
+            elif rk in agg_title_by_rk:
+                m["_show_title"] = agg_title_by_rk[rk]
+            else:
+                m["_show_title"] = rk
 
 
 def _backend_from_form(form, available: list[str]) -> str:
@@ -683,6 +733,7 @@ def create_app() -> Flask:
         agg = _aggregated_shows() if len(backends) > 1 else None
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
         meta = _gather_season_meta(configs, primary_be)
+        _compute_display_titles(meta, configs, agg)
         missing_shows = _missing_side_shows(configs, backend_choice, backends)
 
         if action == "commit":
@@ -902,6 +953,7 @@ def create_app() -> Flask:
         configs = _parse_configs_from_form(request.form, show_keys, aggregated=agg)
         primary_be = primary_backend(view.backend)
         meta = _gather_season_meta(configs, primary_be)
+        _compute_display_titles(meta, configs, agg)
         missing_shows = _missing_side_shows(configs, view.backend, available_backends())
 
         if action == "commit":

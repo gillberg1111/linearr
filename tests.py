@@ -2527,6 +2527,278 @@ def test_set_playlist_image_present():
               klass.set_playlist_image is not MediaClient.set_playlist_image)
 
 
+# --------------------------------------------------------------------------- #
+# v3.0.10 — Chunked playlist requests + decoupled season gathering
+# --------------------------------------------------------------------------- #
+
+
+def test_chunked_correctness():
+    """_chunked yields successive n-sized lists, preserving order and respecting
+    the max-chunk limit.  Import from both client modules (standalone copies)."""
+    from jellyfin_client import _chunked as jf_chunked, _MAX_IDS_PER_REQUEST as jf_max
+    from emby_client import _chunked as em_chunked, _MAX_IDS_PER_REQUEST as em_max
+
+    for _ch, _max in ((jf_chunked, jf_max), (em_chunked, em_max)):
+        label = "jf" if _ch is jf_chunked else "em"
+        check(f"_chunked {label}: empty → no chunks", list(_ch([], _max)) == [])
+        check(f"_chunked {label}: len < max → one chunk",
+              list(_ch(list(range(5)), _max)) == [list(range(5))])
+        check(f"_chunked {label}: exact multiple",
+              list(_ch(list(range(200)), _max)) == [list(range(100)), list(range(100, 200))])
+        check(f"_chunked {label}: remainder",
+              list(_ch(list(range(250)), _max)) == [list(range(100)), list(range(100, 200)), list(range(200, 250))])
+        # Flattened output equals input in order.
+        flat = [x for c in _ch(list(range(250)), _max) for x in c]
+        check(f"_chunked {label}: preserves order", flat == list(range(250)))
+        # Every chunk length ≤ max.
+        for c in _ch(list(range(250)), _max):
+            check(f"_chunked {label}: chunk len ≤ max", len(c) <= _max)
+
+
+class _PlaylistRecorder:
+    """Minimal stub that records _request calls without touching the network.
+    _get_items controls what GET /Playlists/.../Items returns (remove mapping)."""
+    _user_id = "u1"
+
+    def __init__(self, get_items=None):
+        self.calls = []
+        self._get_items = get_items or []
+
+    def _request(self, method, path, *, params=None, **kwargs):
+        self.calls.append((method, path, params))
+        import json as _j
+        import requests as _r
+        r = _r.Response()
+        r.status_code = 200
+        if method == "GET" and "Playlists" in path and "/Items" in path:
+            r._content = _j.dumps({"Items": self._get_items}).encode()
+        elif method == "POST" and path == "/Playlists":
+            r._content = _j.dumps({"Id": "PL1"}).encode()
+        else:
+            r._content = b"{}"
+        return r
+
+
+def _add_recorder_method(rec, cls, name):
+    """Bind an unbound method from cls to a recorder instance."""
+    import types
+    setattr(rec, name, types.MethodType(getattr(cls, name), rec))
+
+
+def test_jellyfin_add_chunking():
+    """add_items_to_playlist chunks large id lists into ≤100-id POSTs."""
+    import jellyfin_client as _jc
+    N = _jc._MAX_IDS_PER_REQUEST * 2 + 7
+    ids = [f"id{i}" for i in range(N)]
+    rec = _PlaylistRecorder()
+    _add_recorder_method(rec, _jc.JellyfinClient, "add_items_to_playlist")
+    rec.add_items_to_playlist("pl1", ids)
+
+    posts = [(m, p) for m, p, _ in rec.calls if m == "POST"]
+    check("jf add: correct number of POSTs",
+          len(posts) == (N + _jc._MAX_IDS_PER_REQUEST - 1) // _jc._MAX_IDS_PER_REQUEST)
+
+    all_ids = []
+    for _, _, params in rec.calls:
+        if params and "ids" in params:
+            chunk = params["ids"].split(",")
+            check("jf add: chunk size ≤ max", len(chunk) <= _jc._MAX_IDS_PER_REQUEST)
+            all_ids.extend(chunk)
+    check("jf add: all ids present in order", all_ids == ids)
+
+    # Edge: empty / None rating_key → no-op
+    rec2 = _PlaylistRecorder()
+    _add_recorder_method(rec2, _jc.JellyfinClient, "add_items_to_playlist")
+    rec2.add_items_to_playlist("", ids)
+    check("jf add: no rating_key → no-op", len(rec2.calls) == 0)
+    rec2.add_items_to_playlist("pl1", [])
+    check("jf add: empty ids → no-op", len(rec2.calls) == 0)
+
+
+def test_jellyfin_remove_chunking():
+    """remove_items_from_playlist chunks entryIds DELETE calls."""
+    import jellyfin_client as _jc
+    N = _jc._MAX_IDS_PER_REQUEST * 2 + 3
+    ids = [f"id{i}" for i in range(N)]
+    # Build GET response with PlaylistItemId entries.
+    get_items = [{"Id": f"id{i}", "PlaylistItemId": f"pid{i}"} for i in range(N)]
+    rec = _PlaylistRecorder(get_items=get_items)
+    _add_recorder_method(rec, _jc.JellyfinClient, "remove_items_from_playlist")
+    rec.remove_items_from_playlist("pl1", ids)
+
+    deletes = [(m, p) for m, p, _ in rec.calls if m == "DELETE"]
+    expected_del = (N + _jc._MAX_IDS_PER_REQUEST - 1) // _jc._MAX_IDS_PER_REQUEST
+    check("jf remove: correct number of DELETEs", len(deletes) == expected_del)
+
+    all_entry_ids = []
+    for m, _, params in rec.calls:
+        if m == "DELETE" and params and "entryIds" in params:
+            chunk = params["entryIds"].split(",")
+            check("jf remove: chunk size ≤ max", len(chunk) <= _jc._MAX_IDS_PER_REQUEST)
+            all_entry_ids.extend(chunk)
+    check("jf remove: all entryIds present", len(all_entry_ids) == N)
+
+    # Edge cases
+    rec2 = _PlaylistRecorder()
+    _add_recorder_method(rec2, _jc.JellyfinClient, "remove_items_from_playlist")
+    rec2.remove_items_from_playlist("", ids)
+    check("jf remove: no rating_key → no-op", len(rec2.calls) == 0)
+    rec2.remove_items_from_playlist("pl1", [])
+    check("jf remove: empty ids → no-op", len(rec2.calls) == 0)
+
+
+def test_emby_add_chunking():
+    """Emby add_items_to_playlist chunks large id lists."""
+    import emby_client as _ec
+    N = _ec._MAX_IDS_PER_REQUEST * 2 + 7
+    ids = [f"id{i}" for i in range(N)]
+    rec = _PlaylistRecorder()
+    _add_recorder_method(rec, _ec.EmbyClient, "add_items_to_playlist")
+    rec.add_items_to_playlist("pl1", ids)
+
+    posts = [(m, p) for m, p, _ in rec.calls if m == "POST"]
+    check("em add: correct number of POSTs",
+          len(posts) == (N + _ec._MAX_IDS_PER_REQUEST - 1) // _ec._MAX_IDS_PER_REQUEST)
+
+    all_ids = []
+    for _, _, params in rec.calls:
+        if params and "ids" in params:
+            chunk = params["ids"].split(",")
+            check("em add: chunk size ≤ max", len(chunk) <= _ec._MAX_IDS_PER_REQUEST)
+            all_ids.extend(chunk)
+    check("em add: all ids present in order", all_ids == ids)
+
+
+def test_emby_remove_chunking():
+    """Emby remove_items_from_playlist chunks entryIds DELETE calls."""
+    import emby_client as _ec
+    N = _ec._MAX_IDS_PER_REQUEST * 2 + 3
+    ids = [f"id{i}" for i in range(N)]
+    get_items = [{"Id": f"id{i}", "PlaylistItemId": f"pid{i}"} for i in range(N)]
+    rec = _PlaylistRecorder(get_items=get_items)
+    _add_recorder_method(rec, _ec.EmbyClient, "remove_items_from_playlist")
+    rec.remove_items_from_playlist("pl1", ids)
+
+    deletes = [(m, p) for m, p, _ in rec.calls if m == "DELETE"]
+    expected_del = (N + _ec._MAX_IDS_PER_REQUEST - 1) // _ec._MAX_IDS_PER_REQUEST
+    check("em remove: correct number of DELETEs", len(deletes) == expected_del)
+
+    all_entry_ids = []
+    for m, _, params in rec.calls:
+        if m == "DELETE" and params and "entryIds" in params:
+            chunk = params["entryIds"].split(",")
+            check("em remove: chunk size ≤ max", len(chunk) <= _ec._MAX_IDS_PER_REQUEST)
+            all_entry_ids.extend(chunk)
+    check("em remove: all entryIds present", len(all_entry_ids) == N)
+
+
+def test_emby_create_playlist_split():
+    """Emby create_playlist sends first chunk on create, rest via chunked adds."""
+    import emby_client as _ec
+    N = _ec._MAX_IDS_PER_REQUEST * 2 + 11
+    ids = [f"id{i}" for i in range(N)]
+    rec = _PlaylistRecorder()
+    _add_recorder_method(rec, _ec.EmbyClient, "create_playlist")
+    _add_recorder_method(rec, _ec.EmbyClient, "add_items_to_playlist")
+    new_id = rec.create_playlist("Test Playlist", ids)
+
+    check("em create: returns playlist id", new_id == "PL1")
+
+    # First POST (create) should have only the first chunk.
+    create_call = rec.calls[0]
+    check("em create: first call is POST", create_call[0] == "POST")
+    check("em create: first call to /Playlists", create_call[1] == "/Playlists")
+    first_ids = create_call[2]["Ids"].split(",")
+    check("em create: first chunk size", len(first_ids) == _ec._MAX_IDS_PER_REQUEST)
+    check("em create: first chunk is first ids", first_ids == ids[:_ec._MAX_IDS_PER_REQUEST])
+
+    # Remaining calls should be add_items_to_playlist POSTs.
+    add_calls = rec.calls[1:]
+    check("em create: has add calls", len(add_calls) > 0)
+    all_added = []
+    for _, _, params in add_calls:
+        if params and "ids" in params:
+            chunk = params["ids"].split(",")
+            all_added.extend(chunk)
+    check("em create: remaining ids added", all_added == ids[_ec._MAX_IDS_PER_REQUEST:])
+
+    # Empty list → ValueError.
+    rec2 = _PlaylistRecorder()
+    _add_recorder_method(rec2, _ec.EmbyClient, "create_playlist")
+    try:
+        rec2.create_playlist("X", [])
+        check("em create: empty → ValueError", False)
+    except ValueError:
+        check("em create: empty → ValueError", True)
+
+
+def test_decoupled_season_meta():
+    """When get_show_summary fails but season_summaries succeeds, the meta entry
+    still carries seasons and _compute_display_titles provides a usable title."""
+    from app import _compute_display_titles
+    from service import ShowConfig
+    from media_client import ShowSummary, SeasonSummary
+
+    cfg = ShowConfig("rk1", "The Show")
+    seasons = [SeasonSummary(index=1, title="Season 1", episode_count=10, thumb=None, year=None)]
+
+    meta = {
+        "rk1": {
+            "summary": None,
+            "seasons": seasons,
+            "movies": [],
+            "source_backend": "jellyfin",
+        }
+    }
+    _compute_display_titles(meta, [cfg], None)
+
+    check("decoupled: summary is None", meta["rk1"]["summary"] is None)
+    check("decoupled: seasons present", len(meta["rk1"]["seasons"]) == 1)
+    check("decoupled: title from config", meta["rk1"]["_show_title"] == "The Show")
+
+    # Fallback: empty config title → falls back to rating_key.
+    cfg2 = ShowConfig("rk2", "")
+    seasons2 = [SeasonSummary(index=1, title="S1", episode_count=5, thumb=None, year=None)]
+    meta2 = {
+        "rk2": {
+            "summary": None,
+            "seasons": seasons2,
+            "movies": [],
+            "source_backend": "emby",
+        }
+    }
+    _compute_display_titles(meta2, [cfg2], None)
+    check("decoupled: fallback to rk", meta2["rk2"]["_show_title"] == "rk2")
+
+    # Existing summary title is preferred.
+    meta3 = {
+        "rk3": {
+            "summary": ShowSummary("rk3", "Direct Title", year=None, library="", thumb=None),
+            "seasons": [],
+            "movies": [],
+            "source_backend": "plex",
+        }
+    }
+    _compute_display_titles(meta3, [ShowConfig("rk3", "Config Title")], None)
+    check("decoupled: summary title wins", meta3["rk3"]["_show_title"] == "Direct Title")
+
+    # Aggregated show fallback — agg is the list-of-dicts shape that
+    # _aggregated_shows() actually returns in production.
+    agg = [{"rating_key": "rk4", "title": "Aggregated Title",
+            "jellyfin_rating_key": "rk4"}]
+    meta4 = {
+        "rk4": {
+            "summary": None,
+            "seasons": [SeasonSummary(index=1, title="S1", episode_count=1, thumb=None, year=None)],
+            "movies": [],
+            "source_backend": "jellyfin",
+        }
+    }
+    cfg4 = ShowConfig("rk4", "")
+    _compute_display_titles(meta4, [cfg4], agg)
+    check("decoupled: agg title fallback", meta4["rk4"]["_show_title"] == "Aggregated Title")
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

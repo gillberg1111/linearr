@@ -3,6 +3,26 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.10] - 2026-06-05
+
+### Fixed
+
+- **Jellyfin/Emby: large playlists no longer fail with HTTP 414 (URI Too
+  Long).** Syncing a genre playlist with many shows (e.g. 30+ anime series)
+  sent every episode id in a single request's query string, overrunning the
+  server/reverse-proxy URI limit. `add_items_to_playlist`,
+  `remove_items_from_playlist` (both backends), and Emby's `create_playlist`
+  now chunk ids into batches of 100 per request.
+- **Jellyfin "By Show": shows no longer wrongly report "0 regular seasons
+  available / This show can't be added."** On newer Jellyfin (10.11.x) the
+  single-item fetch (`GET /Items/{id}`) returned HTTP 400; because the configure
+  page fetched the show summary and its seasons in one combined try-block, that
+  error silently discarded the (otherwise valid) season list. `_fetch_item` now
+  uses the version-stable list form (`GET /Items?Ids=…`) on both backends, and
+  the configure page gathers seasons, summary, and associated movies
+  independently — a show stays addable whenever its seasons are fetchable, with
+  a title fallback when the summary is unavailable.
+
 ## [3.0.9] - 2026-05-30
 
 ### Changed
