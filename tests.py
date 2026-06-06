@@ -3146,6 +3146,109 @@ def test_infer_thumb_backend():
           _infer_thumb_backend("abc", "bogus", ["emby"]) == "emby")
 
 
+# --------------------------------------------------------------------------- #
+# ShowConfig.__post_init__ numeric-id guard (Fix A)
+# --------------------------------------------------------------------------- #
+
+def test_showconfig_post_init_numeric_guard():
+    from service import ShowConfig
+    from media_client import primary_backend
+
+    # Numeric Emby id → no phantom plex_rating_key.
+    cfg = ShowConfig(rating_key="66186", title="X", emby_rating_key="66186")
+    check("sc_post: numeric Emby → plex_rating_key is None",
+          cfg.plex_rating_key is None)
+    check("sc_post: numeric Emby → emby_rating_key",
+          cfg.emby_rating_key == "66186")
+    check("sc_post: numeric Emby → id_for(emby)",
+          cfg.id_for("emby") == "66186")
+    check("sc_post: numeric Emby → id_for(plex) is None",
+          cfg.id_for("plex") is None)
+    # Primary backend resolves to emby (proves the genre thumb_backend fix).
+    be = ",".join(b for b in ("plex", "jellyfin", "emby") if cfg.id_for(b))
+    check("sc_post: numeric Emby → primary_backend",
+          primary_backend(be) == "emby")
+
+    # Numeric Jellyfin id → no phantom plex_rating_key.
+    cfg2 = ShowConfig(rating_key="66186", title="X", jellyfin_rating_key="66186")
+    check("sc_post: numeric JF → plex_rating_key is None",
+          cfg2.plex_rating_key is None)
+    check("sc_post: numeric JF → jellyfin_rating_key",
+          cfg2.jellyfin_rating_key == "66186")
+
+    # Legacy: numeric key, no other backend id → still mirrors.
+    cfg3 = ShowConfig(rating_key="123", title="X")
+    check("sc_post: legacy numeric → plex_rating_key",
+          cfg3.plex_rating_key == "123")
+
+    # Non-numeric, no other backend id → never mirrors (unchanged behaviour).
+    cfg4 = ShowConfig(rating_key="abc123", title="X")
+    check("sc_post: hex key → plex_rating_key is None",
+          cfg4.plex_rating_key is None)
+
+
+# --------------------------------------------------------------------------- #
+# _config_from_row numeric-id guard (Fix A)
+# --------------------------------------------------------------------------- #
+
+class _RowStub(dict):
+    """A dict that reports only the keys explicitly given, miming sqlite3.Row."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._keys = tuple(kwargs.keys())
+
+    def keys(self):
+        return self._keys
+
+
+def test_config_from_row_numeric_guard():
+    from service import _config_from_row
+
+    # Numeric Emby row: show_rating_key is numeric, emby_show_item_id is set,
+    # plex_show_item_id/jellyfin_show_item_id absent → no phantom plex.
+    row_emby = _RowStub(
+        show_rating_key="66186",
+        emby_show_item_id="66186",
+        show_title="Test Show",
+        show_thumb=None,
+        start_season=1,
+        end_season=None,
+        include_specials=0,
+        include_movies=0,
+        movie_rating_keys="",
+        jellyfin_movie_item_ids="",
+        emby_movie_item_ids="",
+        excluded_episode_keys="",
+        weight=1,
+        is_excluded=0,
+    )
+    cfg = _config_from_row(row_emby)
+    check("cfr: numeric Emby row → plex_rating_key is None",
+          cfg.plex_rating_key is None)
+    check("cfr: numeric Emby row → emby_rating_key",
+          cfg.emby_rating_key == "66186")
+
+    # Legacy Plex row: show_rating_key is numeric, no backend ids → mirrors.
+    row_plex = _RowStub(
+        show_rating_key="555",
+        show_title="Legacy Show",
+        show_thumb=None,
+        start_season=1,
+        end_season=None,
+        include_specials=0,
+        include_movies=0,
+        movie_rating_keys="",
+        jellyfin_movie_item_ids="",
+        emby_movie_item_ids="",
+        excluded_episode_keys="",
+        weight=1,
+        is_excluded=0,
+    )
+    cfg2 = _config_from_row(row_plex)
+    check("cfr: legacy Plex row → plex_rating_key",
+          cfg2.plex_rating_key == "555")
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

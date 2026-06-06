@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.14"
+__version__ = "3.0.15"
 
 import logging
 import os
@@ -2255,7 +2255,17 @@ def create_app() -> Flask:
 
 
 if __name__ == "__main__":
+    import signal
     app = create_app()
     host = os.environ.get("WEB_HOST", "0.0.0.0")
     port = int(os.environ.get("WEB_PORT", "5005"))
+
+    # `docker stop` sends SIGTERM, but werkzeug's dev server only handles SIGINT,
+    # so the container otherwise hangs until the stop-timeout SIGKILL (issue #5).
+    # Re-raise SIGTERM as KeyboardInterrupt — the exact clean-shutdown path SIGINT
+    # already triggers.
+    def _graceful_sigterm(_signum, _frame):
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, _graceful_sigterm)
+
     app.run(host=host, port=port, debug=False, use_reloader=False)

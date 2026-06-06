@@ -106,8 +106,16 @@ class ShowConfig:
     def __post_init__(self) -> None:
         # Legacy callers (Phase 1 / single-backend Plex) pass only rating_key
         # for a Plex show; mirror it into plex_rating_key so backend dispatch
-        # below works uniformly.
-        if self.plex_rating_key is None and self.rating_key and self.rating_key.isdigit():
+        # below works uniformly. Guard on the OTHER backends being unset so an
+        # Emby/Jellyfin server that happens to use NUMERIC item ids doesn't get
+        # a phantom plex_rating_key (issue #5: numeric Emby id 66186 → wrong
+        # primary backend → /thumb?b=plex 404).
+        if (
+            self.plex_rating_key is None
+            and self.jellyfin_rating_key is None
+            and self.emby_rating_key is None
+            and self.rating_key and self.rating_key.isdigit()
+        ):
             self.plex_rating_key = self.rating_key
 
     def id_for(self, backend: str) -> str | None:
@@ -266,8 +274,11 @@ def _config_from_row(row) -> ShowConfig:
     emby_movies = [k for k in (emby_movie_raw or "").split(",") if k]
     plex_id = row["plex_show_item_id"] if "plex_show_item_id" in row.keys() else None
     jf_id = row["jellyfin_show_item_id"] if "jellyfin_show_item_id" in row.keys() else None
-    # Legacy rows pre-migration don't have plex_show_item_id; fall back to the PK.
-    if plex_id is None and str(row["show_rating_key"]).isdigit():
+    # Legacy rows pre-migration don't have plex_show_item_id; fall back to the PK,
+    # but ONLY when there's no Jellyfin/Emby id (a numeric Emby/Jellyfin id must
+    # not be misread as a Plex ratingKey — issue #5).
+    if (plex_id is None and jf_id is None and emby_id is None
+            and str(row["show_rating_key"]).isdigit()):
         plex_id = str(row["show_rating_key"])
     excluded_raw = row["excluded_episode_keys"] if "excluded_episode_keys" in row.keys() else ""
     weight_val = max(1, int(_row_get(row, "weight", 1) or 1))

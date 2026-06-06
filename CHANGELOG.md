@@ -3,6 +3,20 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.15] - 2026-06-06
+
+### Fixed
+
+- **Genre matched-show posters didn't load on an Emby server that uses numeric
+  item ids.** Linearr's legacy "a numeric id means Plex" shortcut stamped a
+  phantom `plex_rating_key` onto Emby/Jellyfin shows whose ids happen to be
+  numeric, so the genre preview asked for the poster from Plex
+  (`/thumb?...&b=plex`) and 404'd when Plex isn't configured. The numeric→Plex
+  fallback now only applies when the show has no Jellyfin or Emby id. (#5)
+- **Container hung on `docker stop`.** The dev server only handled SIGINT, so
+  Docker's SIGTERM was ignored until the stop-timeout forced a SIGKILL. SIGTERM
+  is now handled and shuts down through the same clean path as SIGINT. (#5)
+
 ## [3.0.14] - 2026-06-06
 
 ### Fixed
