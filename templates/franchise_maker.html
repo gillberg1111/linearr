@@ -233,11 +233,15 @@ function removeItem(idx) {
   renderItems();
 }
 
-function addMovie(tmdbId) {
+function addMovie(tmdbId, btn) {
+  if (isAdded('movie', tmdbId, null, null)) {
+    if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
+    return;
+  }
   fetch('/api/franchise-maker/movie/' + tmdbId)
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.error) { showStatus(data.error, 'err'); return; }
+      if (data.error) { showStatus(data.error, 'err'); if (btn) { btn.disabled = false; btn.textContent = '+ Add'; } return; }
       makerState.items.push({
         item_type: 'movie', title: data.title,
         year: data.year ? parseInt(data.year) : null,
@@ -245,28 +249,97 @@ function addMovie(tmdbId) {
         season_number: null, episode_number: null, show_title: null, show_tvdb_id: null
       });
       renderItems();
-      doSearch();
-    });
+      if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
+      showStatus('Added: ' + data.title, 'ok');
+    })
+    .catch(function() { if (btn) { btn.disabled = false; btn.textContent = '+ Add'; } showStatus('Add failed', 'err'); });
 }
 
-function addSeason(tmdbId, seasonNum, showTitle, showTvdbId) {
+function addSeason(tmdbId, seasonNum, showTitle, showTvdbId, btn) {
+  if (isAdded('season', showTvdbId, seasonNum, null)) {
+    if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
+    return;
+  }
   makerState.items.push({
     item_type: 'season', title: showTitle + ' — Season ' + seasonNum, year: null,
     tmdb_id: null, imdb_id: null, tvdb_id: showTvdbId, season_number: seasonNum,
     episode_number: null, show_title: showTitle, show_tvdb_id: showTvdbId
   });
   renderItems();
-  doSearch();
+  if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
 }
 
-function addEpisode(tmdbId, seasonNum, episodeNum, epTitle, showTitle, showTvdbId) {
+function addEpisode(tmdbId, seasonNum, episodeNum, epTitle, showTitle, showTvdbId, btn) {
+  if (isAdded('episode', showTvdbId, seasonNum, episodeNum)) {
+    if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = '\u2713'; btn.replaceWith(b); }
+    return;
+  }
   makerState.items.push({
     item_type: 'episode', title: epTitle || 'Episode ' + episodeNum, year: null,
     tmdb_id: null, imdb_id: null, tvdb_id: null, season_number: seasonNum,
     episode_number: episodeNum, show_title: showTitle, show_tvdb_id: showTvdbId
   });
   renderItems();
-  doSearch();
+  if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = '\u2713'; btn.replaceWith(b); }
+}
+
+function addAllSeasonEpisodes(tmdbId, seasonNum, showTitle, showTvdbId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+  fetch('/api/franchise-maker/tv/' + tmdbId + '/season/' + seasonNum)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var eps = (data && data.episodes) || [];
+      var added = 0;
+      eps.forEach(function(ep) {
+        if (isAdded('episode', showTvdbId, ep.season_number, ep.episode_number)) return;
+        makerState.items.push({
+          item_type: 'episode',
+          title: ep.title || 'Episode ' + ep.episode_number,
+          year: null, tmdb_id: null, imdb_id: null, tvdb_id: null,
+          season_number: ep.season_number, episode_number: ep.episode_number,
+          show_title: showTitle, show_tvdb_id: showTvdbId,
+        });
+        added++;
+      });
+      renderItems();
+      if (btn) { var b = document.createElement('span'); b.className = 'maker-added-badge'; b.textContent = 'Added'; btn.replaceWith(b); }
+      showStatus('Added ' + added + ' episode' + (added !== 1 ? 's' : ''), 'ok');
+    })
+    .catch(function() { if (btn) { btn.disabled = false; btn.textContent = '+ Add all eps'; } showStatus('Failed to load episodes', 'err'); });
+}
+
+function addAllSeriesEpisodes(tmdbId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+  fetch('/api/franchise-maker/tv/' + tmdbId)
+    .then(function(r) { return r.json(); })
+    .then(function(show) {
+      var seasons = (show.seasons || []).filter(function(s){ return s.season_number >= 1; });
+      return Promise.all(seasons.map(function(s) {
+        return fetch('/api/franchise-maker/tv/' + tmdbId + '/season/' + s.season_number)
+          .then(function(r){ return r.json(); })
+          .then(function(d){ return (d && d.episodes) || []; });
+      })).then(function(perSeason) {
+        var all = [];
+        perSeason.forEach(function(eps){ eps.forEach(function(ep){ all.push(ep); }); });
+        all.sort(function(a,b){ return (a.season_number - b.season_number) || (a.episode_number - b.episode_number); });
+        var added = 0;
+        all.forEach(function(ep) {
+          if (isAdded('episode', show.tvdb_id, ep.season_number, ep.episode_number)) return;
+          makerState.items.push({
+            item_type: 'episode',
+            title: ep.title || 'Episode ' + ep.episode_number,
+            year: null, tmdb_id: null, imdb_id: null, tvdb_id: null,
+            season_number: ep.season_number, episode_number: ep.episode_number,
+            show_title: show.title, show_tvdb_id: show.tvdb_id,
+          });
+          added++;
+        });
+        renderItems();
+        if (btn) { btn.disabled = false; btn.textContent = '+ Add all eps'; }
+        showStatus('Added ' + added + ' episode' + (added !== 1 ? 's' : '') + ' from ' + show.title, 'ok');
+      });
+    })
+    .catch(function() { if (btn) { btn.disabled = false; btn.textContent = '+ Add all eps'; } showStatus('Failed to load series', 'err'); });
 }
 
 function saveFranchise() {
@@ -359,7 +432,7 @@ function doSearch() {
           row.innerHTML = poster
             + '<div class="maker-result-info"><div class="maker-result-title">' + escapeHtml(item.title) + '</div><div class="maker-result-year">' + escapeHtml(String(year)) + '</div></div>'
             + '<div class="maker-result-actions">'
-            + (isAdded('movie', item.tmdb_id, null, null) ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="addMovie(' + item.tmdb_id + ')">+ Add</button>')
+            + (isAdded('movie', item.tmdb_id, null, null) ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="addMovie(' + item.tmdb_id + ', this)">+ Add</button>')
             + '</div>';
         } else {
           row.innerHTML = poster
@@ -367,6 +440,7 @@ function doSearch() {
             + '<div class="maker-result-actions" style="gap:0.35rem">'
             + '<button class="btn btn-sm series-toggle" onclick="loadTV(' + item.tmdb_id + ', this)" title="Show seasons">▶</button>'
             + '<button class="btn btn-sm" onclick="addSeries(' + item.tmdb_id + ', this)">+ Add Series</button>'
+            + '<button class="btn btn-sm" onclick="addAllSeriesEpisodes(' + item.tmdb_id + ', this)">+ Add all eps</button>'
             + '</div>';
         }
         list.appendChild(row);
@@ -403,7 +477,8 @@ function loadTV(tmdbId, btn) {
           + '<span class="season-arrow">▶</span>'
           + '<span style="flex:1">Season ' + s.season_number + (s.name ? ' — ' + escapeHtml(s.name) : '') + '</span>'
           + '<span style="color:var(--muted);font-size:0.72rem;margin-right:0.3rem">' + s.episode_count + ' eps</span>'
-          + (isSeasonAdded ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addSeason(' + tmdbId + ',' + s.season_number + ',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ')">+ Add Season</button>')
+          + (isSeasonAdded ? '<span class="maker-added-badge">Added</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addSeason(' + tmdbId + ',' + s.season_number + ',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ', this)">+ Add Season</button>'
+            + ' <button class="btn btn-sm" onclick="event.stopPropagation();addAllSeasonEpisodes(' + tmdbId + ',' + s.season_number + ',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ', this)">+ Add all eps</button>')
           + '</div>';
 
         var epList = document.createElement('div');
@@ -429,7 +504,7 @@ function loadTV(tmdbId, btn) {
                 epRow.innerHTML = '<span class="maker-episode-code">S' + String(ep.season_number).padStart(2,'0') + 'E' + String(ep.episode_number).padStart(2,'0') + '</span>'
                   + '<span class="maker-episode-name">' + escapeHtml(ep.title || 'Episode ' + ep.episode_number) + '</span>'
                   + '<span class="maker-episode-date">' + (ep.air_date ? (ep.air_date || '').substring(0,10) : '') + '</span>'
-                  + (epAdded ? '<span class="maker-added-badge">✓</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addEpisode(' + tmdbId + ',' + ep.season_number + ',' + ep.episode_number + ',\'' + escapeHtml(ep.title).replace(/'/g,"\\'") + '\',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ')">+</button>');
+                  + (epAdded ? '<span class="maker-added-badge">\u2713</span>' : '<button class="btn btn-sm" onclick="event.stopPropagation();addEpisode(' + tmdbId + ',' + ep.season_number + ',' + ep.episode_number + ',\'' + escapeHtml(ep.title).replace(/'/g,"\\'") + '\',\'' + escapeHtml(show.title).replace(/'/g,"\\'") + '\',' + (show.tvdb_id || 'null') + ', this)">+</button>');
                 epList.appendChild(epRow);
               });
               epList.dataset.loaded = '1';
@@ -476,8 +551,7 @@ function addSeries(tmdbId, btn) {
         added++;
       });
       renderItems();
-      doSearch();
-      if (btn) { btn.disabled = false; btn.textContent = added ? '✓ Added' : '+ Add Series'; }
+      if (btn) { btn.disabled = false; btn.textContent = added ? '\u2713 Added' : '+ Add Series'; }
     })
     .catch(function() {
       if (btn) { btn.disabled = false; btn.textContent = '+ Add Series'; }

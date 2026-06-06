@@ -3,6 +3,26 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.0] - 2026-06-06
+
+### Added
+
+- **Franchise Playlist Maker: "+ Add all eps".** New buttons on each season row
+  and each TV search result add *every* episode of that season (or whole series)
+  as individual, drag-to-reorder rows — instead of a single season/series item
+  that can't be interleaved. Built for custom interleaved orders across
+  overlapping shows (e.g. Band of Brothers → The Pacific → Masters of the Air).
+  Series-level adds in season/episode order and skips specials; both skip
+  episodes already in the list.
+
+### Fixed
+
+- **Franchise Maker: the seasons/episodes browse no longer collapses after each
+  add.** Adding a movie, season, episode, or whole series re-ran the TMDB search,
+  wiping the expanded browse and forcing you to re-navigate for every addition.
+  Adds now update the clicked button in place and leave the browse open, so you
+  can add item after item without extra clicks.
+
 ## [3.0.15] - 2026-06-06
 
 ### Fixed

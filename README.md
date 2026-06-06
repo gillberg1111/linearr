@@ -185,8 +185,10 @@ untouched; the future portion regenerates instantly.
   Chronolists when it shows up there.
 - **Franchise Playlist Maker** (`/franchise-maker`) — a visual builder for fully
   custom watch orders. Search TMDB for movies/TV, browse seasons & episodes
-  inline, **+ Add Series** to drop all seasons at once, drag to reorder, and
-  **Import from Trakt URL** to seed from any public list. Editing a bundled
+  inline, **+ Add Series** to drop all seasons at once, **+ Add all eps** to drop
+  every episode of a season or series as individual, reorderable rows (perfect
+  for interleaving overlapping shows), drag to reorder, and **Import from Trakt
+  URL** to seed from any public list. Editing a bundled
   franchise spawns a custom copy (the original is never touched) with a
   **Restore default** button. Needs a free TMDB API key (set on Settings).
 
