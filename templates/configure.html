@@ -190,8 +190,8 @@
           <div class="config-head">
             {% if m and m.summary and m.summary.thumb %}
               <img class="config-poster" loading="lazy"
-                   src="{{ url_for('thumb') }}?path={{ m.summary.thumb|urlencode }}&w=180&h=270"
-                   alt="{{ m.summary.title }}">
+                    src="{{ url_for('thumb') }}?path={{ m.summary.thumb|urlencode }}&b={{ m.source_backend }}&w=180&h=270"
+                    alt="{{ m.summary.title }}">
             {% else %}
               <div class="config-poster poster-fallback">{{ (m._show_title if m else '?')[:1] }}</div>
             {% endif %}
@@ -247,7 +247,7 @@
                     <div class="poster season-poster">
                       {% if s.thumb %}
                         <img loading="lazy"
-                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=180&h=270"
+                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ m.source_backend }}&w=180&h=270"
                              alt="Season {{ s.index }}">
                       {% else %}
                         <div class="poster-fallback">S{{ s.index }}</div>
@@ -283,7 +283,7 @@
                     <div class="poster season-poster">
                       {% if s.thumb %}
                         <img loading="lazy"
-                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&w=180&h=270"
+                             src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}&b={{ m.source_backend }}&w=180&h=270"
                              alt="Season {{ s.index }}">
                       {% else %}
                         <div class="poster-fallback">S{{ s.index }}</div>
@@ -321,7 +321,7 @@
                       <div class="poster">
                         {% if mv.thumb %}
                           <img loading="lazy"
-                               src="{{ url_for('thumb') }}?path={{ mv.thumb|urlencode }}&w=180&h=270"
+                               src="{{ url_for('thumb') }}?path={{ mv.thumb|urlencode }}&b={{ m.source_backend }}&w=180&h=270"
                                alt="{{ mv.title }}">
                         {% else %}
                           <div class="poster-fallback">{{ mv.title[:1] }}</div>

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.13"
+__version__ = "3.0.14"
 
 import logging
 import os
@@ -507,6 +507,18 @@ def _next_auto_name(existing: list[str]) -> str:
     return "Linearr Playlist"
 
 
+def _infer_thumb_backend(ref: str, explicit: str | None, available: list[str]) -> str:
+    """Pick the backend for a /thumb ref. Explicit b= wins; Plex refs start with
+    '/'; a bare GUID (Jellyfin/Emby) falls back to the first configured non-Plex
+    backend so single-backend Emby installs resolve (was hardcoded 'jellyfin',
+    which 404s when Jellyfin isn't configured)."""
+    if explicit in ("plex", "jellyfin", "emby"):
+        return explicit
+    if ref.startswith("/"):
+        return "plex"
+    return next((b for b in ("jellyfin", "emby") if b in available), "jellyfin")
+
+
 # --------------------------------------------------------------------------- #
 # App factory
 # --------------------------------------------------------------------------- #
@@ -571,12 +583,7 @@ def create_app() -> Flask:
 
         # Dispatch: explicit b= wins; otherwise infer from shape.
         # Plex thumb refs start with '/'. Emby/Jellyfin refs are bare GUIDs.
-        if explicit_backend in ("plex", "jellyfin", "emby"):
-            backend = explicit_backend
-        elif ref.startswith("/"):
-            backend = "plex"
-        else:
-            backend = "jellyfin"
+        backend = _infer_thumb_backend(ref, explicit_backend, available_backends())
 
         if backend not in available_backends():
             abort(404)

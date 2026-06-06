@@ -96,7 +96,10 @@
     var defaultUser = '', defaultSlug = '';
 
     function getBackend() {
-      if (!backendPicker) return 'plex';
+      if (!backendPicker) {
+        var hidden = document.querySelector('input[type="hidden"][name="backend"]');
+        return hidden ? hidden.value : 'plex';
+      }
       var checked = backendPicker.querySelectorAll('input[name="backend"]:checked');
       var vals = [];
       checked.forEach(function(cb) { vals.push(cb.value); });

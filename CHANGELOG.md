@@ -3,6 +3,22 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.14] - 2026-06-06
+
+### Fixed
+
+- **Franchise preview reported "0 of N in your library" on a single-backend
+  Emby (or Jellyfin) install** — even though creating the playlist matched the
+  items fine. The franchise picker's preview JavaScript fell back to querying
+  the `plex` backend when the multi-backend "Push to" picker wasn't rendered
+  (single-backend installs use a hidden field instead), so the preview checked a
+  backend the user doesn't have. It now reads the hidden backend field. (#5)
+- **Posters didn't load on the configure and detail pages for an Emby-only
+  install.** The `/thumb` proxy inferred the backend from the image reference
+  and a bare GUID fell back to a hardcoded `jellyfin`, which 404s when Jellyfin
+  isn't configured. It now falls back to the first configured non-Plex backend,
+  and the configure page passes the source backend explicitly. (#5)
+
 ## [3.0.13] - 2026-06-06
 
 ### Fixed

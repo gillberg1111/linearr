@@ -3121,6 +3121,31 @@ def test_franchise_library_cache_returns_2_tuple():
         _app._franchise_lib_cache.update(_saved_cache)
 
 
+# --------------------------------------------------------------------------- #
+# _infer_thumb_backend
+# --------------------------------------------------------------------------- #
+
+def test_infer_thumb_backend():
+    from app import _infer_thumb_backend
+
+    check("thumb: explicit emby wins",
+          _infer_thumb_backend("abc", "emby", ["emby"]) == "emby")
+    check("thumb: slash → plex",
+          _infer_thumb_backend("/library/metadata/1/thumb/2", None, ["plex", "emby"]) == "plex")
+    check("thumb: bare GUID emby-only",
+          _infer_thumb_backend("abc123", None, ["emby"]) == "emby")
+    check("thumb: bare GUID jellyfin-only",
+          _infer_thumb_backend("abc123", None, ["jellyfin"]) == "jellyfin")
+    check("thumb: bare GUID no jf → emby",
+          _infer_thumb_backend("abc123", None, ["plex", "emby"]) == "emby")
+    check("thumb: bare GUID ambiguous → jellyfin",
+          _infer_thumb_backend("abc123", None, ["plex", "jellyfin", "emby"]) == "jellyfin")
+    check("thumb: empty available → jellyfin",
+          _infer_thumb_backend("abc123", None, []) == "jellyfin")
+    check("thumb: invalid explicit falls through to inference",
+          _infer_thumb_backend("abc", "bogus", ["emby"]) == "emby")
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:
