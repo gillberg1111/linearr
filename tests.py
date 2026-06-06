@@ -1037,6 +1037,110 @@ def test_genre_cache_db():
             pass
 
 
+def test_managed_playlists_rebuild_preserves_block_size():
+    """Regression for issue #8: init_db()'s managed_playlists rebuild must copy
+    rows by COLUMN NAME, not positionally.
+
+    A DB created fresh on v2.5.0 and upgraded to v3.0.0 carries its columns in a
+    different physical order than the rebuilt table: emby_playlist_id was
+    appended last by ALTER, but the new table places it 5th, and the v2.x
+    columns were appended past auto_sync. The old `INSERT INTO
+    managed_playlists_new SELECT *` copied by ordinal, so a NULL-able source
+    column (e.g. shuffle_seed) landed in a NOT NULL slot and init_db() crashed
+    with a `NOT NULL constraint failed` during startup — the reporter hit it as
+    managed_playlists_new.block_size; the exact column depends on the DB's
+    physical order, but the by-name copy fixes every variant. This fixture trips
+    the first such NOT NULL slot and asserts block_size (the reported symptom)
+    survives the rebuild intact.
+    """
+    import os, tempfile
+    import db as _db_mod
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        # Given a pre-rebuild managed_playlists in the exact physical column
+        # order a fresh v2.5.0 install has after upgrading to v3.0.0 (the v2.x
+        # columns rule_mode/franchise_definition_id/pruning_enabled/last_stats
+        # and then emby_playlist_id all appended past auto_sync by ALTER). The
+        # 'both' in the backend CHECK is what triggers init_db()'s rebuild.
+        with _db_mod.connection() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE managed_playlists (
+                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name                 TEXT NOT NULL UNIQUE,
+                    plex_rating_key      TEXT,
+                    jellyfin_playlist_id TEXT,
+                    backend              TEXT NOT NULL DEFAULT 'plex'
+                        CHECK(backend IN ('plex','jellyfin','both')),
+                    playlist_type        TEXT NOT NULL DEFAULT 'manual'
+                        CHECK(playlist_type IN ('manual','genre','franchise')),
+                    genre_filter         TEXT,
+                    created_at           TEXT NOT NULL,
+                    sort_mode            TEXT NOT NULL DEFAULT 'rotation',
+                    block_size           INTEGER NOT NULL DEFAULT 1,
+                    shuffle_seed         INTEGER,
+                    unwatched_only       INTEGER NOT NULL DEFAULT 0,
+                    auto_sync            INTEGER NOT NULL DEFAULT 1,
+                    rule_mode            TEXT NOT NULL DEFAULT 'genre',
+                    franchise_definition_id INTEGER,
+                    pruning_enabled      INTEGER NOT NULL DEFAULT 1,
+                    last_stats           TEXT,
+                    emby_playlist_id     TEXT
+                );
+                """
+            )
+            conn.execute(
+                """INSERT INTO managed_playlists
+                   (name, backend, created_at, sort_mode, block_size,
+                    shuffle_seed, playlist_type)
+                   VALUES (?,?,?,?,?,?,?)""",
+                ("Legacy", "both", "2024-01-01T00:00:00+00:00", "rotation",
+                 7, None, "manual"),
+            )
+        # And the seed row really has block_size=7 with a NULL shuffle_seed, so
+        # a green result proves the rebuild (not the fixture) carried the value.
+        with _db_mod.connection() as conn:
+            before = conn.execute(
+                "SELECT block_size, shuffle_seed FROM managed_playlists "
+                "WHERE name='Legacy'"
+            ).fetchone()
+        check("issue #8 before: block_size seeded as 7", before["block_size"] == 7)
+        check("issue #8 before: shuffle_seed seeded as NULL", before["shuffle_seed"] is None)
+        # When the rebuild runs as part of init_db()...
+        crashed = None
+        try:
+            _db_mod.init_db()
+        except Exception as e:
+            crashed = e
+        check("issue #8: init_db rebuild does not crash on legacy column order",
+              crashed is None, repr(crashed))
+        # Then every value survives by name and the schema is the rebuilt one.
+        with _db_mod.connection() as conn:
+            after = conn.execute(
+                "SELECT block_size, shuffle_seed, backend "
+                "FROM managed_playlists WHERE name='Legacy'"
+            ).fetchone()
+            cols = [r["name"] for r in conn.execute(
+                "PRAGMA table_info(managed_playlists)")]
+        check("issue #8 after: block_size preserved as 7",
+              after is not None and after["block_size"] == 7)
+        check("issue #8 after: shuffle_seed preserved as NULL",
+              after is not None and after["shuffle_seed"] is None)
+        check("issue #8 after: backend value preserved",
+              after is not None and after["backend"] == "both")
+        check("issue #8 after: emby_playlist_id is 5th column post-rebuild",
+              cols[:6] == ["id", "name", "plex_rating_key",
+                           "jellyfin_playlist_id", "emby_playlist_id", "backend"])
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def test_apply_rules_year():
     from media_client import ShowSummary
     import service as _svc
