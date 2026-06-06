@@ -2983,6 +2983,144 @@ def test_aggregated_shows_collects_errors():
         _app.get_client = _orig_get_client
 
 
+# --------------------------------------------------------------------------- #
+# Fix A: single-backend id mirroring in _parse_configs_from_form
+# --------------------------------------------------------------------------- #
+
+def _StubForm(show_keys, fields=None):
+    """Minimal form stub with .get(key, default) and .getlist(key)."""
+    d = dict(fields or {})
+    return type("_StubForm", (), {
+        "get": lambda self, k, dflt="": d.get(k, dflt),
+        "getlist": lambda self, k: d.get(k, []),
+    })()
+
+
+def test_parse_configs_single_backend_id_mirror():
+    import app as _app
+
+    _orig_avail = _app.available_backends
+    try:
+        # Single Emby — GUID key should populate emby_rating_key.
+        _app.available_backends = lambda: ["emby"]
+        form = _StubForm(["abc123def456"])
+        cfgs = _app._parse_configs_from_form(form, ["abc123def456"], aggregated=None)
+        check("fixA: single emby — emby_rating_key", cfgs[0].emby_rating_key == "abc123def456")
+        check("fixA: single emby — id_for(emby)", cfgs[0].id_for("emby") == "abc123def456")
+        check("fixA: single emby — id_for(plex) is None", cfgs[0].id_for("plex") is None)
+
+        # Single Jellyfin — GUID key should populate jellyfin_rating_key.
+        _app.available_backends = lambda: ["jellyfin"]
+        form2 = _StubForm(["deadbeef00112233445566778899aabb"])
+        cfgs2 = _app._parse_configs_from_form(form2, ["deadbeef00112233445566778899aabb"], aggregated=None)
+        check("fixA: single jellyfin — jellyfin_rating_key",
+              cfgs2[0].jellyfin_rating_key == "deadbeef00112233445566778899aabb")
+        check("fixA: single jellyfin — id_for(jellyfin)",
+              cfgs2[0].id_for("jellyfin") == "deadbeef00112233445566778899aabb")
+
+        # Single Plex — numeric key should populate plex_rating_key.
+        _app.available_backends = lambda: ["plex"]
+        form3 = _StubForm(["12345"])
+        cfgs3 = _app._parse_configs_from_form(form3, ["12345"], aggregated=None)
+        check("fixA: single plex — plex_rating_key", cfgs3[0].plex_rating_key == "12345")
+        check("fixA: single plex — id_for(plex)", cfgs3[0].id_for("plex") == "12345")
+
+        # Multi-backend guard: fallback must NOT fire when multiple backends configured
+        # and aggregated is None (intermediate parse; all per-backend ids stay None).
+        _app.available_backends = lambda: ["plex", "emby"]
+        form4 = _StubForm(["abc123"])
+        cfgs4 = _app._parse_configs_from_form(form4, ["abc123"], aggregated=None)
+        check("fixA: multi-backend guard — plex_rating_key is None",
+              cfgs4[0].plex_rating_key is None)
+        check("fixA: multi-backend guard — emby_rating_key is None",
+              cfgs4[0].emby_rating_key is None)
+
+    finally:
+        _app.available_backends = _orig_avail
+
+
+# --------------------------------------------------------------------------- #
+# Fix B: _franchise_library_cache returns (data, error) and doesn't cache failure
+# --------------------------------------------------------------------------- #
+
+def test_franchise_library_cache_returns_tuple_no_failure_cache():
+    import app as _app
+    import service as _svc
+
+    class ConnectTimeout(Exception):
+        pass
+
+    _orig_build = _svc._build_backend_cache
+    _saved_cache = dict(_app._franchise_lib_cache)
+    _app._franchise_lib_cache.clear()
+
+    call_count = [0]
+
+    def _fake_build(backend, client):
+        call_count[0] += 1
+        raise ConnectTimeout("timed out")
+
+    try:
+        _svc._build_backend_cache = _fake_build
+
+        data, err = _app._franchise_library_cache("emby")
+        check("fixB: failure returns None data", data is None)
+        check("fixB: failure returns error message", err is not None and "Emby" in err)
+        check("fixB: failure not cached", "emby" not in _app._franchise_lib_cache)
+
+        # Second call should retry (not use cache) — build called again.
+        data2, err2 = _app._franchise_library_cache("emby")
+        check("fixB: second call retries", call_count[0] == 2)
+        check("fixB: second call also None data", data2 is None)
+        check("fixB: second call also error", err2 is not None)
+
+        # Successful build caches the result.
+        _good_dict = {"movies": {}, "shows": {}}
+        def _good_build(backend, client):
+            call_count[0] += 1
+            return _good_dict
+        _svc._build_backend_cache = _good_build
+        _app._franchise_lib_cache.clear()
+        call_count[0] = 0
+
+        data3, err3 = _app._franchise_library_cache("emby")
+        check("fixB: success returns data", data3 is _good_dict)
+        check("fixB: success returns no error", err3 is None)
+        check("fixB: success cached", "emby" in _app._franchise_lib_cache)
+
+        # Second call uses cache — build not called again.
+        data4, err4 = _app._franchise_library_cache("emby")
+        check("fixB: cached hit returns same data", data4 is _good_dict)
+        check("fixB: cached hit no rebuild", call_count[0] == 1)
+
+    finally:
+        _svc._build_backend_cache = _orig_build
+        _app._franchise_lib_cache.clear()
+        _app._franchise_lib_cache.update(_saved_cache)
+
+
+def test_franchise_library_cache_returns_2_tuple():
+    """Guard: _franchise_library_cache always returns a 2-tuple."""
+    import app as _app
+    import service as _svc
+
+    _saved_cache = dict(_app._franchise_lib_cache)
+    _app._franchise_lib_cache.clear()
+    _orig_build = _svc._build_backend_cache
+
+    class ConnectTimeout(Exception):
+        pass
+
+    _svc._build_backend_cache = lambda be, cl: (_ for _ in ()).throw(ConnectTimeout("boom"))
+    try:
+        result = _app._franchise_library_cache("emby")
+        check("fixB: returns 2-tuple", isinstance(result, tuple) and len(result) == 2)
+    finally:
+        _svc._build_backend_cache = _orig_build
+        _app._franchise_lib_cache.clear()
+        _app._franchise_lib_cache.update(_saved_cache)
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

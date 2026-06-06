@@ -1,6 +1,9 @@
 {% if error %}
   <p class="hint" style="color: var(--warn)">{{ error }}</p>
 {% else %}
+  {% if library_warning is defined and library_warning %}
+    <div class="genre-fetch-warning">{{ library_warning }}</div>
+  {% endif %}
   <div class="franchise-preview-summary">
     Found <strong>{{ found_count }}</strong> of <strong>{{ total_count }}</strong>
     items in your library.

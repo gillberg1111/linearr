@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.12"
+__version__ = "3.0.13"
 
 import logging
 import os
@@ -184,30 +184,30 @@ _franchise_lib_cache: dict[str, tuple[float, dict]] = {}
 _FRANCHISE_LIB_CACHE_TTL = 60.0
 
 
-def _franchise_library_cache(backend: str) -> dict | None:
-    """Return a cached full backend match-cache for `backend`, rebuilding if
-    missing or stale.
+def _franchise_library_cache(backend: str) -> tuple[dict | None, str | None]:
+    """(data, error). Return a cached full backend match-cache for `backend`,
+    rebuilding if missing or stale.
 
     This is the SAME cache shape the real franchise matcher uses
     (`service._build_backend_cache`) — including a per-show `episode_cache` —
     so the preview resolves the actual episode/movie items rather than merely
     checking whether a show exists. The cache (and its accumulated
     episode_cache) is held for `_FRANCHISE_LIB_CACHE_TTL` so previewing several
-    franchises in succession stays fast. Returns None on error (caller treats
-    as "nothing found" for that backend).
+    franchises in succession stays fast. On build failure returns (None, message)
+    and does NOT cache the failure, so the next call retries.
     """
     import time as _time
     now = _time.monotonic()
     cached = _franchise_lib_cache.get(backend)
     if cached and (now - cached[0]) < _FRANCHISE_LIB_CACHE_TTL:
-        return cached[1]
+        return cached[1], None
     try:
         data = service._build_backend_cache(backend, get_client(backend))
-    except Exception:
+    except Exception as exc:
         log.warning("franchise lib cache rebuild failed for %s", backend, exc_info=True)
-        data = None
+        return None, _backend_unreachable_message(backend, exc)
     _franchise_lib_cache[backend] = (now, data)
-    return data
+    return data, None
 
 
 # Module-level cache of fetched Trakt list items. TTL = 5 minutes.
@@ -339,6 +339,21 @@ def _parse_configs_from_form(
                 emby_id = rec.get("emby_rating_key")
                 title = rec.get("title") or ""
                 thumb = rec.get("thumb")
+
+        # Single-backend installs don't build an aggregated cross-backend list,
+        # so the picked rating_key IS that backend's own item id. Mirror it into
+        # the right slot; otherwise the config has no id on any backend and every
+        # episode/preview/create path filters it out → "0 episodes" (issue #5).
+        if not (plex_id or jf_id or emby_id):
+            _avail = available_backends()
+            if len(_avail) == 1:
+                _be = _avail[0]
+                if _be == "plex":
+                    plex_id = rk
+                elif _be == "jellyfin":
+                    jf_id = rk
+                elif _be == "emby":
+                    emby_id = rk
 
         excluded = _parse_excluded_form_value(form.get(f"exclude_{rk}", ""))
         try:
@@ -1405,13 +1420,17 @@ def create_app() -> Flask:
         backends_to_check = [b for b in parse_backend_set(backend) if b in available_backends()]
 
         # Per-backend full match-caches — cached at module level with 60s TTL
-        # so previewing several franchises in succession is fast. None entries
-        # (cache build failed) are dropped so they count as "not found".
-        be_caches: dict[str, dict] = {
-            _be: _cache
-            for _be in backends_to_check
-            if (_cache := _franchise_library_cache(_be)) is not None
-        }
+        # so previewing several franchises in succession is fast. Backends whose
+        # cache build failed are dropped from be_caches so they count as "not
+        # found", but the error message is surfaced to the user.
+        be_caches: dict[str, dict] = {}
+        cache_errors: list[str] = []
+        for _be in backends_to_check:
+            _cache, _err = _franchise_library_cache(_be)
+            if _cache is not None:
+                be_caches[_be] = _cache
+            elif _err:
+                cache_errors.append(_err)
 
         def _item_found_on(fi: dict, cache: dict) -> bool:
             # Delegate to the SAME resolution the real build uses, so the
@@ -1465,6 +1484,7 @@ def create_app() -> Flask:
             found_count=found_count,
             total_count=len(preview_items),
             missing_count=missing_count,
+            library_warning=" ".join(cache_errors) if cache_errors else None,
         )
 
     # -- v2.3.0 franchise maker ----------------------------------------- #

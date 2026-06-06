@@ -3,6 +3,28 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.13] - 2026-06-06
+
+### Fixed
+
+- **"By Show" playlists couldn't be created on a single Emby- or Jellyfin-only
+  install** — every selected series resolved to "0 episodes" even though the
+  shows were listed and selectable. Single-backend installs don't build the
+  cross-backend aggregated list, and the picked item id (a hex GUID) was only
+  mirrored into the per-backend id slot for numeric Plex keys — so
+  `id_for(emby/jellyfin)` was `None` and every episode/preview/create path
+  filtered the show out. The picked rating_key is now mirrored into the sole
+  configured backend's id slot. (Plex-only and multi-backend installs were
+  unaffected.) (#5)
+- **Franchise preview falsely reported "0 of N items in your library" when a
+  backend timed out.** If the franchise match-cache build failed (e.g. Emby
+  unreachable for the preview), the preview silently treated every item as "not
+  in library" **and cached that failure** for 60s — while the actual playlist
+  creation rebuilt the cache and matched fine ("finds them after"). The preview
+  cache no longer caches failures (the next attempt retries) and now surfaces a
+  clear "Couldn't reach Emby…" note above the results instead of a misleading
+  zero count. (#5)
+
 ## [3.0.12] - 2026-06-05
 
 ### Changed
