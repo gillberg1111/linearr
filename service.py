@@ -2246,6 +2246,12 @@ def save_user_franchise_playlist(
         normalised.append(item)
 
     new_hash = get_trakt_client().content_hash(normalised)
+    # Persist a representative TMDB cover on the definition so the home-page card
+    # has art for user-built / forked franchises (the media-server cover is set
+    # separately by _apply_franchise_poster below). Best-effort: None if TMDB is
+    # unavailable, in which case a forked def still falls back to its bundled
+    # origin's static poster at render time.
+    poster_url = _franchise_poster_url(normalised)
 
     if playlist_id is not None:
         row = db.get_playlist(playlist_id)
@@ -2266,6 +2272,7 @@ def save_user_franchise_playlist(
                 forked_from_key=old_key,
                 content_hash=new_hash,
                 item_count=len(normalised),
+                poster_url=poster_url,
             )
             db.replace_franchise_items(defn_id, normalised)
             db.rebind_playlist_franchise(playlist_id, defn_id)
@@ -2283,7 +2290,8 @@ def save_user_franchise_playlist(
             defn_id = old_defn_id
             db.replace_franchise_items(defn_id, normalised)
             db.update_franchise_definition_metadata(
-                defn_id, content_hash=new_hash, item_count=len(normalised)
+                defn_id, content_hash=new_hash, item_count=len(normalised),
+                poster_url=poster_url,
             )
             with db.connection() as conn:
                 conn.execute(
@@ -2337,6 +2345,7 @@ def save_user_franchise_playlist(
             forked_from_key=forked_from_key,
             content_hash=new_hash,
             item_count=len(normalised),
+            poster_url=poster_url,
         )
         db.replace_franchise_items(defn_id, normalised)
 

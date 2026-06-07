@@ -3,6 +3,26 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.1] - 2026-06-07
+
+### Fixed
+
+- **The Pruning toggle now shows on franchise playlist pages.** v3.2.0 enabled
+  franchise pruning but the On/Off toggle lived in the non-franchise branch of
+  the detail template, so franchise pages only got the "Prune watched now"
+  button with no way to enable the background sweep. The toggle now renders for
+  franchise playlists (both bundled and custom) without changing the show/genre
+  layout.
+- **Custom (Build-Your-Own) franchise playlists now get cover art on the home
+  page.** User-built and forked franchise definitions never persisted a
+  `poster_url`, so their home-page card was blank. Saving a franchise via the
+  Maker now resolves and stores a representative TMDB poster on the definition.
+- **Home-page franchise cards degrade gracefully when the cover image can't
+  load.** A blocked or 404'd poster URL now falls back to a letter tile instead
+  of a broken-image icon (same fallback the show/genre cards already use). This
+  only touches the franchise card image — the `/thumb` show-poster path is
+  unchanged.
+
 ## [3.2.0] - 2026-06-07
 
 ### Added

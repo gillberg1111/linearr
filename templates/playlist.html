@@ -577,6 +577,27 @@
     </ul>
   </section>
 
+  <form method="post" action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+    <span class="sort-mode-label">Pruning</span>
+    <div class="pill-toggle">
+      <button type="submit" name="enabled" value="1"
+              class="pill {% if playlist.pruning_enabled %}is-active{% endif %}">
+        On
+      </button>
+      <button type="submit" name="enabled" value=""
+              class="pill {% if not playlist.pruning_enabled %}is-active{% endif %}">
+        Off
+      </button>
+    </div>
+    <span class="hint">
+      {% if playlist.pruning_enabled %}
+        Watched items beyond your {{ watched_keep }}-item buffer are removed on each sync.
+      {% else %}
+        All items are kept regardless of watch state (default for franchises).
+      {% endif %}
+    </span>
+  </form>
+
   {% endif %}
 
   <section class="maintenance">

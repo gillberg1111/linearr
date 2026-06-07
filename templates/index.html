@@ -33,7 +33,8 @@
     {% if p.poster %}
     {# Franchise playlists store no per-show rows; use the franchise cover. #}
     <div class="poster-stack" style="grid-template-columns:1fr">
-      <img class="poster-tile" loading="lazy" src="{{ p.poster }}" alt="{{ p.name }}">
+      <img class="poster-tile" loading="lazy" src="{{ p.poster }}" alt="{{ p.name }}"
+        onerror="this.outerHTML='<div class=&quot;poster-tile poster-fallback&quot;>{{ p.name[:1]|e }}</div>'">
     </div>
     {% else %}
     {% set ncols = [p.shows|length, 5]|min %}

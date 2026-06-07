@@ -1246,15 +1246,18 @@ def insert_franchise_definition(
     forked_from_key: str | None = None,
     content_hash: str = "",
     item_count: int = 0,
+    poster_url: str | None = None,
 ) -> int:
     from datetime import datetime, timezone
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connection() as conn:
         cur = conn.execute(
             """INSERT INTO franchise_definitions
-               (key, name, source, forked_from_key, fetched_at, content_hash, item_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (key, name, source, forked_from_key, fetched_at, content_hash, item_count),
+               (key, name, source, forked_from_key, fetched_at, content_hash,
+                item_count, poster_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (key, name, source, forked_from_key, fetched_at, content_hash,
+             item_count, poster_url),
         )
         return cur.lastrowid
 
@@ -1269,16 +1272,19 @@ def count_playlists_by_franchise_definition(definition_id: int) -> int:
 
 
 def update_franchise_definition_metadata(
-    definition_id: int, *, content_hash: str, item_count: int
+    definition_id: int, *, content_hash: str, item_count: int,
+    poster_url: str | None = None,
 ) -> None:
     from datetime import datetime, timezone
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connection() as conn:
+        # COALESCE keeps an existing poster when this call passes None.
         conn.execute(
             """UPDATE franchise_definitions
-               SET content_hash = ?, item_count = ?, fetched_at = ?
+               SET content_hash = ?, item_count = ?, fetched_at = ?,
+                   poster_url = COALESCE(?, poster_url)
                WHERE id = ?""",
-            (content_hash, item_count, fetched_at, definition_id),
+            (content_hash, item_count, fetched_at, poster_url, definition_id),
         )
 
 
