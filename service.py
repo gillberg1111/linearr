@@ -686,6 +686,9 @@ class PlaylistView:
     # v3.0.0 — franchise card cover (TMDB); franchise playlists store no
     # playlist_shows rows, so the index card has no per-show posters to collage.
     poster: str | None = None
+    # v3.2.3 — up to 5 franchise posters for the home-page card strip (1→full …
+    # 5→fifths). Empty for show/genre (those collage from per-show thumbs).
+    posters: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -1594,16 +1597,23 @@ def _franchise_external_ids(kind: str, tmdb_id) -> dict:
     return out
 
 
-def _franchise_poster_url(franchise_items: list[dict]) -> str | None:
-    """A representative TMDB poster URL (w500) for a franchise, taken from its
-    first resolvable item. Best-effort: returns None if TMDB is unavailable or
-    no item yields a poster (caller then leaves the playlist's auto-composite
-    art untouched)."""
+def _franchise_poster_urls(franchise_items: list[dict], limit: int = 5) -> list[str]:
+    """Up to `limit` distinct TMDB poster URLs (w500) for a franchise, taken
+    from its first resolvable items in order. Powers the home-page card strip
+    (1→full … 5→fifths). Best-effort: returns [] if TMDB is unavailable or no
+    item yields a poster. De-duplicates (a franchise of one show's episodes
+    would otherwise repeat the same show poster)."""
     try:
         import tmdb_client
     except Exception:
-        return None
-    for fi in (franchise_items or [])[:8]:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    # Scan a generous window so we can find up to `limit` *distinct* posters
+    # even when early items repeat (e.g. many episodes of one show).
+    for fi in (franchise_items or [])[:60]:
+        if len(out) >= limit:
+            break
         try:
             poster = None
             if fi.get("item_type") == "movie" and fi.get("tmdb_id"):
@@ -1611,11 +1621,20 @@ def _franchise_poster_url(franchise_items: list[dict]) -> str | None:
             elif fi.get("show_tmdb_id"):
                 poster = (tmdb_client.get_tv(int(fi["show_tmdb_id"])) or {}).get("poster")
             if poster:
-                # Bump the thumbnail size to a poster-suitable width.
-                return poster.replace("/t/p/w92/", "/t/p/w500/")
+                url = poster.replace("/t/p/w92/", "/t/p/w500/")
+                if url not in seen:
+                    seen.add(url)
+                    out.append(url)
         except Exception:
             continue
-    return None
+    return out
+
+
+def _franchise_poster_url(franchise_items: list[dict]) -> str | None:
+    """A single representative TMDB poster URL (w500) for a franchise — the
+    first resolvable item. Best-effort: None if unavailable."""
+    urls = _franchise_poster_urls(franchise_items, limit=1)
+    return urls[0] if urls else None
 
 
 _STATIC_FRANCHISE_POSTERS: dict[str, str] | None = None
@@ -1664,17 +1683,30 @@ def backfill_franchise_posters() -> int:
                 continue
             seen.add(defn_id)
             defn = db.get_franchise_definition_by_id(defn_id)
-            if not defn or (defn.get("poster_url") or "").strip():
+            if not defn:
                 continue
-            poster = (
-                _franchise_poster_url(db.list_franchise_items(defn_id))
+            # Backfill when the strip list is missing (the single poster_url may
+            # already be set from an older version, but the up-to-5 strip is new).
+            if (defn.get("poster_urls") or "").strip():
+                continue
+            poster_list = _franchise_poster_urls(db.list_franchise_items(defn_id), limit=5)
+            poster_url = (
+                (poster_list[0] if poster_list else None)
+                or defn.get("poster_url")
                 or _static_franchise_poster(defn.get("key"))
                 or _static_franchise_poster(defn.get("forked_from_key"))
             )
-            if poster:
-                db.set_franchise_definition_poster(defn_id, poster)
+            if not poster_list and poster_url:
+                poster_list = [poster_url]
+            if poster_list:
+                db.set_franchise_definition_poster(
+                    defn_id, poster_url, json.dumps(poster_list)
+                )
                 filled += 1
-                log.info("Backfilled franchise poster for definition %s", defn_id)
+                log.info(
+                    "Backfilled %d franchise poster(s) for definition %s",
+                    len(poster_list), defn_id,
+                )
         except Exception:
             log.warning("Franchise poster backfill failed for a definition", exc_info=True)
     return filled
@@ -2285,12 +2317,14 @@ def save_user_franchise_playlist(
         normalised.append(item)
 
     new_hash = get_trakt_client().content_hash(normalised)
-    # Persist a representative TMDB cover on the definition so the home-page card
-    # has art for user-built / forked franchises (the media-server cover is set
-    # separately by _apply_franchise_poster below). Best-effort: None if TMDB is
-    # unavailable, in which case a forked def still falls back to its bundled
-    # origin's static poster at render time.
-    poster_url = _franchise_poster_url(normalised)
+    # Persist TMDB posters on the definition so the home-page card shows the
+    # up-to-5 strip for user-built / forked franchises (the media-server cover is
+    # set separately by _apply_franchise_poster below). Best-effort: empty if
+    # TMDB is unavailable, in which case a forked def still falls back to its
+    # bundled origin's static poster at render time.
+    poster_list = _franchise_poster_urls(normalised, limit=5)
+    poster_url = poster_list[0] if poster_list else None
+    poster_urls_json = json.dumps(poster_list) if poster_list else None
 
     if playlist_id is not None:
         row = db.get_playlist(playlist_id)
@@ -2312,6 +2346,7 @@ def save_user_franchise_playlist(
                 content_hash=new_hash,
                 item_count=len(normalised),
                 poster_url=poster_url,
+                poster_urls=poster_urls_json,
             )
             db.replace_franchise_items(defn_id, normalised)
             db.rebind_playlist_franchise(playlist_id, defn_id)
@@ -2330,7 +2365,7 @@ def save_user_franchise_playlist(
             db.replace_franchise_items(defn_id, normalised)
             db.update_franchise_definition_metadata(
                 defn_id, content_hash=new_hash, item_count=len(normalised),
-                poster_url=poster_url,
+                poster_url=poster_url, poster_urls=poster_urls_json,
             )
             with db.connection() as conn:
                 conn.execute(
@@ -2385,6 +2420,7 @@ def save_user_franchise_playlist(
             content_hash=new_hash,
             item_count=len(normalised),
             poster_url=poster_url,
+            poster_urls=poster_urls_json,
         )
         db.replace_franchise_items(defn_id, normalised)
 
@@ -2738,6 +2774,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
     playlist_type_val = _row_get(row, "playlist_type", "manual") or "manual"
     movies_count = 0
     franchise_poster: str | None = None
+    franchise_posters: list[str] = []
     if playlist_type_val == "franchise":
         defn_id = _row_get(row, "franchise_definition_id", None)
         if defn_id:
@@ -2755,6 +2792,18 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
                         or _static_franchise_poster(_defn.get("key"))
                         or _static_franchise_poster(_defn.get("forked_from_key"))
                     )
+                    # Up-to-5 strip: prefer the stored JSON list, else fall back
+                    # to the single cover so the card still shows something.
+                    raw_urls = (_defn.get("poster_urls") or "").strip()
+                    if raw_urls:
+                        try:
+                            parsed = json.loads(raw_urls)
+                            if isinstance(parsed, list):
+                                franchise_posters = [u for u in parsed if u][:5]
+                        except Exception:
+                            franchise_posters = []
+                    if not franchise_posters and franchise_poster:
+                        franchise_posters = [franchise_poster]
             except Exception:
                 pass
     else:
@@ -2822,6 +2871,7 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         badge_label=badge_label,
         badge_css=badge_css,
         poster=franchise_poster,
+        posters=franchise_posters,
     )
 
 

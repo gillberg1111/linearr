@@ -3,6 +3,25 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.3] - 2026-06-07
+
+### Fixed
+
+- **Franchise home-page cards now show the up-to-5 poster strip** like show and
+  genre cards (1 poster → full width, 2 → 50/50, 3 → thirds, 4 → quarters, 5 →
+  fifths, capped at 5). Franchise cards previously rendered a single cover, so a
+  multi-movie/show franchise (e.g. Mission Impossible) showed only one poster and
+  franchises without a single resolvable cover (e.g. DCU) showed none. The strip
+  is built from up to 5 distinct TMDB posters across the franchise's items
+  (de-duplicated, so a single-show franchise still fills the area with one).
+  Posters are resolved and stored on save and via the startup backfill — which
+  now also fills the new strip for pre-existing franchises (restart to apply).
+
+### Changed
+
+- New Genre playlist: the empty-state hint now says *Click "Match shows"* to
+  match the actual button label (was "Preview matches").
+
 ## [3.2.2] - 2026-06-07
 
 ### Fixed

@@ -421,6 +421,13 @@ def init_db() -> None:
                 "ALTER TABLE franchise_definitions ADD COLUMN poster_url TEXT"
             )
 
+        # v3.2.3 — up to 5 representative posters (JSON array) for the home-page
+        # card strip (1→full, 2→50/50, … 5→fifths, capped at 5).
+        if "poster_urls" not in _columns(conn, "franchise_definitions"):
+            conn.execute(
+                "ALTER TABLE franchise_definitions ADD COLUMN poster_urls TEXT"
+            )
+
         # v3.0.0 — Emby columns
         pl_shows_cols = _columns(conn, "playlist_shows")
         if "emby_show_item_id" not in pl_shows_cols:
@@ -1229,13 +1236,29 @@ def get_franchise_definition_by_id(definition_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-def set_franchise_definition_poster(definition_id: int, poster_url: str) -> None:
-    """Persist a poster URL on a franchise definition (used by the startup
-    backfill for definitions created before poster_url was stored)."""
+def set_franchise_definition_poster(
+    definition_id: int, poster_url: str | None,
+    poster_urls: str | None = None,
+) -> None:
+    """Persist poster art on a franchise definition (used by the startup
+    backfill for definitions created before posters were stored). `poster_url`
+    is the single representative cover; `poster_urls` is a JSON array of up to 5
+    for the home-page card strip. Only non-None values are written."""
+    sets = []
+    params: list = []
+    if poster_url is not None:
+        sets.append("poster_url = ?")
+        params.append(poster_url)
+    if poster_urls is not None:
+        sets.append("poster_urls = ?")
+        params.append(poster_urls)
+    if not sets:
+        return
+    params.append(definition_id)
     with connection() as conn:
         conn.execute(
-            "UPDATE franchise_definitions SET poster_url = ? WHERE id = ?",
-            (poster_url, definition_id),
+            f"UPDATE franchise_definitions SET {', '.join(sets)} WHERE id = ?",
+            params,
         )
 
 
@@ -1257,6 +1280,7 @@ def insert_franchise_definition(
     content_hash: str = "",
     item_count: int = 0,
     poster_url: str | None = None,
+    poster_urls: str | None = None,
 ) -> int:
     from datetime import datetime, timezone
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1264,10 +1288,10 @@ def insert_franchise_definition(
         cur = conn.execute(
             """INSERT INTO franchise_definitions
                (key, name, source, forked_from_key, fetched_at, content_hash,
-                item_count, poster_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                item_count, poster_url, poster_urls)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (key, name, source, forked_from_key, fetched_at, content_hash,
-             item_count, poster_url),
+             item_count, poster_url, poster_urls),
         )
         return cur.lastrowid
 
@@ -1283,18 +1307,20 @@ def count_playlists_by_franchise_definition(definition_id: int) -> int:
 
 def update_franchise_definition_metadata(
     definition_id: int, *, content_hash: str, item_count: int,
-    poster_url: str | None = None,
+    poster_url: str | None = None, poster_urls: str | None = None,
 ) -> None:
     from datetime import datetime, timezone
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with connection() as conn:
-        # COALESCE keeps an existing poster when this call passes None.
+        # COALESCE keeps existing posters when this call passes None.
         conn.execute(
             """UPDATE franchise_definitions
                SET content_hash = ?, item_count = ?, fetched_at = ?,
-                   poster_url = COALESCE(?, poster_url)
+                   poster_url = COALESCE(?, poster_url),
+                   poster_urls = COALESCE(?, poster_urls)
                WHERE id = ?""",
-            (content_hash, item_count, fetched_at, poster_url, definition_id),
+            (content_hash, item_count, fetched_at, poster_url, poster_urls,
+             definition_id),
         )
 
 

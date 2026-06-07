@@ -30,8 +30,17 @@
 <div class="playlist-grid">
   {% for p in playlists %}
   <a class="playlist-card" href="{{ url_for('view_playlist', playlist_id=p.id) }}">
-    {% if p.poster %}
-    {# Franchise playlists store no per-show rows; use the franchise cover. #}
+    {% if p.posters %}
+    {# Franchise playlists store no per-show rows; collage up to 5 franchise
+       posters (1→full, 2→50/50, … 5→fifths) like the show/genre cards. #}
+    {% set fcols = [p.posters|length, 5]|min %}
+    <div class="poster-stack" style="grid-template-columns:repeat({{ fcols if fcols > 0 else 1 }},1fr)">
+      {% for url in p.posters[:5] %}
+      <img class="poster-tile" loading="lazy" src="{{ url }}" alt="{{ p.name }}"
+        onerror="this.outerHTML='<div class=&quot;poster-tile poster-fallback&quot;>{{ p.name[:1]|e }}</div>'">
+      {% endfor %}
+    </div>
+    {% elif p.poster %}
     <div class="poster-stack" style="grid-template-columns:1fr">
       <img class="poster-tile" loading="lazy" src="{{ p.poster }}" alt="{{ p.name }}"
         onerror="this.outerHTML='<div class=&quot;poster-tile poster-fallback&quot;>{{ p.name[:1]|e }}</div>'">
