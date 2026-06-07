@@ -3,6 +3,18 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.2] - 2026-06-07
+
+### Fixed
+
+- **Existing franchise playlists now get home-page cover art too.** v3.2.1 only
+  persisted a `poster_url` for franchise playlists saved *after* the fix, so
+  franchises created earlier (user-built / forked ones in particular) stayed
+  blank. A one-shot startup backfill now resolves and stores a poster for any
+  franchise definition missing one — a TMDB poster from its items, falling back
+  to the bundled static poster by key / origin key. Runs once on app start;
+  restart to apply.
+
 ## [3.2.1] - 2026-06-07
 
 ### Fixed

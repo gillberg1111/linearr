@@ -106,6 +106,14 @@ def start() -> BackgroundScheduler:
         id="migrate_franchise_sources",
         misfire_grace_time=600,
     )
+    # v3.2.1 — one-shot backfill of franchise poster_url for definitions created
+    # before posters were persisted (so existing home-page cards get art).
+    sched.add_job(
+        service.backfill_franchise_posters,
+        "date",
+        id="backfill_franchise_posters",
+        misfire_grace_time=600,
+    )
     sched.start()
     log.info(
         "Background jobs scheduled every %d minute(s): prune%s",

@@ -1641,6 +1641,45 @@ def _static_franchise_poster(key: str | None) -> str | None:
     return _STATIC_FRANCHISE_POSTERS.get(key)
 
 
+def backfill_franchise_posters() -> int:
+    """One-shot: persist a poster_url on franchise definitions that lack one.
+
+    Franchise playlists created before v3.2.1 (especially user-built / forked
+    ones) never stored a poster_url, so their home-page card is blank. For each
+    franchise playlist whose definition has no poster_url, resolve one — TMDB
+    poster from the items, else the bundled static poster by key / origin key —
+    and persist it. Best-effort; never raises. Returns the count backfilled."""
+    filled = 0
+    seen: set[int] = set()
+    try:
+        rows = db.list_playlists()
+    except Exception:
+        return 0
+    for row in rows:
+        try:
+            if _row_get(row, "playlist_type", "manual") != "franchise":
+                continue
+            defn_id = dict(row).get("franchise_definition_id")
+            if not defn_id or defn_id in seen:
+                continue
+            seen.add(defn_id)
+            defn = db.get_franchise_definition_by_id(defn_id)
+            if not defn or (defn.get("poster_url") or "").strip():
+                continue
+            poster = (
+                _franchise_poster_url(db.list_franchise_items(defn_id))
+                or _static_franchise_poster(defn.get("key"))
+                or _static_franchise_poster(defn.get("forked_from_key"))
+            )
+            if poster:
+                db.set_franchise_definition_poster(defn_id, poster)
+                filled += 1
+                log.info("Backfilled franchise poster for definition %s", defn_id)
+        except Exception:
+            log.warning("Franchise poster backfill failed for a definition", exc_info=True)
+    return filled
+
+
 def _apply_franchise_poster(row) -> None:
     """Best-effort: set a deterministic TMDB cover on each backend playlist for
     this franchise row. Fire-and-forget. Shared by create / Maker-save / sync

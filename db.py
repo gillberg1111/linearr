@@ -1229,6 +1229,16 @@ def get_franchise_definition_by_id(definition_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def set_franchise_definition_poster(definition_id: int, poster_url: str) -> None:
+    """Persist a poster URL on a franchise definition (used by the startup
+    backfill for definitions created before poster_url was stored)."""
+    with connection() as conn:
+        conn.execute(
+            "UPDATE franchise_definitions SET poster_url = ? WHERE id = ?",
+            (poster_url, definition_id),
+        )
+
+
 def delete_franchise_definition(definition_id: int) -> None:
     with connection() as conn:
         conn.execute(
