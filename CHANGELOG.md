@@ -3,6 +3,25 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.4] - 2026-06-07
+
+### Fixed
+
+- **Genre / smart-rule matched-show posters no longer break when a show's
+  artwork comes from a non-primary backend.** Genre membership differs per
+  backend (a show can be tagged a genre on Jellyfin/Emby but not Plex), so a
+  matched show's thumb may originate on a backend other than the primary. The
+  preview was hardcoding the thumb backend to `primary_backend(...)`, so a
+  Jellyfin/Emby thumb got requested as Plex and 404'd (broken-image icon).
+  `ShowConfig` now carries the thumb's actual source backend through genre/smart
+  resolution and the preview uses it.
+- **`/thumb` now falls back to the other configured non-Plex backend on a
+  miss.** Jellyfin and Emby item ids are indistinguishable 32-char GUIDs, so the
+  backend inference for a bare-GUID thumb ref (used by saved playlist pages and
+  home-page cards, which don't pass an explicit backend) could guess wrong and
+  404. The proxy now tries the other non-Plex backend before giving up — fixing
+  broken posters on existing playlists with no re-sync needed.
+
 ## [3.2.3] - 2026-06-07
 
 ### Fixed

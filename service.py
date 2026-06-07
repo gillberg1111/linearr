@@ -102,6 +102,11 @@ class ShowConfig:
     # Backend-agnostic — works on both Plex and Jellyfin since episodes use
     # the same (season, episode) shape on both sides.
     excluded_episodes: set[tuple[int, int]] = field(default_factory=set)
+    # v3.2.4 — transient (not persisted): which backend `thumb` came from, so
+    # the genre/smart preview builds /thumb?b=<that backend> instead of guessing
+    # primary_backend(). Genre membership differs per backend, so a show's thumb
+    # may originate on a non-primary backend even when it also exists on Plex.
+    thumb_backend: str | None = None
 
     def __post_init__(self) -> None:
         # Legacy callers (Phase 1 / single-backend Plex) pass only rating_key
@@ -1073,6 +1078,7 @@ def _dedup_show_summaries_to_configs(
                     _years[match_idx] = s.year
                 if not out[match_idx].thumb and s.thumb:
                     out[match_idx].thumb = s.thumb
+                    out[match_idx].thumb_backend = tb
                 if nk not in seen_keys or match_idx not in seen_keys[nk]:
                     seen_keys.setdefault(nk, []).append(match_idx)
                 for pid in _show_id_set(s):
@@ -1086,6 +1092,7 @@ def _dedup_show_summaries_to_configs(
                 plex_rating_key=s.rating_key if tb == "plex" else None,
                 jellyfin_rating_key=s.rating_key if tb == "jellyfin" else None,
                 emby_rating_key=s.rating_key if tb == "emby" else None,
+                thumb_backend=tb if s.thumb else None,
             )
             new_idx = len(out)
             seen_keys.setdefault(nk, []).append(new_idx)

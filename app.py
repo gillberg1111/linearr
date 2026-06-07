@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.2.3"
+__version__ = "3.2.4"
 
 import logging
 import os
@@ -583,18 +583,34 @@ def create_app() -> Flask:
 
         # Dispatch: explicit b= wins; otherwise infer from shape.
         # Plex thumb refs start with '/'. Emby/Jellyfin refs are bare GUIDs.
-        backend = _infer_thumb_backend(ref, explicit_backend, available_backends())
+        avail = available_backends()
+        backend = _infer_thumb_backend(ref, explicit_backend, avail)
 
-        if backend not in available_backends():
+        # Build the try-order. For a bare-GUID ref (not a Plex '/...' path),
+        # Jellyfin and Emby ids are indistinguishable 32-char GUIDs, so the
+        # inferred backend can be wrong. Fall back to the other configured
+        # non-Plex backend before giving up — fixes posters for shows whose
+        # thumb was stored from a different backend than inference guesses
+        # (e.g. genre shows tagged only on Emby; existing playlists too).
+        candidates = [backend] if backend in avail else []
+        if not ref.startswith("/"):
+            for alt in ("jellyfin", "emby"):
+                if alt in avail and alt not in candidates:
+                    candidates.append(alt)
+        if not candidates:
             abort(404)
-        try:
-            data, ctype = get_client(backend).fetch_image(ref, width=w, height=h)
-        except Exception:
-            log.exception("thumb fetch failed: %s on %s", ref, backend)
-            abort(502)
-        resp = Response(data, mimetype=ctype)
-        resp.headers["Cache-Control"] = "public, max-age=3600"
-        return resp
+
+        for be in candidates:
+            try:
+                data, ctype = get_client(be).fetch_image(ref, width=w, height=h)
+            except Exception:
+                continue
+            resp = Response(data, mimetype=ctype)
+            resp.headers["Cache-Control"] = "public, max-age=3600"
+            return resp
+
+        log.warning("thumb fetch failed: %s (tried %s)", ref, candidates)
+        abort(502)
 
     # ------------------------------------------------------------------ #
     # Episodes list (JSON) — used by the per-episode exclusion picker
@@ -1195,7 +1211,7 @@ def create_app() -> Flask:
                             "title": c.title,
                             "rating_key": c.rating_key,
                             "thumb": c.thumb,
-                            "thumb_backend": primary_backend(",".join(
+                            "thumb_backend": c.thumb_backend or primary_backend(",".join(
                                 b for b in ("plex","jellyfin","emby") if c.id_for(b)
                             ) or "plex"),
                             "plex": bool(c.plex_rating_key),
@@ -1215,7 +1231,7 @@ def create_app() -> Flask:
                         "title": c.title,
                         "rating_key": c.rating_key,
                         "thumb": c.thumb,
-                        "thumb_backend": primary_backend(",".join(
+                        "thumb_backend": c.thumb_backend or primary_backend(",".join(
                             b for b in ("plex","jellyfin","emby") if c.id_for(b)
                         ) or "plex"),
                         "plex": bool(c.plex_rating_key),
