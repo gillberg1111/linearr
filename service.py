@@ -1444,6 +1444,13 @@ def refresh_playlist_metadata(playlist_id: int) -> dict[str, int]:
     return {"ok": ok, "errors": errors}
 
 
+_SHOW_ID_COL = {
+    "plex": "plex_show_item_id",
+    "jellyfin": "jellyfin_show_item_id",
+    "emby": "emby_show_item_id",
+}
+
+
 def link_show_backend(
     playlist_id: int,
     show_rating_key: str,
@@ -1451,15 +1458,44 @@ def link_show_backend(
     target_key: str,
 ) -> None:
     """Manually link a show's ID on one backend to the existing playlist row.
+
+    Also MERGES duplicates: a manual link usually resolves a cross-backend
+    title mismatch where genre/manual discovery created two rows for the SAME
+    show (no shared provider id, different titles — e.g. a show Emby names
+    differently). If another row in this playlist already carries `target_key`
+    on `backend`, it's that same show, so we fold its remaining backend ids onto
+    the linked row and drop the now-redundant duplicate row — leaving one entry.
     Triggers a tail rebuild on every enabled backend."""
-    if backend == "plex":
-        db.set_plex_show_item_id(playlist_id, show_rating_key, target_key)
-    elif backend == "jellyfin":
-        db.set_jellyfin_show_item_id(playlist_id, show_rating_key, target_key)
-    elif backend == "emby":
-        db.set_emby_show_item_id(playlist_id, show_rating_key, target_key)
-    else:
+    setters = {
+        "plex": db.set_plex_show_item_id,
+        "jellyfin": db.set_jellyfin_show_item_id,
+        "emby": db.set_emby_show_item_id,
+    }
+    if backend not in setters:
         raise ValueError(f"Unknown backend: {backend!r}")
+    setters[backend](playlist_id, show_rating_key, target_key)
+
+    # Merge any other row that already owns this backend id (same show).
+    survivor = dict(db.get_show(playlist_id, show_rating_key) or {})
+    for r in db.list_shows(playlist_id):
+        rd = dict(r)
+        if rd.get("show_rating_key") == show_rating_key:
+            continue
+        if rd.get(_SHOW_ID_COL[backend]) != target_key:
+            continue
+        # Union the duplicate's other-backend ids onto the surviving row so no
+        # backend linkage is lost, then delete the duplicate DB row (DB-only —
+        # the rebuild below keeps its episodes, now owned by the survivor).
+        for be2, col2 in _SHOW_ID_COL.items():
+            if not survivor.get(col2) and rd.get(col2):
+                setters[be2](playlist_id, show_rating_key, rd[col2])
+                survivor[col2] = rd[col2]
+        db.remove_show(playlist_id, rd["show_rating_key"])
+        log.info(
+            "Merged duplicate show '%s' into '%s' on manual %s link (id %s)",
+            rd.get("show_title"), survivor.get("show_title"), backend, target_key,
+        )
+
     row = db.get_playlist(playlist_id)
     full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]
     _rebuild_playlist_tails(row, full_configs, op_label="manual link")

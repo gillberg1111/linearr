@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.6] - 2026-06-07
+
+### Fixed
+
+- **"Link manually…" now merges duplicate show entries instead of leaving two.**
+  When a show has a different title on one backend and no shared provider id
+  (e.g. Emby names it differently and can't fetch metadata), genre/manual
+  discovery creates two separate rows for the same show. Manually linking used
+  to just write the id onto one row, leaving both listed. The link now detects
+  when another row already owns the linked backend id, folds that row's
+  remaining backend ids onto the linked row, and removes the redundant
+  duplicate — so the show collapses to a single entry covering every backend.
+  (To clean up an existing double-linked playlist, Remove or Exclude the
+  duplicate row, then Sync now.)
+
 ## [3.2.5] - 2026-06-07
 
 ### Changed
