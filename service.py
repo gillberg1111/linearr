@@ -482,6 +482,8 @@ def _rebuild_tail_on(
     block_size: int = 1,
     shuffle_seed: int | None = None,
     crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
+    pruning_enabled: bool = False,
+    keep_last_n: int | None = None,
 ) -> tuple[int, int]:
     """Recompute the future portion of a playlist on a single backend.
 
@@ -492,17 +494,32 @@ def _rebuild_tail_on(
     'rotation_blocks' or 'shuffle_chronological' respectively. Per-show
     weights for 'rotation_weighted' come from each ShowConfig.weight.
     `crossover_map` is only used in 'air_date' mode.
+
+    When `pruning_enabled` is True, the watched head buffer is trimmed to the
+    last `keep_last_n` watched items and the future tail is rebuilt unwatched,
+    making pruning idempotent.
     """
     relevant_configs = [c for c in configs if c.id_for(backend)]
     if not relevant_configs:
         return (0, 0)
+    if keep_last_n is None:
+        keep_last_n = _watched_keep()
 
     items = client.get_playlist_items(playlist_id_on_backend)
     splice = rotation.splice_index(items)
-    kept = items[:splice]
+    head = items[:splice]
 
+    head_removed_keys: list[str] = []
+    if pruning_enabled:
+        drop_head = set(rotation.prune_indices(head, keep_last_n))
+        head_removed_keys = [head[i].rating_key for i in drop_head]
+        kept = [it for i, it in enumerate(head) if i not in drop_head]
+    else:
+        kept = head
+
+    tail_unwatched = unwatched_only or pruning_enabled
     shows_episodes = [
-        _episodes_for_config(c, backend, unwatched_only=unwatched_only)
+        _episodes_for_config(c, backend, unwatched_only=tail_unwatched)
         for c in relevant_configs
     ]
     show_order = [c.id_for(backend) for c in relevant_configs]
@@ -517,11 +534,11 @@ def _rebuild_tail_on(
     current_tail_keys = [it.rating_key for it in current_tail]
     new_tail_keys = [e.rating_key for e in new_tail]
 
-    if current_tail_keys == new_tail_keys:
+    if current_tail_keys == new_tail_keys and not head_removed_keys:
         return (0, 0)
 
-    to_remove = list(set(current_tail_keys) - set(new_tail_keys))
     kept_keys = {it.rating_key for it in kept}
+    to_remove = list((set(current_tail_keys) - set(new_tail_keys)) | set(head_removed_keys))
     to_add = [k for k in new_tail_keys if k not in kept_keys]
 
     if to_remove:
@@ -562,6 +579,8 @@ def _rebuild_playlist_tails(
     uw = unwatched_only if unwatched_only is not None else bool(row["unwatched_only"])
     bs = block_size if block_size is not None else int(_row_get(row, "block_size", 1) or 1)
     ss = _row_get(row, "shuffle_seed", None) if shuffle_seed is ... else shuffle_seed
+    pe = bool(_row_get(row, "pruning_enabled", 1))
+    kln = _watched_keep()
     active_configs = [c for c in full_configs if not c.is_excluded]
     crossover_map = _build_crossover_map(row["id"]) if sm == "air_date" else None
     total_added = total_removed = 0
@@ -572,6 +591,7 @@ def _rebuild_playlist_tails(
             added, removed = _rebuild_tail_on(
                 tb, client, pl_id, active_configs, sm, uw,
                 block_size=bs, shuffle_seed=ss, crossover_map=crossover_map,
+                pruning_enabled=pe, keep_last_n=kln,
             )
             total_added += added
             total_removed += removed
@@ -1977,6 +1997,22 @@ def _match_franchise_to_library(
     return plex_keys, jellyfin_keys, emby_keys, missing_count
 
 
+def _apply_franchise_prune(
+    be_keys: list[str], view_counts: dict[str, int], keep_last_n: int
+) -> list[str]:
+    """Drop watched-beyond-buffer keys from an ordered franchise key list.
+
+    `be_keys` is the full desired order; `view_counts` is library watch state
+    (missing key => unwatched). Keeps all unwatched + the last keep_last_n
+    watched; removes older watched. Pure + idempotent (re-running on the result
+    is a no-op because removed keys were the watched-oldest)."""
+    if not be_keys:
+        return be_keys
+    counts = [int(view_counts.get(k, 0) or 0) for k in be_keys]
+    drop = set(rotation.prune_indices_for_counts(counts, keep_last_n))
+    return [k for i, k in enumerate(be_keys) if i not in drop]
+
+
 def _build_backend_ordered_keys(
     backend: str,
     client: MediaClient,
@@ -2115,6 +2151,13 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
             be_items = db.list_franchise_items(definition_id)
             be_match = db.list_franchise_match_state(playlist_id)
             be_keys = _build_backend_ordered_keys(tb, client, be_items, be_match)
+
+            if bool(_row_get(row, "pruning_enabled", 1)) and be_keys:
+                try:
+                    vc = client.get_view_counts(be_keys)
+                except Exception:
+                    vc = {}
+                be_keys = _apply_franchise_prune(be_keys, vc, _watched_keep())
 
             added_keys = [k for k in be_keys if k not in set(current_keys)]
             removed_keys = [k for k in current_keys if k not in set(be_keys)]
@@ -2602,8 +2645,6 @@ def prune_playlist(playlist_id: int, keep_last_n: int | None = None) -> int:
 def prune_all() -> None:
     for row in db.list_playlists():
         try:
-            if _row_get(row, "playlist_type", "manual") == "franchise":
-                continue
             if not _row_get(row, "pruning_enabled", 1):
                 continue
             prune_playlist(row["id"])

@@ -3245,8 +3245,181 @@ def test_config_from_row_numeric_guard():
         is_excluded=0,
     )
     cfg2 = _config_from_row(row_plex)
-    check("cfr: legacy Plex row → plex_rating_key",
+    check("cfr: legacy Plex row -> plex_rating_key",
           cfg2.plex_rating_key == "555")
+
+
+# --------------------------------------------------------------------------- #
+# v3.2.0 -- Watched-media pruning for Franchise + Genre playlists
+# --------------------------------------------------------------------------- #
+
+
+def test_prune_indices_for_counts_correctness():
+    from rotation import prune_indices_for_counts
+
+    # all-unwatched -> []
+    check("pifc: all-unwatched empty", prune_indices_for_counts([0, 0, 0], 2) == [])
+
+    # watched <= keep_last_n -> []
+    check("pifc: fewer watched than N", prune_indices_for_counts([1, 0, 1], 5) == [])
+
+    # exact threshold: 4 watched, keep 2 -> remove first 2 watched
+    counts = [0, 1, 0, 1, 1, 0, 1]
+    result = prune_indices_for_counts(counts, 2)
+    # watched positions: [1, 3, 4, 6]; keep last 2 => keep [4, 6]; remove [1, 3]
+    check("pifc: mixed list threshold", result == [1, 3])
+
+    # keep_last_n=0 removes ALL watched
+    check("pifc: zero keep removes all watched",
+          prune_indices_for_counts([0, 1, 0, 1], 0) == [1, 3])
+
+    # negative keep_last_n treated as 0
+    check("pifc: negative treated as zero",
+          prune_indices_for_counts([0, 1, 0, 1], -5) == [1, 3])
+
+    # idempotence: after removing returned indices, re-pruning survivors returns []
+    survivors = [c for i, c in enumerate(counts) if i not in set(result)]
+    check("pifc: idempotent",
+          prune_indices_for_counts(survivors, 2) == [])
+
+    # parity: prune_indices(items, n) == prune_indices_for_counts([it.view_count ...], n)
+    items = [
+        PlaylistItem("a", "A", 1, 1, view_count=0),
+        PlaylistItem("b", "B", 1, 1, view_count=1),
+        PlaylistItem("c", "A", 1, 2, view_count=1),
+        PlaylistItem("d", "B", 1, 2, view_count=0),
+        PlaylistItem("e", "A", 1, 3, view_count=1),
+    ]
+    idx1 = rotation.prune_indices(items, 2)
+    idx2 = rotation.prune_indices_for_counts([it.view_count for it in items], 2)
+    check("pifc: parity with prune_indices", idx1 == idx2)
+
+
+def test_apply_franchise_prune():
+    from service import _apply_franchise_prune
+
+    # No watched -> input unchanged
+    keys = ["a", "b", "c"]
+    vc = {}
+    check("afp: no watched -> unchanged",
+          _apply_franchise_prune(keys, vc, 2) == keys)
+
+    # keep_last_n=2, several watched interleaved
+    be = ["k0", "k1", "k2", "k3", "k4", "k5", "k6"]
+    vc2 = {"k0": 1, "k1": 0, "k2": 0, "k3": 3, "k4": 0, "k5": 2, "k6": 1}
+    result = _apply_franchise_prune(be, vc2, 2)
+    # watched positions: 0, 3, 5, 6; keep last 2 => [5, 6]; remove [0, 3]
+    check("afp: keep last 2 watched", result == ["k1", "k2", "k4", "k5", "k6"])
+
+    # missing keys in view_counts treated as unwatched (kept)
+    check("afp: missing treated as unwatched", "k1" in result and "k2" in result)
+
+    # idempotence: re-running on result is a no-op
+    vc3 = {k: v for k, v in vc2.items() if k in result}
+    result2 = _apply_franchise_prune(result, vc3, 2)
+    check("afp: idempotent", result2 == result)
+
+    # empty list
+    check("afp: empty be_keys -> empty", _apply_franchise_prune([], vc2, 2) == [])
+
+
+class _ViewCountRecorder:
+    """Recording stub for get_view_counts. Simulates GET /Items?Ids=...&Fields=UserData."""
+    _user_id = "u1"
+
+    def __init__(self, id_to_count=None):
+        self.calls = []
+        self._id_to_count = id_to_count or {}
+
+    def _ensure_authenticated(self):
+        pass
+
+    def _request(self, method, path, *, params=None, **kwargs):
+        self.calls.append((method, path, params))
+        import json as _j
+        import requests as _r
+        r = _r.Response()
+        r.status_code = 200
+        if method == "GET" and path == "/Items" and params and "Ids" in params:
+            ids = params["Ids"].split(",")
+            items = []
+            for id_ in ids:
+                count = self._id_to_count.get(id_, 0)
+                items.append({"Id": id_, "UserData": {"PlayCount": count}})
+            r._content = _j.dumps({"Items": items}).encode()
+        else:
+            r._content = b"{}"
+        return r
+
+
+def test_get_view_counts_chunking_jellyfin():
+    import jellyfin_client as _jc
+    N = _jc._MAX_IDS_PER_REQUEST * 2 + 7
+    ids = [f"id{i}" for i in range(N)]
+    expected_counts = {f"id{i}": i % 3 for i in range(N)}
+
+    rec = _ViewCountRecorder(id_to_count=expected_counts)
+    _add_recorder_method(rec, _jc.JellyfinClient, "get_view_counts")
+    result = rec.get_view_counts(ids)
+
+    # Every input key in result
+    check("jf gvc: all input keys in result", set(result.keys()) == set(ids))
+    check("jf gvc: correct counts", all(result[k] == expected_counts[k] for k in ids))
+    # Missing UserData treated as 0 -- not relevant here but covered by the rec
+
+    gets = [(m, p) for m, p, _ in rec.calls if m == "GET"]
+    expected_chunks = (N + _jc._MAX_IDS_PER_REQUEST - 1) // _jc._MAX_IDS_PER_REQUEST
+    check("jf gvc: correct number of GETs", len(gets) == expected_chunks)
+
+    all_ids = []
+    for _, _, params in rec.calls:
+        chunk = params["Ids"].split(",")
+        check("jf gvc: chunk size <= max", len(chunk) <= _jc._MAX_IDS_PER_REQUEST)
+        all_ids.extend(chunk)
+    check("jf gvc: all ids present in order", all_ids == ids)
+
+
+def test_get_view_counts_chunking_emby():
+    import emby_client as _ec
+    N = _ec._MAX_IDS_PER_REQUEST * 2 + 7
+    ids = [f"id{i}" for i in range(N)]
+    expected_counts = {f"id{i}": (i % 4) for i in range(N)}
+
+    rec = _ViewCountRecorder(id_to_count=expected_counts)
+    _add_recorder_method(rec, _ec.EmbyClient, "get_view_counts")
+    result = rec.get_view_counts(ids)
+
+    check("em gvc: all input keys in result", set(result.keys()) == set(ids))
+    check("em gvc: correct counts", all(result[k] == expected_counts[k] for k in ids))
+
+    gets = [(m, p) for m, p, _ in rec.calls if m == "GET"]
+    expected_chunks = (N + _ec._MAX_IDS_PER_REQUEST - 1) // _ec._MAX_IDS_PER_REQUEST
+    check("em gvc: correct number of GETs", len(gets) == expected_chunks)
+
+    all_ids = []
+    for _, _, params in rec.calls:
+        chunk = params["Ids"].split(",")
+        check("em gvc: chunk size <= max", len(chunk) <= _ec._MAX_IDS_PER_REQUEST)
+        all_ids.extend(chunk)
+    check("em gvc: all ids present in order", all_ids == ids)
+
+
+def test_get_view_counts_empty_input():
+    import jellyfin_client as _jc
+    import emby_client as _ec
+
+    rec_jf = _ViewCountRecorder()
+    _add_recorder_method(rec_jf, _jc.JellyfinClient, "get_view_counts")
+    check("jf gvc: empty -> {}", rec_jf.get_view_counts([]) == {})
+    check("jf gvc: empty -> no calls", len(rec_jf.calls) == 0)
+
+    rec_em = _ViewCountRecorder()
+    _add_recorder_method(rec_em, _ec.EmbyClient, "get_view_counts")
+    check("em gvc: empty -> {}", rec_em.get_view_counts([]) == {})
+    check("em gvc: empty -> no calls", len(rec_em.calls) == 0)
+
+    from service import _apply_franchise_prune
+    check("afp: empty keys -> empty", _apply_franchise_prune([], {}, 2) == [])
 
 
 def main() -> int:

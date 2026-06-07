@@ -3,6 +3,37 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.0] - 2026-06-07
+
+### Added
+
+- **Watched-media pruning now works for Franchise and Genre playlists.** Pruning
+  (keep the last `WATCHED_KEEP` watched as a buffer, remove older watched items)
+  previously only stuck on rotation/manual playlists with *unwatched-only* on.
+  It is now **idempotent** for every playlist type and every setting combination —
+  a single sync converges to `[recent watched buffer] + [unwatched future]` and
+  stays there:
+  - **Franchise:** the background sweep no longer skips franchise playlists. When
+    pruning is enabled, sync reads live library watch state (new bulk
+    `MediaClient.get_view_counts()` on Plex / Jellyfin / Emby) and excludes
+    watched-beyond-buffer items before rebuilding, so they aren't re-added on the
+    next sweep. The **"Prune watched now"** button is now available on franchise
+    playlists too.
+  - **Genre / manual:** the tail rebuild trims the watched head buffer to the last
+    `WATCHED_KEEP` watched items and excludes watched episodes from the future
+    tail, so pruning sticks even when *unwatched-only* is **off**.
+- **Franchise pruning stays opt-in (off by default).** Existing and new franchise
+  playlists keep `pruning_enabled=0` — nothing is removed until you flip the
+  Pruning toggle on. No migration, no behavior change on upgrade.
+
+### Notes
+
+- Genre playlists default to pruning **on**, so genre playlists with
+  *unwatched-only* off will now actually remove watched-beyond-buffer episodes on
+  the next sweep (previously the toggle was effectively inert in that
+  combination). Turn Pruning off on a genre playlist to keep every watched
+  episode.
+
 ## [3.1.2] - 2026-06-06
 
 ### Fixed

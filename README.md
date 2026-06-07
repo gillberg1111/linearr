@@ -210,13 +210,17 @@ untouched; the future portion regenerates instantly.
   shows into an explicit group when the "Part N" heuristic misses.
 - **Unwatched-only filter** — per-playlist toggle excluding episodes you've
   watched anywhere on the backend.
-- **Per-playlist pruning toggle** — keep every episode regardless of watch
-  state (default on for show/genre, off for franchise).
+- **Per-playlist pruning toggle** — works on every playlist type (show, genre,
+  and franchise). Default on for show/genre, off (opt-in) for franchise. Pruning
+  is idempotent: enabling it converges the playlist to a small recent-watched
+  buffer plus the unwatched future and keeps it there, even with unwatched-only
+  off.
 
 ### Automation & maintenance
 
-- **Auto-prune watched** — keeps the last `WATCHED_KEEP` watched episodes as a
-  fall-asleep buffer; removes older ones every `PRUNE_INTERVAL_MINUTES`.
+- **Auto-prune watched** — keeps the last `WATCHED_KEEP` watched items as a
+  fall-asleep buffer; removes older ones every `PRUNE_INTERVAL_MINUTES`. Applies
+  to show, genre, and (opt-in) franchise playlists.
 - **Auto-sync new episodes** — the same sweep splices newly-aired episodes and
   new seasons into playlists and drops episodes removed from your library.
   Toggle globally (`AUTO_SYNC`) or per playlist (**Auto-update** pill).

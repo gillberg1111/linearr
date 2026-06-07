@@ -546,6 +546,26 @@ class PlexClient(MediaClient):
             except Exception:
                 continue
 
+    def get_view_counts(self, rating_keys):
+        out: dict[str, int] = {}
+        if not rating_keys:
+            return out
+        keys = [str(k) for k in rating_keys]
+        CHUNK = 100
+        for i in range(0, len(keys), CHUNK):
+            chunk = keys[i:i + CHUNK]
+            try:
+                items = self._server.fetchItems("/library/metadata/" + ",".join(chunk))
+            except Exception:
+                _log.warning("get_view_counts fetch failed on plex chunk", exc_info=True)
+                continue
+            for it in items:
+                try:
+                    out[str(it.ratingKey)] = int(getattr(it, "viewCount", 0) or 0)
+                except Exception:
+                    continue
+        return out
+
     def set_playlist_image(self, rating_key: str, image_url: str) -> None:
         """Upload a cover poster to the playlist from an HTTP URL.
         Fire-and-forget: log and swallow on any failure."""

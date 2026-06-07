@@ -823,6 +823,31 @@ class JellyfinClient(MediaClient):
             "Ids": list(ordered_rating_keys),
         })
 
+    def get_view_counts(self, rating_keys):
+        out: dict[str, int] = {}
+        if not rating_keys:
+            return out
+        try:
+            self._ensure_authenticated()
+        except Exception:
+            return out
+        for chunk in _chunked([str(k) for k in rating_keys], _MAX_IDS_PER_REQUEST):
+            try:
+                resp = self._request("GET", "/Items", params={
+                    "Ids": ",".join(chunk),
+                    "userId": self._user_id,
+                    "Fields": "UserData",
+                })
+            except Exception:
+                _log.warning("get_view_counts request failed on jellyfin chunk", exc_info=True)
+                continue
+            if not getattr(resp, "ok", False):
+                continue
+            for it in (resp.json() or {}).get("Items", []) or []:
+                ud = it.get("UserData") or {}
+                out[str(it.get("Id"))] = int(ud.get("PlayCount") or 0)
+        return out
+
     def set_playlist_image(self, rating_key: str, image_url: str) -> None:
         """Set the playlist cover via POST /Items/{id}/Images/Primary.
 

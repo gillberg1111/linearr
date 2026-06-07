@@ -606,12 +606,10 @@
         <span class="hint">Ask Plex/Jellyfin/Emby to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
       </form>
       {% endif %}
-      {% if playlist.playlist_type != 'franchise' %}
       <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
-        <span class="hint">Keeps the {{ watched_keep }} most recently watched episode{{ 's' if watched_keep != 1 else '' }} as a buffer; removes older watched ones.</span>
+        <span class="hint">Keeps the {{ watched_keep }} most recently watched item{{ 's' if watched_keep != 1 else '' }} as a buffer; removes older watched ones.</span>
       </form>
-      {% endif %}
       <form method="post" action="{{ url_for('delete_playlist', playlist_id=playlist.id) }}"
             onsubmit="return confirm('Delete this rotating playlist (and its server-side playlists)?');">
         <button type="submit" class="btn btn-danger">Delete playlist</button>

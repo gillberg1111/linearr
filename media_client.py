@@ -212,6 +212,19 @@ class MediaClient(ABC):
         are handled internally.
         """
 
+    def get_view_counts(self, rating_keys: list[str]) -> dict[str, int]:
+        """Map each library item id -> its play count (0 = unwatched).
+
+        Reads LIBRARY watch state (not playlist membership), so callers can ask
+        about items that aren't currently in any playlist. Keys missing from the
+        returned dict are treated as unwatched by callers. Backends override;
+        the default returns {} (no data -> nothing is treated as watched).
+
+        Used by prune-aware franchise sync so that a watched item we removed on
+        the previous sweep is NOT re-added on the next one.
+        """
+        return {}
+
     @abstractmethod
     def playlist_item_count(self, rating_key: str) -> int:
         """Cheap count of items in a playlist (for the index page)."""

@@ -359,19 +359,26 @@ def rebuild_tail(
     return [e for e in full if not _is_kept(e)]
 
 
-def prune_indices(items: list[PlaylistItem], keep_last_n: int) -> list[int]:
-    """Return playlist indices that should be removed.
+def prune_indices_for_counts(view_counts: list[int], keep_last_n: int) -> list[int]:
+    """Indices (into an ordered list) of WATCHED items that should be removed.
 
     Rule: keep all unwatched items; keep the last `keep_last_n` watched items;
-    remove watched items older than that.
+    remove watched items older than that. `view_counts[i] > 0` means watched.
+    Pure: takes only the ordered play counts, so any caller (playlist items OR
+    a franchise's resolved library keys) can use it.
     """
     if keep_last_n < 0:
         keep_last_n = 0
-    watched_positions = [i for i, it in enumerate(items) if it.view_count > 0]
+    watched_positions = [i for i, c in enumerate(view_counts) if c > 0]
     if len(watched_positions) <= keep_last_n:
         return []
-    cutoff = watched_positions[-keep_last_n] if keep_last_n > 0 else len(items)
+    cutoff = watched_positions[-keep_last_n] if keep_last_n > 0 else len(view_counts)
     return [i for i in watched_positions if i < cutoff]
+
+
+def prune_indices(items: list[PlaylistItem], keep_last_n: int) -> list[int]:
+    """Return playlist indices that should be removed. See prune_indices_for_counts."""
+    return prune_indices_for_counts([it.view_count for it in items], keep_last_n)
 
 
 def dedupe_preserving_order(items: Iterable[_Ep]) -> list[_Ep]:
