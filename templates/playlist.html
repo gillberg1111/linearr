@@ -44,14 +44,14 @@
           <li>
             <strong>{{ m.title }}</strong> — not in your {{ m.missing }} library
             {% if AVAILABLE_BACKENDS|length > 1 and ',' in playlist.backend %}
-              <details class="link-manually" style="display:inline;margin-left:0.5rem">
-                <summary class="hint" style="cursor:pointer">Link manually…</summary>
+              <details class="link-manually">
+                <summary>🔗 Link manually…</summary>
                 <form method="post"
                       action="{{ url_for('link_show_backend', playlist_id=playlist.id, show_rating_key=m.rating_key) }}"
-                      class="inline-form link-form" style="margin-top:0.25rem">
+                      class="inline-form link-form">
                   <input type="hidden" name="backend"
                          value="{{ {'Plex':'plex','Jellyfin':'jellyfin','Emby':'emby'}.get(m.missing, m.missing.lower()) }}">
-                  <select name="link_to_key" class="link-select" required style="max-width:300px">
+                  <select name="link_to_key" class="link-select" required>
                     <option value="">— pick a show —</option>
                     {% for s in all_shows %}
                       {% set id_col = {'Plex': 'plex_rating_key', 'Jellyfin': 'jellyfin_rating_key', 'Emby': 'emby_rating_key'}.get(m.missing, '') %}

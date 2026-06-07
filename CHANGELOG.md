@@ -3,6 +3,18 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.5] - 2026-06-07
+
+### Changed
+
+- **Dropdowns now match the site's frosted-glass styling.** The "Link manually…"
+  show picker (in the missing-on warning banner) looked like an unstyled native
+  control; it's now a frosted-glass select with the blue accent caret, hover/focus
+  ring, and a dark option list. The same treatment is applied to every other
+  dropdown in the app (smart-rule type/value pickers, crossover show picker,
+  preview page-size menu). The "Link manually…" toggle is now a rounded
+  warning-accent chip, and the link form sits in a small frosted panel.
+
 ## [3.2.4] - 2026-06-07
 
 ### Fixed
