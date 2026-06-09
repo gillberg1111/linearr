@@ -3,6 +3,19 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.6] - 2026-06-09
+
+### Internal
+
+- **Test hardening for the v3.3.5 franchise-pruning fix (no behavior change).**
+  Extracted the prune decision into a testable `_franchise_prune_keys()` helper
+  and added end-to-end coverage: multi-sweep convergence (watched items stay
+  removed), the `WATCHED_KEEP` buffer sliding correctly as more is watched,
+  mixed movie/episode playlists, per-backend isolation, and FK-cascade cleanup
+  of the pruned set when a playlist is deleted. Also verified the on-disk upgrade
+  (a pre-v3.3.5 database gains the `pruned_items` table on boot) and a clean app
+  start. 605 tests.
+
 ## [3.3.5] - 2026-06-09
 
 ### Fixed

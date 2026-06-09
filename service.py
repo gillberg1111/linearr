@@ -2153,6 +2153,28 @@ def _apply_franchise_prune(
     return [k for i, k in enumerate(be_keys) if i not in drop]
 
 
+def _franchise_prune_keys(
+    current: list, be_keys: list[str], playlist_id: int, backend: str,
+    keep_last_n: int,
+) -> tuple[list[str], set[str]]:
+    """Detect watched-beyond-buffer items in the LIVE playlist, persist them to
+    the pruned set, and return (be_keys minus the whole pruned set, pruned set).
+
+    Watch state comes from `current` (PlaylistItems from get_playlist_items,
+    which reports view_count correctly on every backend — unlike Emby's bulk
+    get_view_counts). Persisting means a removed-watched item stays removed even
+    though franchise sync rebuilds `be_keys` from the static definition.
+    Idempotent: re-running with no new watching is a no-op."""
+    newly = [
+        current[i].rating_key
+        for i in rotation.prune_indices(current, keep_last_n)
+    ]
+    if newly:
+        db.add_pruned_items(playlist_id, backend, newly)
+    pruned = db.get_pruned_item_ids(playlist_id, backend)
+    return [k for k in be_keys if k not in pruned], pruned
+
+
 def _build_backend_ordered_keys(
     backend: str,
     client: MediaClient,
@@ -2293,20 +2315,10 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
             be_keys = _build_backend_ordered_keys(tb, client, be_items, be_match)
 
             if bool(_row_get(row, "pruning_enabled", 1)) and be_keys:
-                # Detect watched-beyond-buffer from the LIVE playlist
-                # (get_playlist_items returns correct view_count; Emby's bulk
-                # get_view_counts does NOT), persist them, then subtract the whole
-                # pruned set from the rebuild so they stay removed instead of
-                # being re-added from the static definition every sync.
-                newly = [
-                    current[i].rating_key
-                    for i in rotation.prune_indices(current, _watched_keep())
-                ]
-                if newly:
-                    db.add_pruned_items(playlist_id, tb, newly)
-                pruned = db.get_pruned_item_ids(playlist_id, tb)
                 _before = len(be_keys)
-                be_keys = [k for k in be_keys if k not in pruned]
+                be_keys, pruned = _franchise_prune_keys(
+                    current, be_keys, playlist_id, tb, _watched_keep()
+                )
                 log.info(
                     "Franchise prune '%s' on %s: %d items, %d pruned-set, %d kept",
                     row["name"], tb, _before, len(pruned), len(be_keys),

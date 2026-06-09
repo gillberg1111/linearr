@@ -1110,6 +1110,80 @@ def test_pruned_items_db():
             pass
 
 
+def test_franchise_prune_keys_scenarios():
+    """End-to-end behavior of the persisted-pruned-set franchise prune logic:
+    buffer, mixed movie/episode, multi-sweep convergence, backend isolation,
+    and CASCADE cleanup on playlist delete."""
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+    from rotation import PlaylistItem
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, created_at) VALUES ('F','')")
+        PID = 1
+
+        def item(k, watched, kind="episode", ep=0):
+            return PlaylistItem(rating_key=k, show_rating_key="s",
+                                season=(999 if kind == "movie" else 1),
+                                episode=ep, view_count=(1 if watched else 0))
+
+        defn = ["a", "b", "c", "d", "e"]  # static franchise definition
+
+        # --- KEEP=0: every watched item is pruned and stays pruned. ---
+        cur = [item("a", 0), item("b", 0), item("c", 0), item("d", 1), item("e", 1)]
+        kept, pruned = _svc._franchise_prune_keys(cur, list(defn), PID, "emby", 0)
+        check("fpk keep0: d,e pruned", kept == ["a", "b", "c"] and pruned == {"d", "e"})
+        # Next sweep: d,e gone from playlist, nothing newly watched → stays.
+        cur = [item("a", 0), item("b", 0), item("c", 0)]
+        kept2, _ = _svc._franchise_prune_keys(cur, list(defn), PID, "emby", 0)
+        check("fpk keep0: stable, no re-add", kept2 == ["a", "b", "c"])
+
+        # --- KEEP=2 buffer on a fresh playlist/backend. ---
+        # Watched in playlist order: b, c, d (3 watched), keep last 2 (c,d) →
+        # only b is pruned.
+        cur = [item("a", 0, ep=0), item("b", 1, ep=1), item("c", 1, ep=2),
+               item("d", 1, ep=3), item("e", 0, ep=4)]
+        kept, pruned = _svc._franchise_prune_keys(cur, list(defn), PID, "plex", 2)
+        check("fpk keep2: only oldest watched pruned", pruned == {"b"})
+        check("fpk keep2: buffer (c,d) retained", "c" in kept and "d" in kept)
+        # User watches a 4th (e); buffer slides, c becomes oldest-beyond-buffer.
+        cur = [item("a", 0), item("c", 1, ep=2), item("d", 1, ep=3), item("e", 1, ep=4)]
+        kept, pruned = _svc._franchise_prune_keys(cur, list(defn), PID, "plex", 2)
+        check("fpk keep2: buffer slides, c now pruned too", pruned == {"b", "c"})
+        check("fpk keep2: keeps last 2 watched (d,e)", kept == ["a", "d", "e"])
+
+        # --- Mixed movie + episode (movies are season=999). ---
+        mdefn = ["m1", "ep1", "ep2", "m2"]
+        cur = [item("m1", 1, kind="movie"), item("ep1", 0), item("ep2", 1), item("m2", 0, kind="movie")]
+        kept, pruned = _svc._franchise_prune_keys(cur, list(mdefn), PID, "jellyfin", 0)
+        check("fpk mixed: watched movie+episode pruned", pruned == {"m1", "ep2"})
+        check("fpk mixed: order preserved for kept", kept == ["ep1", "m2"])
+
+        # --- Backend isolation: emby/plex/jellyfin pruned sets are independent. ---
+        check("fpk isolation: emby set", _db_mod.get_pruned_item_ids(PID, "emby") == {"d", "e"})
+        check("fpk isolation: plex set", _db_mod.get_pruned_item_ids(PID, "plex") == {"b", "c"})
+        check("fpk isolation: jellyfin set", _db_mod.get_pruned_item_ids(PID, "jellyfin") == {"m1", "ep2"})
+
+        # --- CASCADE cleanup: deleting the playlist removes its pruned rows. ---
+        with _db_mod.connection() as conn:
+            conn.execute("DELETE FROM managed_playlists WHERE id=?", (PID,))
+        with _db_mod.connection() as conn:
+            left = conn.execute("SELECT COUNT(*) AS n FROM pruned_items WHERE playlist_id=?", (PID,)).fetchone()["n"]
+        check("fpk cascade: pruned rows cleaned on playlist delete", left == 0)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def test_auth_module():
     import os, tempfile
     import db as _db_mod
