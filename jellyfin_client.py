@@ -837,6 +837,10 @@ class JellyfinClient(MediaClient):
                     "Ids": ",".join(chunk),
                     "userId": self._user_id,
                     "Fields": "UserData",
+                    # Needed so UserData (PlayCount) is populated — without it
+                    # counts read 0 and franchise pruning never removes watched
+                    # items (matches the flag the other read paths pass).
+                    "enableUserData": "true",
                 })
             except Exception:
                 _log.warning("get_view_counts request failed on jellyfin chunk", exc_info=True)

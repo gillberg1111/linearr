@@ -852,6 +852,10 @@ class EmbyClient(MediaClient):
                     "Ids": ",".join(chunk),
                     "userId": self._user_id,
                     "Fields": "UserData",
+                    # REQUIRED on Emby: without it UserData (PlayCount) comes back
+                    # empty, so every count reads 0 and franchise pruning never
+                    # removes watched items (they reappear on the next sync).
+                    "enableUserData": "true",
                 })
             except Exception:
                 _log.warning("get_view_counts request failed on emby chunk", exc_info=True)

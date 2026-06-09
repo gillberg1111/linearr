@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.9] - 2026-06-09
+
+### Fixed
+
+- **Franchise pruning now actually removes watched episodes on Jellyfin/Emby.**
+  The bulk view-count lookup used by franchise sync-time pruning
+  (`get_view_counts`) didn't pass `enableUserData=true`, so Jellyfin/Emby
+  returned empty `UserData` and every play count read as 0 — pruning concluded
+  nothing was watched and re-added watched episodes on the next sync. (Manual
+  "Prune watched now" worked because it reads watch state through a different
+  call that already set the flag, which is why Show/rotation playlists pruned
+  fine but franchise didn't.) Added the flag to both clients' `get_view_counts`,
+  matching every other view-count read path. `WATCHED_KEEP=0` now correctly
+  leaves zero watched episodes in franchise playlists.
+
 ## [3.2.8] - 2026-06-09
 
 ### Added

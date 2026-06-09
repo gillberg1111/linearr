@@ -3439,6 +3439,7 @@ def test_get_view_counts_chunking_jellyfin():
     for _, _, params in rec.calls:
         chunk = params["Ids"].split(",")
         check("jf gvc: chunk size <= max", len(chunk) <= _jc._MAX_IDS_PER_REQUEST)
+        check("jf gvc: enableUserData sent", params.get("enableUserData") == "true")
         all_ids.extend(chunk)
     check("jf gvc: all ids present in order", all_ids == ids)
 
@@ -3464,6 +3465,7 @@ def test_get_view_counts_chunking_emby():
     for _, _, params in rec.calls:
         chunk = params["Ids"].split(",")
         check("em gvc: chunk size <= max", len(chunk) <= _ec._MAX_IDS_PER_REQUEST)
+        check("em gvc: enableUserData sent", params.get("enableUserData") == "true")
         all_ids.extend(chunk)
     check("em gvc: all ids present in order", all_ids == ids)
 
