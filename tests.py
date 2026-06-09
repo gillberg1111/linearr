@@ -1073,6 +1073,76 @@ def test_manual_show_links_db():
             pass
 
 
+def test_auth_module():
+    import os, tempfile
+    import db as _db_mod
+    import auth as _auth
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    orig_env = {k: os.environ.get(k) for k in ("LINEARR_AUTH_PASSWORD", "LINEARR_AUTH_USERNAME")}
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        for k in orig_env:
+            os.environ.pop(k, None)
+
+        # Disabled by default.
+        check("auth: off by default", _auth.auth_enabled() is False)
+        check("auth: verify false when off", _auth.verify("admin", "x") is False)
+
+        # Enable + verify.
+        _auth.set_credentials("jake", "s3cret")
+        check("auth: enabled after set", _auth.auth_enabled() is True)
+        check("auth: correct creds pass", _auth.verify("jake", "s3cret") is True)
+        check("auth: wrong password fails", _auth.verify("jake", "nope") is False)
+        check("auth: wrong username fails", _auth.verify("admin", "s3cret") is False)
+        check("auth: hash not plaintext",
+              (_db_mod.get_setting("auth_password_hash") or "") not in ("", "s3cret"))
+
+        # Change password keeps username.
+        _auth.change_password("newpass")
+        check("auth: new password works", _auth.verify("jake", "newpass") is True)
+        check("auth: old password rejected", _auth.verify("jake", "s3cret") is False)
+
+        # Disable.
+        _auth.disable_auth()
+        check("auth: disabled clears", _auth.auth_enabled() is False)
+
+        # Env reset re-enables from env.
+        os.environ["LINEARR_AUTH_PASSWORD"] = "frompass"
+        os.environ["LINEARR_AUTH_USERNAME"] = "envuser"
+        _auth.apply_env_reset()
+        check("auth: env reset enables", _auth.auth_enabled() is True)
+        check("auth: env reset creds", _auth.verify("envuser", "frompass") is True)
+
+        # is_safe_next.
+        check("auth: safe next local", _auth.is_safe_next("/playlist/3") is True)
+        check("auth: unsafe protocol-relative", _auth.is_safe_next("//evil.com") is False)
+        check("auth: unsafe absolute url", _auth.is_safe_next("http://evil.com") is False)
+        check("auth: unsafe none", _auth.is_safe_next(None) is False)
+
+        # Throttle.
+        _auth.throttle_clear("1.2.3.4")
+        check("auth: throttle ok initially", _auth.throttle_ok("1.2.3.4") is True)
+        for _ in range(_auth._MAX_FAILS):
+            _auth.throttle_record_failure("1.2.3.4")
+        check("auth: throttle locks out", _auth.throttle_ok("1.2.3.4") is False)
+        _auth.throttle_clear("1.2.3.4")
+        check("auth: throttle clears", _auth.throttle_ok("1.2.3.4") is True)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def test_manual_link_merges_dedup():
     """A manual same-show link merges two differently-titled, id-less shows."""
     import service, db as _db_mod

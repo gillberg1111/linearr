@@ -1558,6 +1558,60 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 .manual-link-add { display: flex; flex-direction: column; gap: 0.5rem; }
 .manual-link-row { display: flex; align-items: center; gap: 0.6rem; }
 
+/* ---------- v3.3.0 — login page ---------- */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  gap: 1rem;
+}
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: rgba(24, 26, 33, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 1.6rem 1.5rem;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-bottom: 1.3rem;
+}
+.login-brand .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
+.login-brand .brand-name { font-size: 1.3rem; font-weight: 700; color: var(--fg); }
+.login-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.login-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--fg-dim);
+}
+.login-label input {
+  background: var(--bg-elev-2);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+.login-label input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 150, 255, 0.25);
+}
+.login-foot { color: var(--muted); font-size: 0.8rem; }
+
 /* "Link manually…" disclosure inside the missing-on warning banner. */
 .link-manually { display: inline-block; margin-left: 0.5rem; }
 .link-manually > summary {

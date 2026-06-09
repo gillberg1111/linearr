@@ -245,6 +245,10 @@ untouched; the future portion regenerates instantly.
   token auth. See [REST API & webhooks](#rest-api--webhooks).
 - **Outbound webhooks** — POST a JSON payload on playlist create / sync /
   delete to Home Assistant, Ntfy, Gotify, Discord, Slack, or any HTTP endpoint.
+- **Optional web-UI login** — off by default; enable a single username/password
+  under Settings → Login & Security (hashed, rate-limited). Reset without email
+  via `LINEARR_AUTH_PASSWORD`. Leave off if you front Linearr with a reverse
+  proxy / SSO. The REST API keeps its own independent key auth either way.
 
 ---
 
@@ -508,6 +512,8 @@ set on the Settings page). **At least one backend must be configured.**
 | `FLASK_SECRET`           | no           | `dev-secret-change-me` | Flask session cookie secret. `openssl rand -hex 32`.                                           |
 | `TMDB_API_KEY`           | no           | —                      | For the Franchise Playlist Maker (v3 key or v4 token). Also settable on Settings.              |
 | `LINEARR_API_KEY`        | no           | *(auto-generated)*     | Pin the REST API key across restarts. View it at `/settings`.                                  |
+| `LINEARR_AUTH_USERNAME`  | no           | `admin`                | Optional web-UI login username. Normally set in Settings; env is the reset path.               |
+| `LINEARR_AUTH_PASSWORD`  | no           | —                      | Set + restart to (re)set the web-UI login password (no-email reset), then clear it.            |
 | `TRAKT_CLIENT_ID`        | no           | *(bundled)*            | Override the bundled Trakt application key for public-list access.                             |
 | `CHRONOLISTS_BASE_URL`   | no           | *(public API)*         | Override the Chronolists API base URL.                                                         |
 

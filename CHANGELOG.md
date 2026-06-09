@@ -3,6 +3,23 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.0] - 2026-06-09
+
+### Added
+
+- **Optional web-UI login (username + password).** Off by default — set a
+  password under **Settings → Login & Security** to enable it. A single admin
+  user; the password is stored hashed (never plaintext), the session is a signed
+  cookie, and failed logins are rate-limited. Every page is protected except the
+  login page and static assets; the REST API at `/api/v1/` keeps its own
+  independent key auth. LAN-only and reverse-proxy/SSO setups can simply leave it
+  off (no behavior change on upgrade).
+- **No-email password reset.** Forgot the password? Set `LINEARR_AUTH_PASSWORD`
+  (and optionally `LINEARR_AUTH_USERNAME`) in your environment and restart — the
+  credentials are reset from the env on boot. Clear the variable again afterward;
+  the hashed password persists in the database. Settings shows a reminder while
+  the variable is set.
+
 ## [3.2.9] - 2026-06-09
 
 ### Fixed

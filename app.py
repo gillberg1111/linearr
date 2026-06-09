@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.2.9"
+__version__ = "3.3.0"
 
 import logging
 import os
@@ -18,11 +18,15 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
 load_dotenv()
 
+from datetime import timedelta  # noqa: E402
+
+import auth  # noqa: E402
 import db  # noqa: E402
 import scheduler  # noqa: E402
 import service  # noqa: E402
@@ -539,8 +543,15 @@ def _infer_thumb_backend(ref: str, explicit: str | None, available: list[str]) -
 def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = os.environ.get("FLASK_SECRET") or "dev-secret-change-me"
+    # Session cookie hardening for the optional login (v3.3.0). Not Secure-only
+    # since most installs are http on the LAN.
+    app.permanent_session_lifetime = timedelta(days=30)
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 
     db.init_db()
+
+    # Optional web-UI auth (default off). Honor LINEARR_AUTH_PASSWORD env reset.
+    auth.apply_env_reset()
 
     # Ensure an API key exists (generate once, persist).
     _env_key = os.environ.get("LINEARR_API_KEY", "").strip()
@@ -555,7 +566,58 @@ def create_app() -> Flask:
     # and badges to decide what to render).
     @app.context_processor
     def _inject_backends():
-        return {"AVAILABLE_BACKENDS": available_backends(), "APP_VERSION": __version__}
+        return {
+            "AVAILABLE_BACKENDS": available_backends(),
+            "APP_VERSION": __version__,
+            "AUTH_ENABLED": auth.auth_enabled(),
+        }
+
+    # ------------------------------------------------------------------ #
+    # Optional web-UI login (v3.3.0). Default off — active only once a
+    # password is set. Protects every page except the login/logout routes,
+    # static assets, and /api/* (which keeps its own API-key auth).
+    # ------------------------------------------------------------------ #
+    @app.before_request
+    def _require_login():
+        if not auth.auth_enabled():
+            return
+        if request.endpoint in ("login", "logout", "static"):
+            return
+        if request.path.startswith("/api/"):
+            return
+        if not session.get("authed"):
+            nxt = request.full_path if request.query_string else request.path
+            return redirect(url_for("login", next=nxt))
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if not auth.auth_enabled():
+            return redirect(url_for("index"))
+        if session.get("authed"):
+            return redirect(url_for("index"))
+        nxt = request.args.get("next", "")
+        if request.method == "POST":
+            ip = request.remote_addr or "?"
+            if not auth.throttle_ok(ip):
+                flash("Too many attempts. Wait a minute and try again.", "error")
+                return render_template("login.html", next=nxt), 429
+            username = request.form.get("username", "")
+            password = request.form.get("password", "")
+            if auth.verify(username, password):
+                auth.throttle_clear(ip)
+                session["authed"] = True
+                session.permanent = True
+                dest = request.form.get("next") or nxt
+                return redirect(dest if auth.is_safe_next(dest) else url_for("index"))
+            auth.throttle_record_failure(ip)
+            flash("Invalid username or password.", "error")
+        return render_template("login.html", next=nxt)
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        session.pop("authed", None)
+        flash("Signed out.", "ok")
+        return redirect(url_for("login") if auth.auth_enabled() else url_for("index"))
 
     # ------------------------------------------------------------------ #
     # Auth helper for REST API
@@ -2105,6 +2167,31 @@ def create_app() -> Flask:
                 else:
                     flash("No URL provided.", "error")
 
+            elif action == "auth_save":
+                username = (request.form.get("auth_username") or "").strip()
+                password = (request.form.get("auth_password") or "")
+                if auth.auth_enabled():
+                    # Already on: update username always; password only if given.
+                    auth.set_username(username)
+                    if password.strip():
+                        auth.change_password(password)
+                        flash("Login updated.", "ok")
+                    else:
+                        flash("Username updated.", "ok")
+                else:
+                    # Enabling for the first time needs a password.
+                    if not password.strip():
+                        flash("Set a password to enable login.", "error")
+                    else:
+                        auth.set_credentials(username, password)
+                        session["authed"] = True  # don't lock the current user out
+                        session.permanent = True
+                        flash("Login enabled.", "ok")
+
+            elif action == "auth_disable":
+                auth.disable_auth()
+                flash("Login disabled — the UI is open again.", "ok")
+
             elif action == "manual_link_add":
                 # Each picked select carries "id||title" so we get a label
                 # without re-listing every backend's shows.
@@ -2207,6 +2294,9 @@ def create_app() -> Flask:
             configured_backends=available_backends(),
             manual_links=db.list_manual_show_links(),
             link_backend_shows=link_backend_shows,
+            auth_enabled=auth.auth_enabled(),
+            auth_username=auth.get_username(),
+            auth_env_reset=bool(os.environ.get("LINEARR_AUTH_PASSWORD", "").strip()),
         )
 
     # ── REST API v1 ──────────────────────────────────────────────────── #

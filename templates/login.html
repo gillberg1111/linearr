@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Linearr</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">
+        <img class="brand-mark" src="{{ url_for('static', filename='favicon.png') }}" alt="">
+        <span class="brand-name">Linearr</span>
+      </div>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flashes" style="margin:0 0 1rem">
+            {% for category, msg in messages %}
+              <div class="flash flash-{{ category }}">{{ msg }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      <form method="post" class="login-form">
+        <input type="hidden" name="next" value="{{ next }}">
+        <label class="login-label">Username
+          <input type="text" name="username" autocomplete="username" autofocus required>
+        </label>
+        <label class="login-label">Password
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Sign in</button>
+      </form>
+    </div>
+    <p class="login-foot">Linearr v{{ APP_VERSION }}</p>
+  </main>
+</body>
+</html>

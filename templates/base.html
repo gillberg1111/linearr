@@ -23,6 +23,11 @@
           <span class="plus">+</span> New Playlist
         </a>
         <a href="{{ url_for('settings') }}" class="btn btn-sm btn-frosted" style="margin-left:auto">Settings</a>
+        {% if AUTH_ENABLED %}
+          <form method="post" action="{{ url_for('logout') }}" style="display:inline">
+            <button type="submit" class="btn btn-sm btn-frosted">Sign out</button>
+          </form>
+        {% endif %}
       </nav>
     </div>
   </header>

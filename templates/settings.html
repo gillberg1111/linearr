@@ -30,6 +30,56 @@
 
   <section class="card" style="max-width:600px; margin-top:1.5rem">
     <div class="section-head">
+      <h2>Login &amp; Security</h2>
+      <span class="hint">
+        Optional username + password for the web UI. Off by default — the REST
+        API at <code>/api/v1/</code> always uses its own key regardless. Leave
+        this off if you front Linearr with a reverse proxy / SSO.
+      </span>
+    </div>
+    {% if auth_env_reset %}
+      <p class="flash-warning" style="margin-top:0.8rem">
+        <code>LINEARR_AUTH_PASSWORD</code> is set in your environment, so the
+        password was (re)set from it on the last start. Clear that variable from
+        your env once you've confirmed you can sign in.
+      </p>
+    {% endif %}
+    <form method="post" style="margin-top:0.8rem" autocomplete="off">
+      <label class="backend-field">
+        <span class="backend-field-label">Username</span>
+        <input type="text" name="auth_username" value="{{ auth_username }}"
+               autocomplete="off" class="name-input"
+               style="width:100%; font-size:0.9rem">
+      </label>
+      <label class="backend-field">
+        <span class="backend-field-label">
+          {% if auth_enabled %}New password (blank = keep current){% else %}Password{% endif %}
+        </span>
+        <input type="password" name="auth_password" autocomplete="new-password"
+               placeholder="{% if auth_enabled %}leave blank to keep current{% else %}set a password to enable login{% endif %}"
+               class="name-input" style="width:100%; font-size:0.9rem">
+      </label>
+      <div style="margin-top:0.6rem; display:flex; gap:0.5rem; flex-wrap:wrap">
+        <button type="submit" name="action" value="auth_save"
+                class="btn btn-primary btn-sm">
+          {% if auth_enabled %}Update login{% else %}Enable login{% endif %}
+        </button>
+        {% if auth_enabled %}
+          <button type="submit" name="action" value="auth_disable"
+                  onclick="return confirm('Disable login? The web UI will be open to anyone who can reach it.')"
+                  class="btn btn-sm btn-ghost-danger">Disable login</button>
+        {% endif %}
+      </div>
+    </form>
+    <p class="hint" style="margin-top:0.6rem">
+      Forgot the password? Set <code>LINEARR_AUTH_PASSWORD</code> (and optionally
+      <code>LINEARR_AUTH_USERNAME</code>) in your environment and restart to
+      reset it, then clear the variable again.
+    </p>
+  </section>
+
+  <section class="card" style="max-width:600px; margin-top:1.5rem">
+    <div class="section-head">
       <h2>TMDB API Key</h2>
       <span class="hint">
         Required to use the Franchise Playlist Maker. Get a free key at
