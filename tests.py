@@ -1143,6 +1143,50 @@ def test_auth_module():
             pass
 
 
+def test_resolve_session_secret():
+    """Session secret: env wins (not persisted); else persisted; else generated
+    + persisted; never the publicly-known dev default."""
+    import os, tempfile
+    import db as _db_mod
+    import auth as _auth
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    orig_env = os.environ.get("FLASK_SECRET")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+
+        # Env set → returned verbatim, NOT persisted.
+        os.environ["FLASK_SECRET"] = "env-pinned-secret"
+        check("secret: env wins", _auth.resolve_session_secret() == "env-pinned-secret")
+        check("secret: env not persisted", _db_mod.get_setting("flask_secret") is None)
+
+        # Env empty → generate + persist; never the dev default.
+        os.environ["FLASK_SECRET"] = ""
+        gen = _auth.resolve_session_secret()
+        check("secret: generated when unset", bool(gen) and len(gen) >= 20)
+        check("secret: not the dev default", gen != "dev-secret-change-me")
+        check("secret: persisted", _db_mod.get_setting("flask_secret") == gen)
+
+        # Stable across calls (survives restart).
+        check("secret: stable across calls", _auth.resolve_session_secret() == gen)
+
+        # Pre-existing stored value is returned as-is.
+        os.environ.pop("FLASK_SECRET", None)
+        check("secret: returns stored", _auth.resolve_session_secret() == gen)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        if orig_env is None:
+            os.environ.pop("FLASK_SECRET", None)
+        else:
+            os.environ["FLASK_SECRET"] = orig_env
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def test_manual_link_merges_dedup():
     """A manual same-show link merges two differently-titled, id-less shows."""
     import service, db as _db_mod

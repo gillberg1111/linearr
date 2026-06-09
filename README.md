@@ -509,7 +509,7 @@ set on the Settings page). **At least one backend must be configured.**
 | `FRANCHISE_REFRESH_DAYS` | no           | `7`                    | How often franchise definitions refresh from upstream (Chronolists/Trakt).                     |
 | `AUTO_SYNC`              | no           | `true`                 | When true, new episodes/seasons splice into managed playlists every sweep. `false` locks them. |
 | `TV_LIBRARIES`           | no           | *(all show libs)*      | Comma-separated library names to source shows from. Applies to all backends.                   |
-| `FLASK_SECRET`           | no           | `dev-secret-change-me` | Flask session cookie secret. `openssl rand -hex 32`.                                           |
+| `FLASK_SECRET`           | no           | *(auto-generated)*     | Flask session cookie secret. Auto-generated and persisted if unset; set explicitly (`openssl rand -hex 32`) only to pin/share it.  |
 | `TMDB_API_KEY`           | no           | —                      | For the Franchise Playlist Maker (v3 key or v4 token). Also settable on Settings.              |
 | `LINEARR_API_KEY`        | no           | *(auto-generated)*     | Pin the REST API key across restarts. View it at `/settings`.                                  |
 | `LINEARR_AUTH_USERNAME`  | no           | `admin`                | Optional web-UI login username. Normally set in Settings; env is the reset path.               |

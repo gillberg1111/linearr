@@ -3,6 +3,20 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.3] - 2026-06-09
+
+### Security
+
+- **Session signing key is now strong by default (closes a login-bypass).** The
+  optional web-UI login (v3.3.0) makes the signed session cookie an auth
+  boundary, but `FLASK_SECRET` fell back to a publicly-known default
+  (`dev-secret-change-me`) when unset — so anyone could forge an authenticated
+  cookie and bypass the login. Linearr now auto-generates a strong random secret
+  and persists it (in the same store as the API key) when `FLASK_SECRET` isn't
+  set; an explicit `FLASK_SECRET` still takes precedence. No action needed.
+  **Note:** any session signed with the old default is invalidated, so you'll log
+  in once after upgrading (and only if you had login enabled).
+
 ## [3.3.2] - 2026-06-09
 
 ### Fixed

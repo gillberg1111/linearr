@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.3.2"
+__version__ = "3.3.3"
 
 import logging
 import os
@@ -542,13 +542,18 @@ def _infer_thumb_backend(ref: str, explicit: str | None, available: list[str]) -
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.environ.get("FLASK_SECRET") or "dev-secret-change-me"
     # Session cookie hardening for the optional login (v3.3.0). Not Secure-only
     # since most installs are http on the LAN.
     app.permanent_session_lifetime = timedelta(days=30)
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 
     db.init_db()
+
+    # Session signing key (v3.3.3): env FLASK_SECRET → persisted secret →
+    # auto-generated+persisted. Never the publicly-known dev default, which would
+    # let anyone forge an authenticated session cookie. Resolved AFTER init_db
+    # since it may read/write managed_settings.
+    app.secret_key = auth.resolve_session_secret()
 
     # Optional web-UI auth (default off). Honor LINEARR_AUTH_PASSWORD env reset.
     auth.apply_env_reset()

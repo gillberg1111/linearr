@@ -33,6 +33,30 @@ DEFAULT_USERNAME = "admin"
 # --------------------------------------------------------------------------- #
 
 
+def resolve_session_secret() -> str:
+    """Return the Flask session signing key (used as `app.secret_key`).
+
+    Precedence: env `FLASK_SECRET` (not persisted — lets it be pinned/rotated) →
+    a persisted random secret in managed_settings → generate + persist one.
+    NEVER returns the legacy `dev-secret-change-me` default: with login enabled,
+    a publicly-known signing key lets anyone forge an authenticated session
+    cookie and bypass the login entirely. Mirrors the auto-generated API key.
+    """
+    env = (os.environ.get("FLASK_SECRET") or "").strip()
+    if env:
+        return env
+    stored = db.get_setting("flask_secret")
+    if stored:
+        return stored
+    secret = secrets.token_urlsafe(48)
+    db.set_setting("flask_secret", secret)
+    log.warning(
+        "Generated a persistent session secret (FLASK_SECRET not set). "
+        "Sessions are now signed with a strong random key."
+    )
+    return secret
+
+
 def auth_enabled() -> bool:
     """True when a password hash is set — that's what turns login on."""
     return bool(db.get_setting(_HASH_KEY))
