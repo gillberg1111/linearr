@@ -3,6 +3,19 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.8] - 2026-06-09
+
+### Added
+
+- **Create cross-backend show matches directly in Settings.** v3.2.7 could only
+  record a match via the "Link manually…" banner on a playlist — but that banner
+  only appears when a row is missing a backend, so shows you'd already linked
+  (or any already-matched pair) had no way to create the persistent record.
+  **Settings → Manual show matches → "+ Add a match"** now loads your per-backend
+  show lists and lets you pick the same show on each backend and link them in one
+  place. (Show lists load only when you click "+ Add a match", so the Settings
+  page stays fast.)
+
 ## [3.2.7] - 2026-06-07
 
 ### Added

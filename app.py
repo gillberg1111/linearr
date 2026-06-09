@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.2.7"
+__version__ = "3.2.8"
 
 import logging
 import os
@@ -2105,6 +2105,27 @@ def create_app() -> Flask:
                 else:
                     flash("No URL provided.", "error")
 
+            elif action == "manual_link_add":
+                # Each picked select carries "id||title" so we get a label
+                # without re-listing every backend's shows.
+                pairs: list[tuple[str, str]] = []
+                label = None
+                for be in available_backends():
+                    raw = (request.form.get(f"link_{be}") or "").strip()
+                    if not raw:
+                        continue
+                    iid, _, title = raw.partition("||")
+                    if iid:
+                        pairs.append((be, iid))
+                        if label is None and title:
+                            label = title
+                if len(pairs) >= 2:
+                    db.link_shows_same(pairs, label=label)
+                    flash("Show match added — it now applies everywhere.", "ok")
+                else:
+                    flash("Pick the matching show on at least two backends.", "error")
+                return redirect(url_for("settings", match=1))
+
             elif action == "manual_link_delete":
                 gk = (request.form.get("group_key") or "").strip()
                 if gk:
@@ -2158,6 +2179,24 @@ def create_app() -> Flask:
             k: (bool(os.environ.get(env)) and not db.get_setting(k))
             for k, env in BACKEND_SETTING_ENV.items()
         }
+        # Per-backend show lists for the "add a match" form — only built when
+        # explicitly requested (?match=1), since list_all_shows() hits each
+        # backend and would otherwise slow/hang every Settings load.
+        link_backend_shows: dict[str, list[dict]] = {}
+        if request.args.get("match"):
+            for be in available_backends():
+                try:
+                    shows = get_client(be).list_all_shows()
+                    link_backend_shows[be] = [
+                        {
+                            "id": str(s.rating_key),
+                            "title": s.title + (f" ({s.year})" if s.year else ""),
+                        }
+                        for s in sorted(shows, key=lambda x: (x.title or "").lower())
+                    ]
+                except Exception:
+                    log.warning("match-options: list_all_shows failed on %s", be, exc_info=True)
+                    link_backend_shows[be] = []
         return render_template(
             "settings.html",
             api_key=api_key,
@@ -2167,6 +2206,7 @@ def create_app() -> Flask:
             backend_env_only=backend_env_only,
             configured_backends=available_backends(),
             manual_links=db.list_manual_show_links(),
+            link_backend_shows=link_backend_shows,
         )
 
     # ── REST API v1 ──────────────────────────────────────────────────── #

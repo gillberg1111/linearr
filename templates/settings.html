@@ -205,5 +205,33 @@
     {% else %}
       <p class="hint" style="margin-top:0.8rem">No manual show matches yet.</p>
     {% endif %}
+
+    {% if link_backend_shows %}
+      <form method="post" class="manual-link-add" style="margin-top:1rem">
+        <p class="hint" style="margin-bottom:0.6rem">
+          Pick the same show on each backend (leave a backend blank if it
+          doesn't have it), then Link. Applies to genre builds, the picker, and
+          sync everywhere.
+        </p>
+        {% for be, shows in link_backend_shows.items() %}
+          <div class="manual-link-row">
+            <label class="sort-mode-label" style="min-width:90px">{{ be|capitalize }}</label>
+            <select name="link_{{ be }}" class="select-frosted" style="flex:1;min-width:0">
+              <option value="">— none —</option>
+              {% for s in shows %}
+                <option value="{{ s.id }}||{{ s.title }}">{{ s.title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endfor %}
+        <button type="submit" name="action" value="manual_link_add"
+                class="btn btn-primary btn-sm" style="margin-top:0.6rem">Link these as one show</button>
+      </form>
+    {% else %}
+      <a href="{{ url_for('settings', match=1) }}#match" id="match" class="btn btn-sm" style="margin-top:1rem">
+        + Add a match
+      </a>
+      <span class="hint" style="margin-left:0.5rem">Loads your show lists so you can pair the same show across backends.</span>
+    {% endif %}
   </section>
 {% endblock %}

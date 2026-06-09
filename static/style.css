@@ -1554,6 +1554,10 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 
 .link-select { min-width: 200px; max-width: 320px; }
 
+/* Settings → Manual show matches: "add a match" per-backend picker rows. */
+.manual-link-add { display: flex; flex-direction: column; gap: 0.5rem; }
+.manual-link-row { display: flex; align-items: center; gap: 0.6rem; }
+
 /* "Link manually…" disclosure inside the missing-on warning banner. */
 .link-manually { display: inline-block; margin-left: 0.5rem; }
 .link-manually > summary {
