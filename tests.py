@@ -1073,6 +1073,43 @@ def test_manual_show_links_db():
             pass
 
 
+def test_pruned_items_db():
+    import os, tempfile
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        # pruned_items has a FK to managed_playlists; create a real row (id=1).
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, created_at) VALUES ('t', '')"
+            )
+
+        check("pruned: empty", _db_mod.get_pruned_item_ids(1, "emby") == set())
+        _db_mod.add_pruned_items(1, "emby", ["a", "b", "c"])
+        check("pruned: roundtrip", _db_mod.get_pruned_item_ids(1, "emby") == {"a", "b", "c"})
+        # Idempotent + per-(playlist,backend) isolation.
+        _db_mod.add_pruned_items(1, "emby", ["a", "d"])
+        check("pruned: idempotent add", _db_mod.get_pruned_item_ids(1, "emby") == {"a", "b", "c", "d"})
+        check("pruned: other backend isolated", _db_mod.get_pruned_item_ids(1, "plex") == set())
+        check("pruned: other playlist isolated", _db_mod.get_pruned_item_ids(2, "emby") == set())
+        # Empty input is a no-op.
+        _db_mod.add_pruned_items(1, "emby", [])
+        check("pruned: empty add no-op", len(_db_mod.get_pruned_item_ids(1, "emby")) == 4)
+        # Clear forgets the set so items return.
+        _db_mod.clear_pruned_items(1)
+        check("pruned: cleared", _db_mod.get_pruned_item_ids(1, "emby") == set())
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def test_auth_module():
     import os, tempfile
     import db as _db_mod

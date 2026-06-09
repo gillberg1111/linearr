@@ -3,6 +3,22 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.5] - 2026-06-09
+
+### Fixed
+
+- **Franchise pruning on Emby now actually sticks (definitive fix).** Franchise
+  sync rebuilds the playlist from the static definition, so to keep watched
+  items out it needs to know what's watched. The previous approach asked Emby
+  for play counts in bulk (`get_view_counts`) — but Emby returns empty watch
+  data for that id-filtered query no matter the endpoint, so sync thought
+  nothing was watched and re-added every item the prune sweep had just removed.
+  Linearr now **persists what it prunes** (a per-playlist "pruned set", detected
+  from the live playlist — which *does* report watch state — via the same path
+  the manual prune uses) and franchise sync subtracts that set from the rebuild.
+  No more dependence on Emby's bulk watch-state API. Turning pruning off for a
+  playlist forgets its pruned set, so items return on the next sync.
+
 ## [3.3.4] - 2026-06-09
 
 ### Fixed

@@ -2293,19 +2293,23 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
             be_keys = _build_backend_ordered_keys(tb, client, be_items, be_match)
 
             if bool(_row_get(row, "pruning_enabled", 1)) and be_keys:
-                try:
-                    vc = client.get_view_counts(be_keys)
-                except Exception:
-                    vc = {}
+                # Detect watched-beyond-buffer from the LIVE playlist
+                # (get_playlist_items returns correct view_count; Emby's bulk
+                # get_view_counts does NOT), persist them, then subtract the whole
+                # pruned set from the rebuild so they stay removed instead of
+                # being re-added from the static definition every sync.
+                newly = [
+                    current[i].rating_key
+                    for i in rotation.prune_indices(current, _watched_keep())
+                ]
+                if newly:
+                    db.add_pruned_items(playlist_id, tb, newly)
+                pruned = db.get_pruned_item_ids(playlist_id, tb)
                 _before = len(be_keys)
-                _watched = sum(1 for k in be_keys if int(vc.get(k, 0) or 0) > 0)
-                be_keys = _apply_franchise_prune(be_keys, vc, _watched_keep())
-                # Diagnostic: if `watched` is 0 when items are clearly watched,
-                # the backend's get_view_counts isn't returning UserData and the
-                # next sync would re-add what prune removed.
+                be_keys = [k for k in be_keys if k not in pruned]
                 log.info(
-                    "Franchise prune '%s' on %s: %d items, %d watched, %d kept",
-                    row["name"], tb, _before, _watched, len(be_keys),
+                    "Franchise prune '%s' on %s: %d items, %d pruned-set, %d kept",
+                    row["name"], tb, _before, len(pruned), len(be_keys),
                 )
 
             added_keys = [k for k in be_keys if k not in set(current_keys)]
@@ -2798,6 +2802,10 @@ def prune_playlist(playlist_id: int, keep_last_n: int | None = None) -> int:
                 continue
             remove_keys = [items[i].rating_key for i in indices]
             client.remove_items_from_playlist(pl_id, remove_keys)
+            # Franchise sync rebuilds from the static definition, so remember
+            # what was pruned to keep it out (see sync_franchise_playlist).
+            if _row_get(row, "playlist_type", "manual") == "franchise":
+                db.add_pruned_items(playlist_id, tb, remove_keys)
             log.info("Pruned %d watched item(s) from '%s' on %s",
                      len(remove_keys), row["name"], tb)
             total += len(remove_keys)

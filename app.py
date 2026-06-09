@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.3.4"
+__version__ = "3.3.5"
 
 import logging
 import os
@@ -2042,6 +2042,10 @@ def create_app() -> Flask:
                     "UPDATE managed_playlists SET pruning_enabled=? WHERE id=?",
                     (int(enabled), playlist_id),
                 )
+            # Turning pruning off forgets the pruned set so franchise items
+            # (which sync rebuilds from the definition) come back on next sync.
+            if not enabled:
+                db.clear_pruned_items(playlist_id)
         except Exception as e:
             log.exception("pruning change failed")
             flash(f"Failed to update setting: {e}", "error")

@@ -170,6 +170,19 @@ def init_db() -> None:
                 created_at  TEXT,
                 PRIMARY KEY (backend, item_id)
             );
+
+            -- v3.3.5 — persisted "pruned" set per (playlist, backend). Franchise
+            -- sync rebuilds from the static definition, so to keep watched items
+            -- removed it must know which were pruned (Emby's bulk get_view_counts
+            -- can't report watch state; the live playlist can). item_id is the
+            -- media item id on that backend.
+            CREATE TABLE IF NOT EXISTS pruned_items (
+                playlist_id INTEGER NOT NULL,
+                backend     TEXT    NOT NULL,
+                item_id     TEXT    NOT NULL,
+                PRIMARY KEY (playlist_id, backend, item_id),
+                FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
+            );
             """
         )
         # Lightweight migration for older schemas
@@ -1340,6 +1353,34 @@ def get_franchise_definition_by_id(definition_id: int) -> dict | None:
             "SELECT * FROM franchise_definitions WHERE id = ?", (definition_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def add_pruned_items(playlist_id: int, backend: str, item_ids) -> None:
+    """Record media item ids pruned from a playlist on a backend (idempotent)."""
+    rows = [(playlist_id, backend, str(i)) for i in item_ids if i]
+    if not rows:
+        return
+    with connection() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO pruned_items (playlist_id, backend, item_id) "
+            "VALUES (?, ?, ?)",
+            rows,
+        )
+
+
+def get_pruned_item_ids(playlist_id: int, backend: str) -> set[str]:
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT item_id FROM pruned_items WHERE playlist_id = ? AND backend = ?",
+            (playlist_id, backend),
+        ).fetchall()
+    return {str(r["item_id"]) for r in rows}
+
+
+def clear_pruned_items(playlist_id: int) -> None:
+    """Forget the pruned set (e.g. when pruning is turned off) so items return."""
+    with connection() as conn:
+        conn.execute("DELETE FROM pruned_items WHERE playlist_id = ?", (playlist_id,))
 
 
 def set_franchise_definition_poster(
