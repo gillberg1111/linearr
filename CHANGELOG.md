@@ -3,6 +3,21 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.4] - 2026-06-09
+
+### Fixed
+
+- **Franchise pruning on Emby actually sticks now (watched episodes stay
+  removed).** The bulk watch-state lookup (`get_view_counts`) queried Emby's
+  plain `/Items?userId=` endpoint, where Emby can return empty `UserData` — so
+  every play count read as 0, franchise sync concluded nothing was watched, and
+  re-added the items the prune sweep had just removed (which is why pruning
+  "only worked manually": the manual prune reads watch state through a
+  user-scoped endpoint that works). `get_view_counts` now uses the user-scoped
+  `/Users/{id}/Items` path, matching the read paths that already worked. Added a
+  per-sync diagnostic log (`Franchise prune 'X' on emby: N items, W watched, K
+  kept`) so this is verifiable in the logs.
+
 ## [3.3.3] - 2026-06-09
 
 ### Security

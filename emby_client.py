@@ -846,15 +846,17 @@ class EmbyClient(MediaClient):
         out: dict[str, int] = {}
         if not rating_keys:
             return out
+        # Use the USER-SCOPED path /Users/{id}/Items — Emby reliably attaches
+        # UserData (PlayCount) there, the same way the working watch-state reads
+        # do (get_playlist_items → /Playlists/{id}/Items, episodes_for_show →
+        # /Shows/{id}/Episodes). The plain /Items?userId= endpoint can return
+        # empty UserData on Emby, so every count read 0 → franchise pruning never
+        # removed watched items and the next sync re-added them (v3.3.4).
+        uid = self._user_id  # resolve the lazy property once
         for chunk in _chunked([str(k) for k in rating_keys], _MAX_IDS_PER_REQUEST):
             try:
-                resp = self._request("GET", "/Items", params={
+                resp = self._request("GET", f"/Users/{uid}/Items", params={
                     "Ids": ",".join(chunk),
-                    "userId": self._user_id,
-                    "Fields": "UserData",
-                    # REQUIRED on Emby: without it UserData (PlayCount) comes back
-                    # empty, so every count reads 0 and franchise pruning never
-                    # removes watched items (they reappear on the next sync).
                     "enableUserData": "true",
                 })
             except Exception:

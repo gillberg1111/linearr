@@ -3518,7 +3518,8 @@ class _ViewCountRecorder:
         import requests as _r
         r = _r.Response()
         r.status_code = 200
-        if method == "GET" and path == "/Items" and params and "Ids" in params:
+        # Emby uses the user-scoped path /Users/{id}/Items; Jellyfin uses /Items.
+        if method == "GET" and path.endswith("/Items") and params and "Ids" in params:
             ids = params["Ids"].split(",")
             items = []
             for id_ in ids:
@@ -3574,6 +3575,9 @@ def test_get_view_counts_chunking_emby():
     gets = [(m, p) for m, p, _ in rec.calls if m == "GET"]
     expected_chunks = (N + _ec._MAX_IDS_PER_REQUEST - 1) // _ec._MAX_IDS_PER_REQUEST
     check("em gvc: correct number of GETs", len(gets) == expected_chunks)
+    # Must use the user-scoped path — Emby only attaches UserData there (v3.3.4).
+    check("em gvc: user-scoped /Users/{id}/Items path",
+          all(p.startswith("/Users/") and p.endswith("/Items") for _, p in gets))
 
     all_ids = []
     for _, _, params in rec.calls:

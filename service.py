@@ -2297,7 +2297,16 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
                     vc = client.get_view_counts(be_keys)
                 except Exception:
                     vc = {}
+                _before = len(be_keys)
+                _watched = sum(1 for k in be_keys if int(vc.get(k, 0) or 0) > 0)
                 be_keys = _apply_franchise_prune(be_keys, vc, _watched_keep())
+                # Diagnostic: if `watched` is 0 when items are clearly watched,
+                # the backend's get_view_counts isn't returning UserData and the
+                # next sync would re-add what prune removed.
+                log.info(
+                    "Franchise prune '%s' on %s: %d items, %d watched, %d kept",
+                    row["name"], tb, _before, _watched, len(be_keys),
+                )
 
             added_keys = [k for k in be_keys if k not in set(current_keys)]
             removed_keys = [k for k in current_keys if k not in set(be_keys)]
@@ -2305,6 +2314,8 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
                 client.replace_playlist_items(pl_id, be_keys)
                 added += len(added_keys)
                 removed += len(removed_keys)
+                log.info("Franchise sync '%s' on %s: +%d, -%d",
+                         row["name"], tb, len(added_keys), len(removed_keys))
         except Exception:
             log.warning(
                 "Franchise sync failed for backend=%s playlist=%d",
