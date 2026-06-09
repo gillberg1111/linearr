@@ -159,6 +159,11 @@ untouched; the future portion regenerates instantly.
   missing an ID on one side. An informational (never blocking) banner lists
   shows not on every targeted backend; add the show to that library and the
   next sync heals it, or use **Link manually…** to pick the exact match.
+- **Persistent cross-backend matches.** When a backend names a show differently
+  and has no shared provider ID, **Link manually…** records a global "same show"
+  link that the matcher honors everywhere — genre builds, the show picker, and
+  sync all treat them as one. Manage these under **Settings → Manual show
+  matches**.
 
 ### Playlist types
 

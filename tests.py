@@ -1037,6 +1037,70 @@ def test_genre_cache_db():
             pass
 
 
+def test_manual_show_links_db():
+    import os, tempfile
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+
+        check("links: empty map", _db_mod.get_manual_show_link_map() == {})
+        check("links: <2 entries -> None", _db_mod.link_shows_same([("plex", "X")]) is None)
+
+        g = _db_mod.link_shows_same([("plex", "X"), ("jellyfin", "Y"), ("emby", "Z")])
+        check("links: returns group key", bool(g))
+        m = _db_mod.get_manual_show_link_map()
+        check("links: all three mapped to one group",
+              m.get(("plex", "X")) == g and m.get(("jellyfin", "Y")) == g
+              and m.get(("emby", "Z")) == g)
+
+        # Linking an overlapping pair reuses the existing group (no split).
+        g2 = _db_mod.link_shows_same([("emby", "Z"), ("plex", "W")])
+        check("links: overlap reuses group", g2 == g)
+        check("links: new member joined group",
+              _db_mod.get_manual_show_link_map().get(("plex", "W")) == g)
+
+        _db_mod.remove_manual_show_link_group(g)
+        check("links: group removed", _db_mod.get_manual_show_link_map() == {})
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_manual_link_merges_dedup():
+    """A manual same-show link merges two differently-titled, id-less shows."""
+    import service, db as _db_mod
+    from media_client import ShowSummary
+
+    orig_map = _db_mod.get_manual_show_link_map
+    orig_enrich = service._enrich_configs_with_matches
+    _db_mod.get_manual_show_link_map = lambda: {("plex", "PX"): "g1", ("emby", "EZ"): "g1"}
+    service._enrich_configs_with_matches = lambda *a, **k: None
+    try:
+        per_backend = {
+            "plex": [ShowSummary("PX", "Dimension 20: Time Quangle", None, "Lib", None)],
+            "emby": [ShowSummary("EZ", "Dimension 20 Live", None, "Lib", None)],
+        }
+        out = service._dedup_show_summaries_to_configs(per_backend, ["plex", "emby"])
+        check("manual link: merges to one config", len(out) == 1)
+        check("manual link: unions plex id", out and out[0].plex_rating_key == "PX")
+        check("manual link: unions emby id", out and out[0].emby_rating_key == "EZ")
+
+        # Control: without the link they stay two separate configs.
+        _db_mod.get_manual_show_link_map = lambda: {}
+        out2 = service._dedup_show_summaries_to_configs(per_backend, ["plex", "emby"])
+        check("no link: two separate configs", len(out2) == 2)
+    finally:
+        _db_mod.get_manual_show_link_map = orig_map
+        service._enrich_configs_with_matches = orig_enrich
+
+
 def test_managed_playlists_rebuild_preserves_block_size():
     """Regression for issue #8: init_db()'s managed_playlists rebuild must copy
     rows by COLUMN NAME, not positionally.

@@ -1043,22 +1043,30 @@ def _dedup_show_summaries_to_configs(
     seen_keys: dict[str, list[int]] = {}
     id_seen: dict[tuple, int] = {}   # (idtype, idval) -> index in out
     _years: dict[int, int | None] = {}
+    link_map = db.get_manual_show_link_map()  # (backend, id) -> group_key
+    group_seen: dict[str, int] = {}            # group_key -> index in out
 
     for tb in target_backends:
         for s in per_backend.get(tb, []):
             nk = normalize_title(s.title)
+            grp = link_map.get((tb, str(s.rating_key)))
 
             match_idx: int | None = None
-            for idx in seen_keys.get(nk, []):
-                existing_year = _years.get(idx)
-                if (
-                    existing_year is not None
-                    and s.year is not None
-                    and existing_year != s.year
-                ):
-                    continue
-                match_idx = idx
-                break
+            # 0. User-asserted manual same-show link wins (explicit override).
+            if grp is not None and grp in group_seen:
+                match_idx = group_seen[grp]
+
+            if match_idx is None:
+                for idx in seen_keys.get(nk, []):
+                    existing_year = _years.get(idx)
+                    if (
+                        existing_year is not None
+                        and s.year is not None
+                        and existing_year != s.year
+                    ):
+                        continue
+                    match_idx = idx
+                    break
 
             if match_idx is None:
                 # Any shared provider id (TVDB/TMDB/IMDB) = same show.
@@ -1083,6 +1091,8 @@ def _dedup_show_summaries_to_configs(
                     seen_keys.setdefault(nk, []).append(match_idx)
                 for pid in _show_id_set(s):
                     id_seen.setdefault(pid, match_idx)
+                if grp is not None:
+                    group_seen.setdefault(grp, match_idx)
                 continue
 
             cfg = ShowConfig(
@@ -1099,6 +1109,8 @@ def _dedup_show_summaries_to_configs(
             _years[new_idx] = s.year
             for pid in _show_id_set(s):
                 id_seen.setdefault(pid, new_idx)
+            if grp is not None:
+                group_seen.setdefault(grp, new_idx)
             out.append(cfg)
 
     if len(target_backends) > 1:
@@ -1495,6 +1507,20 @@ def link_show_backend(
             "Merged duplicate show '%s' into '%s' on manual %s link (id %s)",
             rd.get("show_title"), survivor.get("show_title"), backend, target_key,
         )
+
+    # Persist a GLOBAL "same show" link from the survivor's backend ids, so the
+    # genre/picker/sync matching layer treats them as one everywhere — not just
+    # in this playlist. Needs ≥2 backend ids to be meaningful.
+    link_pairs = [
+        (be2, survivor[col2])
+        for be2, col2 in _SHOW_ID_COL.items()
+        if survivor.get(col2)
+    ]
+    if len(link_pairs) >= 2:
+        try:
+            db.link_shows_same(link_pairs, label=survivor.get("show_title"))
+        except Exception:
+            log.warning("failed to persist manual show link", exc_info=True)
 
     row = db.get_playlist(playlist_id)
     full_configs = [_config_from_row(r) for r in db.list_shows(playlist_id)]

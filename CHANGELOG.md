@@ -3,6 +3,20 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.7] - 2026-06-07
+
+### Added
+
+- **Persistent cross-backend "same show" matches.** When a show has a different
+  title on one backend and no shared provider IDs (e.g. Emby has no metadata and
+  names it differently), automatic matching can't connect them, so it appears as
+  two separate shows in genre builds, the picker, and playlists. Using "Link
+  manually…" on a playlist now records a **global** same-show link, and the
+  matching layer honors it **everywhere** — genre builds, the By Show picker, and
+  sync all treat the linked entries as one show from then on (not just in the one
+  playlist where you linked them). Manage/undo these under **Settings → Manual
+  show matches**.
+
 ## [3.2.6] - 2026-06-07
 
 ### Fixed

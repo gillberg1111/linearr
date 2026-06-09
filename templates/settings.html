@@ -171,4 +171,39 @@
       <code>{"event":"playlist.synced","timestamp":"…","playlist":{…},"data":{"added":3,"removed":0}}</code>
     </p>
   </section>
+
+  <section class="card" style="max-width:600px; margin-top:1.5rem">
+    <div class="card-head">
+      <h2>Manual show matches</h2>
+    </div>
+    <p class="hint" style="margin-bottom:0.8rem">
+      Shows you've manually linked across backends as the same title — created
+      with "Link manually…" on a playlist when automatic matching can't connect
+      them (different titles, no shared provider IDs). These apply everywhere:
+      genre builds, the show picker, and sync.
+    </p>
+    {% if manual_links %}
+      <ul class="webhook-list">
+        {% for g in manual_links %}
+          <li class="webhook-row">
+            <div class="webhook-info">
+              <span class="webhook-label">{{ g.label or 'Linked show' }}</span>
+              <span class="webhook-url">
+                {% for m in g.members %}{{ m.backend|capitalize }}{% if not loop.last %} · {% endif %}{% endfor %}
+              </span>
+            </div>
+            <div class="webhook-actions">
+              <form method="post" onsubmit="return confirm('Unlink this show match? They will be treated as separate shows again.')">
+                <input type="hidden" name="group_key" value="{{ g.group_key }}">
+                <button type="submit" name="action" value="manual_link_delete"
+                        class="btn btn-sm btn-ghost-danger">Unlink</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="hint" style="margin-top:0.8rem">No manual show matches yet.</p>
+    {% endif %}
+  </section>
 {% endblock %}

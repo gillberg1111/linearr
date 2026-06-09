@@ -157,6 +157,19 @@ def init_db() -> None:
                 PRIMARY KEY (playlist_id, show_rating_key),
                 FOREIGN KEY (playlist_id) REFERENCES managed_playlists(id) ON DELETE CASCADE
             );
+
+            -- v3.2.7 — user-asserted "these are the same show" links across
+            -- backends, for shows that can't be auto-matched (different titles,
+            -- no shared provider id, e.g. Emby has no metadata). All rows sharing
+            -- a group_key are treated as one show by the dedup/matching layer.
+            CREATE TABLE IF NOT EXISTS manual_show_links (
+                backend     TEXT NOT NULL,
+                item_id     TEXT NOT NULL,
+                group_key   TEXT NOT NULL,
+                label       TEXT,
+                created_at  TEXT,
+                PRIMARY KEY (backend, item_id)
+            );
             """
         )
         # Lightweight migration for older schemas
@@ -849,6 +862,99 @@ def remove_show(playlist_id: int, show_rating_key: str) -> None:
         conn.execute(
             "DELETE FROM playlist_shows WHERE playlist_id = ? AND show_rating_key = ?",
             (playlist_id, show_rating_key),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Manual cross-backend "same show" links (v3.2.7)
+# --------------------------------------------------------------------------- #
+
+
+def link_shows_same(entries: list[tuple[str, str]], label: str | None = None) -> str | None:
+    """Record that the given (backend, item_id) pairs are the SAME show.
+
+    Reuses an existing group if any entry already belongs to one (merging
+    groups when several do), else mints a new group token. `label` is a
+    human-readable name for the Settings management list. Returns the
+    group_key, or None if fewer than two distinct entries are supplied.
+    """
+    import secrets as _secrets
+    from datetime import datetime, timezone
+
+    seen: list[tuple[str, str]] = []
+    for be, iid in entries:
+        if not be or iid in (None, ""):
+            continue
+        pair = (str(be), str(iid))
+        if pair not in seen:
+            seen.append(pair)
+    if len(seen) < 2:
+        return None
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with connection() as conn:
+        existing: set[str] = set()
+        for be, iid in seen:
+            r = conn.execute(
+                "SELECT group_key FROM manual_show_links WHERE backend=? AND item_id=?",
+                (be, iid),
+            ).fetchone()
+            if r:
+                existing.add(r["group_key"])
+        if existing:
+            group_key = sorted(existing)[0]
+            for g in existing:
+                if g != group_key:
+                    conn.execute(
+                        "UPDATE manual_show_links SET group_key=? WHERE group_key=?",
+                        (group_key, g),
+                    )
+        else:
+            group_key = _secrets.token_hex(8)
+        for be, iid in seen:
+            conn.execute(
+                """INSERT INTO manual_show_links (backend, item_id, group_key, label, created_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(backend, item_id)
+                   DO UPDATE SET group_key=excluded.group_key,
+                                 label=COALESCE(excluded.label, label)""",
+                (be, iid, group_key, label, now),
+            )
+    return group_key
+
+
+def get_manual_show_link_map() -> dict[tuple[str, str], str]:
+    """{(backend, item_id) -> group_key} for every manual same-show link."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT backend, item_id, group_key FROM manual_show_links"
+        ).fetchall()
+    return {(r["backend"], str(r["item_id"])): r["group_key"] for r in rows}
+
+
+def list_manual_show_links() -> list[dict]:
+    """Manual links grouped for display:
+    [{group_key, label, members:[{backend,item_id}]}], sorted by label."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT backend, item_id, group_key, label FROM manual_show_links "
+            "ORDER BY group_key"
+        ).fetchall()
+    groups: dict[str, dict] = {}
+    for r in rows:
+        g = groups.setdefault(
+            r["group_key"], {"group_key": r["group_key"], "label": None, "members": []}
+        )
+        if not g["label"] and r["label"]:
+            g["label"] = r["label"]
+        g["members"].append({"backend": r["backend"], "item_id": str(r["item_id"])})
+    return sorted(groups.values(), key=lambda g: (g["label"] or "").lower())
+
+
+def remove_manual_show_link_group(group_key: str) -> None:
+    with connection() as conn:
+        conn.execute(
+            "DELETE FROM manual_show_links WHERE group_key = ?", (group_key,)
         )
 
 

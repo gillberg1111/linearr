@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.2.6"
+__version__ = "3.2.7"
 
 import logging
 import os
@@ -93,6 +93,8 @@ def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
     # metadata agents.
     seen: dict[str, list[int]] = {}  # normalized title -> indices in out
     id_seen: dict = {}               # (idtype, idval) -> index in out
+    link_map = db.get_manual_show_link_map()  # (backend, id) -> group_key
+    group_seen: dict = {}            # group_key -> index in out
 
     for backend in backends:
         try:
@@ -103,21 +105,27 @@ def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
             continue
         for s in shows:
             nk = normalize_title(s.title)
+            grp = link_map.get((backend, str(s.rating_key)))
+
+            # 0. User-asserted manual same-show link wins (explicit override).
+            match_idx: int | None = None
+            if grp is not None and grp in group_seen:
+                match_idx = group_seen[grp]
 
             # 1. Try title+year match (existing logic).
-            match_idx: int | None = None
-            for idx in seen.get(nk, []):
-                existing = out[idx]
-                # Only split into separate entries when both sides carry a
-                # non-None year and they differ.
-                if (
-                    existing["year"] is not None
-                    and s.year is not None
-                    and existing["year"] != s.year
-                ):
-                    continue
-                match_idx = idx
-                break
+            if match_idx is None:
+                for idx in seen.get(nk, []):
+                    existing = out[idx]
+                    # Only split into separate entries when both sides carry a
+                    # non-None year and they differ.
+                    if (
+                        existing["year"] is not None
+                        and s.year is not None
+                        and existing["year"] != s.year
+                    ):
+                        continue
+                    match_idx = idx
+                    break
 
             # 2. Fall back to any shared provider id if titles didn't match.
             if match_idx is None:
@@ -140,6 +148,8 @@ def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
                     seen.setdefault(nk, []).append(match_idx)
                 for pid in service._show_id_set(s):
                     id_seen.setdefault(pid, match_idx)
+                if grp is not None:
+                    group_seen.setdefault(grp, match_idx)
                 continue
 
             # New entry.
@@ -159,6 +169,8 @@ def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
             seen.setdefault(nk, []).append(new_idx)
             for pid in service._show_id_set(s):
                 id_seen.setdefault(pid, new_idx)
+            if grp is not None:
+                group_seen.setdefault(grp, new_idx)
             out.append(row)
 
     out.sort(key=lambda r: r["title"].lower())
@@ -2093,6 +2105,12 @@ def create_app() -> Flask:
                 else:
                     flash("No URL provided.", "error")
 
+            elif action == "manual_link_delete":
+                gk = (request.form.get("group_key") or "").strip()
+                if gk:
+                    db.remove_manual_show_link_group(gk)
+                    flash("Show match removed.", "ok")
+
             elif action == "backends_save":
                 from media_client import BACKEND_SETTING_ENV
                 for _key in BACKEND_SETTING_ENV:
@@ -2148,6 +2166,7 @@ def create_app() -> Flask:
             backend_conf=backend_conf,
             backend_env_only=backend_env_only,
             configured_backends=available_backends(),
+            manual_links=db.list_manual_show_links(),
         )
 
     # ── REST API v1 ──────────────────────────────────────────────────── #
