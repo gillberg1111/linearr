@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.3.1"
+__version__ = "3.3.2"
 
 import logging
 import os
@@ -583,7 +583,11 @@ def create_app() -> Flask:
             return
         if request.endpoint in ("login", "logout", "static"):
             return
-        if request.path.startswith("/api/"):
+        # Only the keyed REST API bypasses the session (it has its own Bearer
+        # auth and is called by external scripts). Internal /api/ endpoints
+        # (episodes/genres/preview/franchise), used by the logged-in UI's own
+        # JS, still require a session when login is enabled.
+        if request.path.startswith("/api/v1/"):
             return
         if not session.get("authed"):
             nxt = request.full_path if request.query_string else request.path

@@ -3,6 +3,18 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.2] - 2026-06-09
+
+### Fixed
+
+- **Login guard now also covers the internal API endpoints.** When web-UI login
+  is enabled, the guard previously exempted *all* `/api/` paths — including the
+  unauthenticated internal endpoints the UI uses (`/api/genres`, `/api/preview`,
+  `/api/episodes`, `/api/franchise/preview`). Only the keyed REST API at
+  `/api/v1/` should bypass the session; the internal endpoints now require a
+  login (the UI's own JS already sends the session cookie, so nothing in the app
+  breaks). No effect when login is off.
+
 ## [3.3.1] - 2026-06-09
 
 ### Changed
