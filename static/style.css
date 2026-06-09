@@ -248,7 +248,18 @@ a { color: var(--accent); }
 .playlist-card-body { padding: 0.9rem 1rem 1rem; }
 .playlist-card-body h3 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 .playlist-card-body .meta { color: var(--fg-dim); font-size: 0.85rem; margin: 0 0 0.5rem; }
-.playlist-card-body .show-names { color: var(--muted); font-size: 0.8rem; margin: 0; }
+.playlist-card-body .show-names {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0;
+  /* Clamp the show list to 2 lines with an ellipsis so cards keep a uniform,
+     compact height no matter how many shows a (genre) playlist matched. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
 
 /* ---------- builder toolbar ---------- */
 .builder { margin-top: 0.5rem; }

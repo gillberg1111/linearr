@@ -3,6 +3,15 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.1] - 2026-06-09
+
+### Changed
+
+- **Playlist cards keep a uniform height.** The show-title list on each card is
+  now clamped to two lines with an ellipsis, so a genre playlist matching many
+  shows no longer makes its card tower over the others. The full list is still
+  on the playlist's own page.
+
 ## [3.3.0] - 2026-06-09
 
 ### Added
