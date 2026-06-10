@@ -249,6 +249,9 @@ untouched; the future portion regenerates instantly.
   under Settings → Login & Security (hashed, rate-limited). Reset without email
   via `LINEARR_AUTH_PASSWORD`. Leave off if you front Linearr with a reverse
   proxy / SSO. The REST API keeps its own independent key auth either way.
+- **Installable as a home-screen app (PWA)** — "Add to Home Screen" on iPhone or
+  Android shows the Linearr logo and opens full-screen (web app manifest +
+  apple-touch-icon; no config).
 
 ---
 

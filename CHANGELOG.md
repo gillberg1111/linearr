@@ -3,6 +3,16 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.0] - 2026-06-10
+
+### Added
+
+- **Installable as a home-screen app (PWA).** Saving Linearr to your home screen
+  on iPhone or Android now shows the Linearr logo and opens it full-screen. Added
+  a web app manifest (`manifest.webmanifest`) with 192/512 icons for Android, an
+  `apple-touch-icon` for iOS, and the standard standalone-display / theme-color
+  meta tags (on both the app and the login page). No config needed.
+
 ## [3.3.6] - 2026-06-09
 
 ### Internal
