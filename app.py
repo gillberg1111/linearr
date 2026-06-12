@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.4.0"
+__version__ = "3.5.0"
 
 import logging
 import os
@@ -25,6 +25,8 @@ from flask import (
 load_dotenv()
 
 from datetime import timedelta  # noqa: E402
+
+from urllib.parse import urlsplit  # noqa: E402
 
 import auth  # noqa: E402
 import db  # noqa: E402
@@ -74,6 +76,57 @@ def _backend_unreachable_message(backend: str, exc: Exception) -> str:
                 f"Linearr container.")
     short = str(exc).strip().splitlines()[0][:160] if str(exc).strip() else type(exc).__name__
     return f"Couldn't list from {name}: {short}"
+
+
+def _is_cross_site(origin: str | None, referer: str | None, host: str) -> bool:
+    """True if a browser-issued request demonstrably came from another site.
+
+    CSRF guard for a LAN app where auth is off by default: a malicious page in
+    the user's browser can otherwise fire blind form POSTs at the instance.
+    `Origin` wins when present (modern browsers send it on every cross-origin
+    POST; literal "null" = sandboxed iframe -> treat as cross-site). Falls back
+    to `Referer`. Neither header present -> not provably cross-site (curl,
+    scripts, very old browsers) -> allowed.
+    """
+    src = origin or referer
+    if not src:
+        return False
+    if src == "null":
+        return True
+    netloc = urlsplit(src).netloc
+    if not netloc:
+        return True  # malformed header — fail closed
+    return netloc.lower() != host.lower()
+
+
+def _wants_json() -> bool:
+    """True when the request came from static/linearr.js (AJAX form layer)."""
+    return request.headers.get("X-Linearr-Ajax") == "1"
+
+
+def _playlist_action(playlist_id, fn, ok_msg, fail_label, changed=True):
+    """Run a playlist mutation and answer in the caller's dialect.
+
+    Native form post -> flash + redirect back to the playlist (existing UX).
+    linearr.js fetch (X-Linearr-Ajax: 1) -> JSON {ok, message, changed}; the
+    client toasts `message` and reloads the page iff `changed`.
+
+    `ok_msg` and `changed` may be callables taking fn's return value.
+    """
+    try:
+        result = fn()
+    except Exception as e:
+        log.exception("%s failed", fail_label)
+        if _wants_json():
+            return jsonify({"ok": False, "message": f"{fail_label} failed: {e}"}), 500
+        flash(f"{fail_label} failed: {e}", "error")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+    msg = ok_msg(result) if callable(ok_msg) else ok_msg
+    did_change = changed(result) if callable(changed) else changed
+    if _wants_json():
+        return jsonify({"ok": True, "message": msg, "changed": bool(did_change)})
+    flash(msg, "ok")
+    return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
 
 def _aggregated_shows() -> tuple[list[dict], list[tuple[str, str]]]:
@@ -576,6 +629,31 @@ def create_app() -> Flask:
             "APP_VERSION": __version__,
             "AUTH_ENABLED": auth.auth_enabled(),
         }
+
+    # ------------------------------------------------------------------ #
+    # Cross-site write protection (v3.5.0). Browsers attach Origin/Referer
+    # to form posts; if one is present and points at another site, reject.
+    # /api/v1/* is exempt (keyed Bearer auth, called by external scripts).
+    # ------------------------------------------------------------------ #
+    @app.before_request
+    def _block_cross_site_writes():
+        if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+            return
+        if request.path.startswith("/api/v1/"):
+            return
+        if os.environ.get("LINEARR_DISABLE_ORIGIN_CHECK", "").strip() == "1":
+            return  # escape hatch for proxies that rewrite the Host header
+        if _is_cross_site(
+            request.headers.get("Origin"),
+            request.headers.get("Referer"),
+            request.host,
+        ):
+            log.warning(
+                "Blocked cross-site %s to %s (Origin=%r, Referer=%r)",
+                request.method, request.path,
+                request.headers.get("Origin"), request.headers.get("Referer"),
+            )
+            abort(403, description="Cross-site request blocked.")
 
     # ------------------------------------------------------------------ #
     # Optional web-UI login (v3.3.0). Default off — active only once a
@@ -1185,14 +1263,12 @@ def create_app() -> Flask:
         mode = (request.form.get("sort_mode") or "").strip()
         if mode not in VALID_SORT_MODES:
             abort(400)
-        try:
-            service.set_playlist_sort_mode(playlist_id, mode)
-        except Exception as e:
-            log.exception("sort_mode change failed")
-            flash(f"Failed to change sort: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Sort mode set to {_MODE_LABELS.get(mode, mode)}.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.set_playlist_sort_mode(playlist_id, mode),
+            ok_msg=f"Sort mode set to {_MODE_LABELS.get(mode, mode)}.",
+            fail_label="Sort change",
+        )
 
     @app.route("/playlist/<int:playlist_id>/block_size", methods=["POST"])
     def change_block_size(playlist_id: int):
@@ -1200,25 +1276,21 @@ def create_app() -> Flask:
             size = max(1, int(request.form.get("block_size", "1")))
         except ValueError:
             abort(400)
-        try:
-            service.set_playlist_block_size(playlist_id, size)
-        except Exception as e:
-            log.exception("block_size change failed")
-            flash(f"Failed to set block size: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Block size set to {size}.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.set_playlist_block_size(playlist_id, size),
+            ok_msg=f"Block size set to {size}.",
+            fail_label="Block size change",
+        )
 
     @app.route("/playlist/<int:playlist_id>/reshuffle", methods=["POST"])
     def reshuffle(playlist_id: int):
-        try:
-            service.reshuffle_playlist(playlist_id)
-        except Exception as e:
-            log.exception("reshuffle failed")
-            flash(f"Reshuffle failed: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash("Playlist reshuffled.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.reshuffle_playlist(playlist_id),
+            ok_msg="Playlist reshuffled.",
+            fail_label="Reshuffle",
+        )
 
     # ------------------------------------------------------------------ #
     # Genre playlist creation (v1.4.0)
@@ -2012,60 +2084,52 @@ def create_app() -> Flask:
     @app.route("/playlist/<int:playlist_id>/auto_sync", methods=["POST"])
     def change_auto_sync(playlist_id: int):
         enabled = bool(request.form.get("enabled"))
-        try:
-            service.set_playlist_auto_sync(playlist_id, enabled)
-        except Exception as e:
-            log.exception("auto_sync change failed")
-            flash(f"Failed to update setting: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Auto-update {'enabled' if enabled else 'disabled'}.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.set_playlist_auto_sync(playlist_id, enabled),
+            ok_msg=f"Auto-update {'enabled' if enabled else 'disabled'}.",
+            fail_label="Setting change",
+        )
 
     @app.route("/playlist/<int:playlist_id>/unwatched_only", methods=["POST"])
     def change_unwatched_only(playlist_id: int):
         new_value = bool(request.form.get("enabled"))
-        try:
-            service.set_playlist_unwatched_only(playlist_id, new_value)
-        except Exception as e:
-            log.exception("unwatched_only change failed")
-            flash(f"Failed to change filter: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Unwatched-only filter {'enabled' if new_value else 'disabled'}.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.set_playlist_unwatched_only(playlist_id, new_value),
+            ok_msg=f"Unwatched-only filter {'enabled' if new_value else 'disabled'}.",
+            fail_label="Filter change",
+        )
 
     @app.route("/playlist/<int:playlist_id>/pruning", methods=["POST"])
     def change_pruning(playlist_id: int):
         enabled = bool(request.form.get("enabled"))
-        try:
-            with db.connection() as conn:
-                conn.execute(
-                    "UPDATE managed_playlists SET pruning_enabled=? WHERE id=?",
-                    (int(enabled), playlist_id),
-                )
+
+        def _apply():
+            db.set_pruning_enabled(playlist_id, enabled)
             # Turning pruning off forgets the pruned set so franchise items
             # (which sync rebuilds from the definition) come back on next sync.
             if not enabled:
                 db.clear_pruned_items(playlist_id)
-        except Exception as e:
-            log.exception("pruning change failed")
-            flash(f"Failed to update setting: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Pruning {'enabled' if enabled else 'disabled'}.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+        return _playlist_action(
+            playlist_id,
+            _apply,
+            ok_msg=f"Pruning {'enabled' if enabled else 'disabled'}.",
+            fail_label="Setting change",
+        )
 
     @app.route("/playlist/<int:playlist_id>/reorder", methods=["POST"])
     def reorder(playlist_id: int):
         ordered = request.form.getlist("order")
         if not ordered:
             abort(400)
-        try:
-            service.reorder_shows(playlist_id, ordered)
-        except Exception as e:
-            log.exception("reorder failed")
-            flash(f"Reorder failed: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash("Order updated.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.reorder_shows(playlist_id, ordered),
+            ok_msg="Order updated.",
+            fail_label="Reorder",
+        )
 
     @app.route("/playlist/<int:playlist_id>/delete", methods=["POST"])
     def delete_playlist(playlist_id: int):
@@ -2089,42 +2153,42 @@ def create_app() -> Flask:
 
     @app.route("/playlist/<int:playlist_id>/sync", methods=["POST"])
     def sync_now(playlist_id: int):
-        try:
-            added, removed = service.sync_playlist(playlist_id, force=True)
-        except Exception as e:
-            log.exception("manual sync failed")
-            flash(f"Sync failed: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        if added == 0 and removed == 0:
-            flash("Already up to date.", "ok")
-        else:
-            flash(f"Synced: +{added} added, -{removed} removed.", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.sync_playlist(playlist_id, force=True),
+            ok_msg=lambda r: (
+                "Already up to date." if r == (0, 0)
+                else f"Synced: +{r[0]} added, -{r[1]} removed."
+            ),
+            fail_label="Sync",
+            changed=lambda r: r != (0, 0),
+        )
 
     @app.route("/playlist/<int:playlist_id>/prune", methods=["POST"])
     def prune_now(playlist_id: int):
-        try:
-            removed = service.prune_playlist(playlist_id)
-        except Exception as e:
-            log.exception("prune failed")
-            flash(f"Prune failed: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        flash(f"Removed {removed} watched item(s).", "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        return _playlist_action(
+            playlist_id,
+            lambda: service.prune_playlist(playlist_id),
+            ok_msg=lambda r: f"Removed {r} watched item(s).",
+            fail_label="Prune",
+            changed=lambda r: r > 0,
+        )
 
     @app.route("/playlist/<int:playlist_id>/refresh-metadata", methods=["POST"])
     def refresh_metadata(playlist_id: int):
-        try:
-            result = service.refresh_playlist_metadata(playlist_id)
-        except Exception as e:
-            log.exception("metadata refresh failed")
-            flash(f"Refresh failed: {e}", "error")
-            return redirect(url_for("view_playlist", playlist_id=playlist_id))
-        msg = f"Metadata refresh queued for {result['ok']} show(s)."
-        if result["errors"]:
-            msg += f" {result['errors']} failed."
-        flash(msg, "ok")
-        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+        def _msg(result):
+            msg = f"Metadata refresh queued for {result['ok']} show(s)."
+            if result["errors"]:
+                msg += f" {result['errors']} failed."
+            return msg
+
+        return _playlist_action(
+            playlist_id,
+            lambda: service.refresh_playlist_metadata(playlist_id),
+            ok_msg=_msg,
+            fail_label="Refresh",
+            changed=False,  # queued server-side; page content doesn't change
+        )
 
     @app.route("/playlist/<int:playlist_id>/shows/<show_rating_key>/link", methods=["POST"])
     def link_show_backend(playlist_id: int, show_rating_key: str):
@@ -2437,13 +2501,27 @@ if __name__ == "__main__":
     app = create_app()
     host = os.environ.get("WEB_HOST", "0.0.0.0")
     port = int(os.environ.get("WEB_PORT", "5005"))
+    threads = int(os.environ.get("WEB_THREADS", "8"))
 
-    # `docker stop` sends SIGTERM, but werkzeug's dev server only handles SIGINT,
-    # so the container otherwise hangs until the stop-timeout SIGKILL (issue #5).
-    # Re-raise SIGTERM as KeyboardInterrupt — the exact clean-shutdown path SIGINT
-    # already triggers.
+    # `docker stop` sends SIGTERM; re-raise as KeyboardInterrupt — the same
+    # clean-shutdown path SIGINT/Ctrl-C already triggers (issue #5, v3.0.15).
     def _graceful_sigterm(_signum, _frame):
         raise KeyboardInterrupt()
     signal.signal(signal.SIGTERM, _graceful_sigterm)
 
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    try:
+        from waitress import serve
+    except ImportError:
+        # Dev convenience only (e.g. a venv that predates v3.5.0). The Docker
+        # image always has waitress via requirements.txt.
+        log.warning("waitress not installed — falling back to the Flask dev server.")
+        app.run(host=host, port=port, debug=False, use_reloader=False)
+    else:
+        log.info(
+            "Linearr v%s listening on %s:%s (waitress, %d threads)",
+            __version__, host, port, threads,
+        )
+        try:
+            serve(app, host=host, port=port, threads=threads, ident="Linearr")
+        except KeyboardInterrupt:
+            pass

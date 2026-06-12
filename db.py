@@ -631,20 +631,52 @@ def set_auto_sync(playlist_id: int, auto_sync: bool) -> None:
         )
 
 
-def set_plex_rating_key(playlist_id: int, rating_key: str | None) -> None:
+def set_pruning_enabled(playlist_id: int, enabled: bool) -> None:
     with connection() as conn:
         conn.execute(
-            "UPDATE managed_playlists SET plex_rating_key = ? WHERE id = ?",
-            (rating_key, playlist_id),
+            "UPDATE managed_playlists SET pruning_enabled = ? WHERE id = ?",
+            (int(enabled), playlist_id),
         )
+
+
+# Column allow-lists: every per-backend setter funnels through one of these two
+# helpers so the UPDATE shape lives in exactly one place.
+_PLAYLIST_ID_COLS = {
+    "plex_rating_key", "jellyfin_playlist_id", "emby_playlist_id",
+}
+_PLAYLIST_SHOW_COLS = {
+    "plex_show_item_id", "jellyfin_show_item_id", "emby_show_item_id",
+    "movie_rating_keys", "jellyfin_movie_item_ids", "emby_movie_item_ids",
+}
+
+
+def _set_playlist_column(column: str, playlist_id: int, value) -> None:
+    assert column in _PLAYLIST_ID_COLS, column
+    with connection() as conn:
+        conn.execute(
+            f"UPDATE managed_playlists SET {column} = ? WHERE id = ?",
+            (value, playlist_id),
+        )
+
+
+def _set_playlist_show_column(
+    column: str, playlist_id: int, show_rating_key: str, value
+) -> None:
+    assert column in _PLAYLIST_SHOW_COLS, column
+    with connection() as conn:
+        conn.execute(
+            f"""UPDATE playlist_shows SET {column} = ?
+               WHERE playlist_id = ? AND show_rating_key = ?""",
+            (value, playlist_id, show_rating_key),
+        )
+
+
+def set_plex_rating_key(playlist_id: int, rating_key: str | None) -> None:
+    _set_playlist_column("plex_rating_key", playlist_id, rating_key)
 
 
 def set_jellyfin_playlist_id(playlist_id: int, jellyfin_id: str | None) -> None:
-    with connection() as conn:
-        conn.execute(
-            "UPDATE managed_playlists SET jellyfin_playlist_id = ? WHERE id = ?",
-            (jellyfin_id, playlist_id),
-        )
+    _set_playlist_column("jellyfin_playlist_id", playlist_id, jellyfin_id)
 
 
 def set_backend(playlist_id: int, backend: str) -> None:
@@ -661,12 +693,7 @@ def set_plex_show_item_id(
     playlist_id: int, show_rating_key: str, plex_show_item_id: str | None
 ) -> None:
     """Persist the Plex show ratingKey matched at add-time or healed at sync-time."""
-    with connection() as conn:
-        conn.execute(
-            """UPDATE playlist_shows SET plex_show_item_id = ?
-               WHERE playlist_id = ? AND show_rating_key = ?""",
-            (plex_show_item_id, playlist_id, show_rating_key),
-        )
+    _set_playlist_show_column("plex_show_item_id", playlist_id, show_rating_key, plex_show_item_id)
 
 
 def set_jellyfin_show_item_id(
@@ -678,12 +705,7 @@ def set_jellyfin_show_item_id(
     rows it equals the Plex ratingKey; for Jellyfin-originated rows it's the
     Jellyfin Id.
     """
-    with connection() as conn:
-        conn.execute(
-            """UPDATE playlist_shows SET jellyfin_show_item_id = ?
-               WHERE playlist_id = ? AND show_rating_key = ?""",
-            (jellyfin_show_item_id, playlist_id, show_rating_key),
-        )
+    _set_playlist_show_column("jellyfin_show_item_id", playlist_id, show_rating_key, jellyfin_show_item_id)
 
 
 def set_excluded_episodes(
@@ -707,50 +729,25 @@ def set_excluded_episodes(
 def set_jellyfin_movie_item_ids(
     playlist_id: int, show_rating_key: str, jellyfin_movie_item_ids: list[str] | str
 ) -> None:
-    if isinstance(jellyfin_movie_item_ids, str):
-        s = jellyfin_movie_item_ids
-    else:
-        s = ",".join(str(k) for k in jellyfin_movie_item_ids if k)
-    with connection() as conn:
-        conn.execute(
-            """UPDATE playlist_shows SET jellyfin_movie_item_ids = ?
-               WHERE playlist_id = ? AND show_rating_key = ?""",
-            (s, playlist_id, show_rating_key),
-        )
+    s = jellyfin_movie_item_ids if isinstance(jellyfin_movie_item_ids, str) else ",".join(str(k) for k in jellyfin_movie_item_ids if k)
+    _set_playlist_show_column("jellyfin_movie_item_ids", playlist_id, show_rating_key, s)
 
 
 def set_emby_playlist_id(playlist_id: int, emby_id: str | None) -> None:
-    with connection() as conn:
-        conn.execute(
-            "UPDATE managed_playlists SET emby_playlist_id = ? WHERE id = ?",
-            (emby_id, playlist_id),
-        )
+    _set_playlist_column("emby_playlist_id", playlist_id, emby_id)
 
 
 def set_emby_show_item_id(
     playlist_id: int, show_rating_key: str, emby_show_item_id: str | None
 ) -> None:
-    with connection() as conn:
-        conn.execute(
-            """UPDATE playlist_shows SET emby_show_item_id = ?
-               WHERE playlist_id = ? AND show_rating_key = ?""",
-            (emby_show_item_id, playlist_id, show_rating_key),
-        )
+    _set_playlist_show_column("emby_show_item_id", playlist_id, show_rating_key, emby_show_item_id)
 
 
 def set_emby_movie_item_ids(
     playlist_id: int, show_rating_key: str, emby_movie_item_ids: list[str] | str
 ) -> None:
-    if isinstance(emby_movie_item_ids, str):
-        s = emby_movie_item_ids
-    else:
-        s = ",".join(str(k) for k in emby_movie_item_ids if k)
-    with connection() as conn:
-        conn.execute(
-            """UPDATE playlist_shows SET emby_movie_item_ids = ?
-               WHERE playlist_id = ? AND show_rating_key = ?""",
-            (s, playlist_id, show_rating_key),
-        )
+    s = emby_movie_item_ids if isinstance(emby_movie_item_ids, str) else ",".join(str(k) for k in emby_movie_item_ids if k)
+    _set_playlist_show_column("emby_movie_item_ids", playlist_id, show_rating_key, s)
 
 
 def list_playlists() -> list[sqlite3.Row]:

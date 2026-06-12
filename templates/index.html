@@ -22,14 +22,43 @@
 </div>
 
 {% if not playlists %}
-<div class="empty-state">
-  <p>No playlists yet.</p>
-  <a href="{{ url_for('new_type') }}" class="btn btn-primary">Create your first one</a>
-</div>
+  {% if AVAILABLE_BACKENDS|length == 0 %}
+  <div class="empty-state setup-state">
+    <h2>Welcome to Linearr</h2>
+    <p>No media server is connected yet. Linearr builds sequenced playlists on
+       Plex, Jellyfin, and Emby — connect at least one to get started.</p>
+    <ol class="setup-steps">
+      <li>Open <a href="{{ url_for('settings') }}">Settings → Media Backends</a>.</li>
+      <li>Enter your server's URL and credentials (Plex token, Jellyfin login,
+          or Emby API key) and save.</li>
+      <li>Come back here and create your first playlist.</li>
+    </ol>
+    <a href="{{ url_for('settings') }}" class="btn btn-primary">Connect a server</a>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>No playlists yet.</p>
+    <a href="{{ url_for('new_type') }}" class="btn btn-primary">Create your first one</a>
+  </div>
+  {% endif %}
 {% else %}
+{% if playlists and playlists|length > 1 %}
+<div class="card-toolbar">
+  <input id="playlistFilter" class="card-filter-input" type="search"
+         placeholder="Filter playlists…" autocomplete="off">
+  <div class="filter-pills">
+    <button type="button" class="filter-pill is-active" data-type="all">All</button>
+    <button type="button" class="filter-pill" data-type="show">Show</button>
+    <button type="button" class="filter-pill" data-type="genre">Genre</button>
+    <button type="button" class="filter-pill" data-type="franchise">Franchise</button>
+  </div>
+</div>
+{% endif %}
 <div class="playlist-grid">
   {% for p in playlists %}
-  <a class="playlist-card" href="{{ url_for('view_playlist', playlist_id=p.id) }}">
+  <a class="playlist-card" href="{{ url_for('view_playlist', playlist_id=p.id) }}"
+     data-type="{{ p.playlist_type }}"
+     data-search="{{ (p.name ~ ' ' ~ (p.shows | map(attribute='show_title') | join(' '))) | lower | e }}">
     {% if p.posters %}
     {# Franchise playlists store no per-show rows; collage up to 5 franchise
        posters (1→full, 2→50/50, … 5→fifths) like the show/genre cards. #}
@@ -85,6 +114,9 @@
           {% set _ = parts.append((p.episodes_count|string) + ' episode' + ('' if p.episodes_count == 1 else 's')) %}
         {% endif %}
         {{ parts|join(' · ') if parts else 'Empty' }}
+        {% if p.last_stats and p.last_stats.get('synced_at') %}
+         · synced <span data-timestamp="{{ p.last_stats['synced_at'] }}Z">recently</span>
+        {% endif %}
       </p>
       <p class="show-names">
         {% for s in p.shows %}{{ s.show_title }}{% if not loop.last %} · {% endif %}{% endfor %}

@@ -3,6 +3,55 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.5.0] - 2026-06-11
+
+### Added
+
+- **Toast notifications + no-reload actions.** Sync now / Prune / Refresh
+  metadata and every playlist toggle (sort, filter, auto-update, pruning,
+  block size, reshuffle) now post in the background: the button shows a
+  spinner, the result arrives as a frosted-glass toast, and the page only
+  refreshes when something actually changed. A long sync no longer freezes
+  the tab on a blank page. Pure progressive enhancement — with JavaScript
+  disabled every form still works exactly as before (new `static/linearr.js`).
+- **Home-page search & type filters.** A filter input plus All / Show / Genre /
+  Franchise pills above the playlist grid (shown when you have 2+ playlists),
+  and each card now shows when the playlist last synced ("synced 2h ago").
+- **First-run welcome.** A fresh install with no media server configured now
+  shows a guided "Connect a server" setup card instead of a bare empty state.
+- **`WEB_THREADS`** env var — worker threads for the new built-in server
+  (default 8).
+
+### Changed
+
+- **Production web server.** Linearr now serves itself with **waitress**
+  instead of Flask's development server (single process + worker threads, so
+  scheduled jobs still run exactly once). `docker stop` shutdown behavior is
+  unchanged.
+- **Self-hosted font.** The Inter font is now bundled
+  (`static/fonts/InterVariable.woff2`) instead of loaded from Google Fonts —
+  no third-party requests, works on offline LANs, faster first paint.
+- Subtle cross-fade between page navigations on browsers that support the
+  View Transitions API.
+
+### Security
+
+- **Cross-site form posts are now blocked.** Mutating requests whose
+  `Origin`/`Referer` header points at a different site are rejected with 403
+  — closing the classic CSRF-against-LAN-service hole (a malicious webpage
+  firing blind POSTs at `http://<lan-ip>:5005/...` through your browser),
+  which matters because the web-UI login is optional. Non-browser clients
+  (curl, scripts) and the keyed `/api/v1/` REST API are unaffected. If a
+  reverse proxy rewrites your `Host` header, set
+  `LINEARR_DISABLE_ORIGIN_CHECK=1` (see README troubleshooting).
+
+### Internal
+
+- ~10 copy-pasted POST handlers consolidated into one `_playlist_action`
+  helper that answers either a classic redirect or JSON depending on the
+  caller; new `db.set_pruning_enabled()`; 9 per-backend DB setters now
+  delegate to two column-allow-listed helpers. 29 new test checks (634 total).
+
 ## [3.4.0] - 2026-06-10
 
 ### Added

@@ -1,3 +1,13 @@
+/* Self-hosted Inter (v4.1 variable font, weights 100-900 in one file).
+   Replaces the Google Fonts CDN — no third-party request, works offline. */
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #0e0f13;
   --bg-elev: #181a21;
@@ -2346,3 +2356,119 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 }
 .info-banner-icon { font-size: 1.1rem; line-height: 1.4; }
 .info-banner a { color: var(--accent); font-weight: 600; }
+
+/* ---------------- toasts (v3.5.0) ---------------- */
+.toast-stack {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(92vw, 380px);
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(31, 34, 43, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  animation: toast-in 0.22s ease-out;
+}
+.toast-ok    { border-color: rgba(46, 204, 113, 0.35); }
+.toast-error { border-color: rgba(231, 76, 60, 0.45); }
+.toast-msg   { flex: 1; }
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+}
+.toast-close:hover { opacity: 1; }
+.toast-out { opacity: 0; transform: translateY(6px); transition: all 0.22s ease-in; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* button busy spinner */
+.btn.is-busy { position: relative; color: transparent !important; pointer-events: none; }
+.btn.is-busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+  .toast-out { transition: none; }
+  .btn.is-busy::after { animation-duration: 1.6s; }
+}
+
+/* ---------------- home-page filter toolbar (v3.5.0) ---------------- */
+.card-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+}
+.card-filter-input {
+  flex: 1 1 220px;
+  max-width: 340px;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(31, 34, 43, 0.7);
+  color: inherit;
+  font: inherit;
+  font-size: 0.92rem;
+}
+.card-filter-input:focus {
+  outline: none;
+  border-color: #4d96ff;
+  box-shadow: 0 0 0 3px rgba(77, 150, 255, 0.18);
+}
+.filter-pills { display: flex; gap: 0.35rem; }
+.filter-pill {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(31, 34, 43, 0.7);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.filter-pill.is-active {
+  border-color: #4d96ff;
+  background: rgba(77, 150, 255, 0.16);
+}
+
+.setup-state { max-width: 480px; margin-inline: auto; text-align: left; }
+.setup-state h2 { margin-top: 0; }
+.setup-steps { margin: 0.8rem 0 1.2rem; padding-left: 1.2rem; display: grid; gap: 0.4rem; }
+
+/* Cross-fade between page navigations where supported (progressive enhancement). */
+@view-transition { navigation: auto; }

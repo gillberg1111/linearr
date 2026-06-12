@@ -77,7 +77,7 @@
 
   {% if playlist.playlist_type != 'franchise' %}
 
-  <form method="post" action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+  <form method="post" data-ajax action="{{ url_for('change_sort_mode', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Sort</span>
     <div class="pill-toggle pill-toggle-5">
       <button type="submit" name="sort_mode" value="rotation"
@@ -117,7 +117,7 @@
   </form>
 
   {% if playlist.sort_mode == 'rotation_blocks' %}
-    <form method="post" action="{{ url_for('change_block_size', playlist_id=playlist.id) }}"
+    <form method="post" data-ajax action="{{ url_for('change_block_size', playlist_id=playlist.id) }}"
           class="sort-mode-bar sort-mode-bar-inline">
       <span class="sort-mode-label">Block size</span>
       <input type="number" name="block_size" min="1" max="20" step="1"
@@ -128,7 +128,7 @@
   {% endif %}
 
   {% if playlist.sort_mode == 'shuffle_chronological' %}
-    <form method="post" action="{{ url_for('reshuffle', playlist_id=playlist.id) }}"
+    <form method="post" data-ajax action="{{ url_for('reshuffle', playlist_id=playlist.id) }}"
           class="sort-mode-bar sort-mode-bar-inline">
       <span class="sort-mode-label">Shuffle</span>
       <button type="submit" class="btn">Reshuffle</button>
@@ -137,7 +137,7 @@
   {% endif %}
 
   {% if playlist.playlist_type != 'franchise' %}
-  <form method="post" action="{{ url_for('change_unwatched_only', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+  <form method="post" data-ajax action="{{ url_for('change_unwatched_only', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Filter</span>
     <div class="pill-toggle">
       <button type="submit" name="enabled" value=""
@@ -159,7 +159,7 @@
   </form>
   {% endif %}
 
-  <form method="post" action="{{ url_for('change_auto_sync', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+  <form method="post" data-ajax action="{{ url_for('change_auto_sync', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Auto-update</span>
     <div class="pill-toggle">
       <button type="submit" name="enabled" value="1"
@@ -180,7 +180,7 @@
     </span>
   </form>
 
-  <form method="post" action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+  <form method="post" data-ajax action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Pruning</span>
     <div class="pill-toggle">
       <button type="submit" name="enabled" value="1"
@@ -577,7 +577,7 @@
     </ul>
   </section>
 
-  <form method="post" action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
+  <form method="post" data-ajax action="{{ url_for('change_pruning', playlist_id=playlist.id) }}" class="sort-mode-bar sort-mode-bar-inline">
     <span class="sort-mode-label">Pruning</span>
     <div class="pill-toggle">
       <button type="submit" name="enabled" value="1"
@@ -603,7 +603,7 @@
   <section class="maintenance">
     <h2>Maintenance</h2>
     <div class="maintenance-row">
-      <form method="post" action="{{ url_for('sync_now', playlist_id=playlist.id) }}">
+      <form method="post" data-ajax action="{{ url_for('sync_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn btn-primary">Sync now</button>
         <span class="hint">Re-checks every backend for new episodes / seasons and updates the playlist immediately (otherwise this runs on the background sweep).</span>
       </form>
@@ -622,12 +622,12 @@
       {% endif %}
       {% endif %}
       {% if playlist.playlist_type != 'franchise' %}
-      <form method="post" action="{{ url_for('refresh_metadata', playlist_id=playlist.id) }}">
+      <form method="post" data-ajax action="{{ url_for('refresh_metadata', playlist_id=playlist.id) }}">
         <button type="submit" class="btn btn-ghost">Refresh metadata</button>
         <span class="hint">Ask Plex/Jellyfin/Emby to re-fetch metadata for all shows in this playlist. Useful after a metadata update or when air dates look wrong.</span>
       </form>
       {% endif %}
-      <form method="post" action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
+      <form method="post" data-ajax action="{{ url_for('prune_now', playlist_id=playlist.id) }}">
         <button type="submit" class="btn">Prune watched now</button>
         <span class="hint">Keeps the {{ watched_keep }} most recently watched item{{ 's' if watched_keep != 1 else '' }} as a buffer; removes older watched ones.</span>
       </form>

@@ -3717,6 +3717,154 @@ def test_get_view_counts_empty_input():
     check("afp: empty keys -> empty", _apply_franchise_prune([], {}, 2) == [])
 
 
+# --------------------------------------------------------------------------- #
+# v3.5.0 — hardening + UX tests
+# --------------------------------------------------------------------------- #
+
+
+def test_is_cross_site():
+    from app import _is_cross_site
+
+    check("cs: no headers -> allowed", not _is_cross_site(None, None, "192.168.1.200:5005"))
+    check("cs: same origin -> allowed", not _is_cross_site("http://192.168.1.200:5005", None, "192.168.1.200:5005"))
+    check("cs: different origin -> blocked", _is_cross_site("http://evil.example", None, "192.168.1.200:5005"))
+    check("cs: null origin -> blocked", _is_cross_site("null", None, "192.168.1.200:5005"))
+    check("cs: same referer -> allowed", not _is_cross_site(None, "http://192.168.1.200:5005/playlist/1", "192.168.1.200:5005"))
+    check("cs: different referer -> blocked", _is_cross_site(None, "http://evil.example/x", "192.168.1.200:5005"))
+    check("cs: https scheme ignored", not _is_cross_site("https://myhost:5005", None, "myhost:5005"))
+    check("cs: port matters", _is_cross_site("http://myhost:8096", None, "myhost:5005"))
+    check("cs: case-insensitive", not _is_cross_site("HTTP://MyHost:5005", None, "myhost:5005"))
+
+
+def test_set_pruning_enabled():
+    import os, tempfile
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, created_at) VALUES ('t','')")
+        PID = 1
+
+        _db_mod.set_pruning_enabled(PID, False)
+        with _db_mod.connection() as conn:
+            row = conn.execute("SELECT pruning_enabled FROM managed_playlists WHERE id=?", (PID,)).fetchone()
+        check("spe: set to false -> 0", row["pruning_enabled"] == 0)
+
+        _db_mod.set_pruning_enabled(PID, True)
+        with _db_mod.connection() as conn:
+            row = conn.execute("SELECT pruning_enabled FROM managed_playlists WHERE id=?", (PID,)).fetchone()
+        check("spe: set to true -> 1", row["pruning_enabled"] == 1)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_per_backend_setter_delegates():
+    import os, tempfile
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name,created_at) VALUES ('t','')")
+        PID = 1
+
+        # Playlist-level setters
+        _db_mod.set_plex_rating_key(PID, "rk123")
+        _db_mod.set_jellyfin_playlist_id(PID, "jf456")
+        _db_mod.set_emby_playlist_id(PID, "em789")
+        with _db_mod.connection() as conn:
+            row = dict(conn.execute("SELECT * FROM managed_playlists WHERE id=?", (PID,)).fetchone())
+        check("psd: plex_rating_key written", row["plex_rating_key"] == "rk123")
+        check("psd: jellyfin_playlist_id written", row["jellyfin_playlist_id"] == "jf456")
+        check("psd: emby_playlist_id written", row["emby_playlist_id"] == "em789")
+
+        # Show-level setters — need a playlist_shows row first
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO playlist_shows (playlist_id,show_rating_key,show_title,position,start_season) VALUES (?,?,?,?,?)",
+                (PID, "sk1", "Test", 0, 1),
+            )
+        _db_mod.set_plex_show_item_id(PID, "sk1", "psi1")
+        _db_mod.set_jellyfin_show_item_id(PID, "sk1", "jsi2")
+        _db_mod.set_emby_show_item_id(PID, "sk1", "esi3")
+        _db_mod.set_jellyfin_movie_item_ids(PID, "sk1", ["jmid1", "jmid2"])
+        _db_mod.set_emby_movie_item_ids(PID, "sk1", ["emid1"])
+        with _db_mod.connection() as conn:
+            sr = dict(conn.execute("SELECT * FROM playlist_shows WHERE playlist_id=? AND show_rating_key=?", (PID, "sk1")).fetchone())
+        check("psd: plex_show_item_id written", sr["plex_show_item_id"] == "psi1")
+        check("psd: jellyfin_show_item_id written", sr["jellyfin_show_item_id"] == "jsi2")
+        check("psd: emby_show_item_id written", sr["emby_show_item_id"] == "esi3")
+        check("psd: jellyfin_movie_item_ids written", sr["jellyfin_movie_item_ids"] == "jmid1,jmid2")
+        check("psd: emby_movie_item_ids written", sr["emby_movie_item_ids"] == "emid1")
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_self_hosted_font_assets():
+    import os
+    font_path = os.path.join(os.path.dirname(__file__), "static", "fonts", "InterVariable.woff2")
+    check("font: file exists", os.path.isfile(font_path))
+    with open(font_path, "rb") as f:
+        magic = f.read(4)
+    check("font: woff2 magic bytes", magic == b"wOF2")
+
+    base_html = os.path.join(os.path.dirname(__file__), "templates", "base.html")
+    login_html = os.path.join(os.path.dirname(__file__), "templates", "login.html")
+    with open(base_html) as f:
+        base = f.read()
+    with open(login_html) as f:
+        login = f.read()
+    check("font: no googleapis in base.html", "fonts.googleapis" not in base)
+    check("font: no googleapis in login.html", "fonts.googleapis" not in login)
+
+    style_css = os.path.join(os.path.dirname(__file__), "static", "style.css")
+    with open(style_css) as f:
+        css = f.read()
+    check("font: @font-face in style.css", "@font-face" in css)
+    check("font: InterVariable in style.css", "InterVariable.woff2" in css)
+
+
+def test_ui_runtime_wired():
+    import os
+    base_html = os.path.join(os.path.dirname(__file__), "templates", "base.html")
+    playlist_html = os.path.join(os.path.dirname(__file__), "templates", "playlist.html")
+    js_path = os.path.join(os.path.dirname(__file__), "static", "linearr.js")
+
+    with open(base_html) as f:
+        base = f.read()
+    check("ui: linearr.js in base.html", "linearr.js" in base)
+
+    with open(playlist_html) as f:
+        pl = f.read()
+    # Count the number of data-ajax occurrences on <form tags
+    import re
+    ajax_forms = re.findall(r'<form[^>]*\bdata-ajax\b', pl)
+    check("ui: at least 10 data-ajax forms", len(ajax_forms) >= 10)
+
+    # Delete form does NOT have data-ajax
+    delete_line = [l for l in pl.splitlines() if l.strip().startswith('<form') and 'delete_playlist' in l]
+    check("ui: delete form has no data-ajax", all("data-ajax" not in l for l in delete_line))
+
+    with open(js_path) as f:
+        js = f.read()
+    check("ui: linearr.js has X-Linearr-Ajax", "X-Linearr-Ajax" in js)
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

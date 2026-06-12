@@ -252,6 +252,15 @@ untouched; the future portion regenerates instantly.
 - **Installable as a home-screen app (PWA)** — "Add to Home Screen" on iPhone or
   Android shows the Linearr logo and opens full-screen (web app manifest +
   apple-touch-icon; no config).
+- **Toast notifications, no page reloads** — Sync / Prune / toggles run in the
+  background with a button spinner and report results as a toast; long syncs no
+  longer freeze the page. Works as a classic form post with JavaScript disabled.
+- **Home-page search & filters** — filter your playlists by name/show and by
+  type (Show / Genre / Franchise); cards show when each playlist last synced.
+- **No third-party requests** — the Inter font is bundled (was Google Fonts), so
+  the UI loads fully offline and leaks nothing to a CDN.
+- **Hardened by default** — runs on a production WSGI server (waitress) and
+  blocks cross-site form posts (CSRF protection that works even with login off).
 
 ---
 
@@ -506,6 +515,7 @@ set on the Settings page). **At least one backend must be configured.**
 | `EMBY_USERNAME`          | no           | *(first admin)*        | Which Emby user owns created playlists.                                                        |
 | `WEB_HOST`               | no           | `0.0.0.0`              | `127.0.0.1` to restrict to localhost.                                                          |
 | `WEB_PORT`               | no           | `5005`                 | HTTP port.                                                                                     |
+| `WEB_THREADS`            | no           | `8`                    | Worker threads for the built-in waitress server.                                               |
 | `DB_PATH`                | no           | `./data/rotator.db`    | SQLite file. Docker overrides to `/data/rotator.db`.                                           |
 | `WATCHED_KEEP`           | no           | `2`                    | Recently-watched episodes left in each playlist as a fall-asleep buffer.                       |
 | `PRUNE_INTERVAL_MINUTES` | no           | `10`                   | How often the prune + auto-sync sweep runs.                                                    |
@@ -517,6 +527,7 @@ set on the Settings page). **At least one backend must be configured.**
 | `LINEARR_API_KEY`        | no           | *(auto-generated)*     | Pin the REST API key across restarts. View it at `/settings`.                                  |
 | `LINEARR_AUTH_USERNAME`  | no           | `admin`                | Optional web-UI login username. Normally set in Settings; env is the reset path.               |
 | `LINEARR_AUTH_PASSWORD`  | no           | —                      | Set + restart to (re)set the web-UI login password (no-email reset), then clear it.            |
+| `LINEARR_DISABLE_ORIGIN_CHECK` | no     | `0`                    | Set `1` only if a reverse proxy rewrites the Host header and form posts start failing with 403. |
 | `TRAKT_CLIENT_ID`        | no           | *(bundled)*            | Override the bundled Trakt application key for public-list access.                             |
 | `CHRONOLISTS_BASE_URL`   | no           | *(public API)*         | Override the Chronolists API base URL.                                                         |
 
@@ -720,6 +731,12 @@ playback) on the backend.
 
 **"Address already in use"** — change `WEB_PORT` and the published port.
 
+**Form posts fail with 403 "Cross-site request blocked"** — Linearr rejects
+browser posts whose `Origin`/`Referer` doesn't match the host it was reached
+on. This only false-positives when a reverse proxy rewrites the `Host` header;
+either pass the original Host through the proxy (preferred) or set
+`LINEARR_DISABLE_ORIGIN_CHECK=1`.
+
 **Logs**
 ```bash
 docker compose logs -f          # compose
@@ -753,11 +770,15 @@ chronolists_client.py  Chronolists public API + parser.
 templates/             Jinja pages (index, new, configure, playlist, new_genre,
                        new_franchise, franchise_maker, settings, base, partials)
                        + linearr.xml (Unraid CA template).
-static/                picker.js + style.css.
+static/                picker.js + linearr.js (toasts/AJAX) + style.css +
+                       bundled Inter font (fonts/).
 defaults/              franchises.json registry + bundled franchise_data/ JSON.
 images/                Banner, logo, favicons, Unraid icon, screenshots.
-tests.py               Self-contained unit tests (384).
+tests.py               Self-contained unit tests (634).
 ```
+
+Linearr serves itself with **waitress** (production WSGI server) in a single
+process with worker threads — the in-process APScheduler jobs run exactly once.
 
 Each backend's playlist is the source of truth for *its own* episode order.
 SQLite stores only configuration — which shows/items in which playlist, their
