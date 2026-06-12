@@ -2472,3 +2472,78 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 
 /* Cross-fade between page navigations where supported (progressive enhancement). */
 @view-transition { navigation: auto; }
+
+/* ---------------- card artwork picker (v3.6.0) ---------------- */
+.card-art-form { display: grid; gap: 1rem; }
+.card-art-modes { margin-bottom: 0.2rem; }
+
+/* pill radio buttons */
+.pill input[type=radio] { position: absolute; opacity: 0; }
+.pill:has(input:checked) {
+  border-color: var(--accent, #4d96ff);
+  background: rgba(77, 150, 255, 0.16);
+}
+
+.card-art-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+.card-art-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: rgba(31, 34, 43, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-align: center;
+  line-height: 1.25;
+}
+.card-art-tile input[type=checkbox] { position: absolute; opacity: 0; }
+.card-art-tile:has(input:checked) {
+  outline: 2px solid var(--accent, #4d96ff);
+  outline-offset: 1px;
+}
+.card-art-tile:has(input:checked)::after {
+  content: "\2713";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent, #4d96ff);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+}
+.card-art-tile img {
+  width: 100%;
+  aspect-ratio: 2/3;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.card-art-tile span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-art-tile-text { padding: 0.8rem 0.5rem; min-height: 52px; display: flex; align-items: center; justify-content: center; }
+.card-art-tile-noart {
+  width: 100%;
+  aspect-ratio: 2/3;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  color: rgba(255, 255, 255, 0.45);
+}

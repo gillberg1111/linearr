@@ -527,6 +527,17 @@ def init_db() -> None:
         if "emby_item_id" not in fms_cols:
             conn.execute("ALTER TABLE franchise_match_state ADD COLUMN emby_item_id TEXT")
 
+        # v3.6.0 — per-playlist card artwork control
+        managed_card_cols = _columns(conn, "managed_playlists")
+        if "card_poster_mode" not in managed_card_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN card_poster_mode TEXT DEFAULT 'auto'")
+        if "card_poster_keys" not in managed_card_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN card_poster_keys TEXT")
+        if "card_posters" not in managed_card_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN card_posters TEXT")
+        if "card_poster_file" not in managed_card_cols:
+            conn.execute("ALTER TABLE managed_playlists ADD COLUMN card_poster_file TEXT")
+
 
 def create_playlist(
     name: str,
@@ -636,6 +647,20 @@ def set_pruning_enabled(playlist_id: int, enabled: bool) -> None:
         conn.execute(
             "UPDATE managed_playlists SET pruning_enabled = ? WHERE id = ?",
             (int(enabled), playlist_id),
+        )
+
+
+def set_card_art(playlist_id: int, mode: str, keys_json: str | None,
+                 posters_json: str | None, file_name: str | None) -> None:
+    if mode not in ("auto", "pick", "custom"):
+        raise ValueError(f"Invalid card_poster_mode: {mode!r}")
+    with connection() as conn:
+        conn.execute(
+            """UPDATE managed_playlists
+               SET card_poster_mode = ?, card_poster_keys = ?,
+                   card_posters = ?, card_poster_file = ?
+               WHERE id = ?""",
+            (mode, keys_json, posters_json, file_name, playlist_id),
         )
 
 
@@ -1202,6 +1227,7 @@ def upsert_franchise_definition(
     item_count: int = 0,
     auto_discovered: int = 0,
     poster_url: str | None = None,
+    poster_urls: str | None = None,
 ) -> int:
     with connection() as conn:
         existing = conn.execute(
@@ -1215,10 +1241,12 @@ def upsert_franchise_definition(
                    SET name=?, source=?, trakt_user=?, trakt_slug=?,
                        chronolists_id=?,
                        fetched_at=?, content_hash=?, item_count=?,
-                       poster_url=COALESCE(?, poster_url)
+                       poster_url=COALESCE(?, poster_url),
+                       poster_urls=COALESCE(?, poster_urls)
                    WHERE key=?""",
                 (name, source, trakt_user, trakt_slug, chronolists_id,
-                 fetched_at, content_hash, item_count, poster_url, key),
+                 fetched_at, content_hash, item_count, poster_url,
+                 poster_urls, key),
             )
             return existing["id"]
         else:
@@ -1226,11 +1254,11 @@ def upsert_franchise_definition(
                 """INSERT INTO franchise_definitions
                    (key, name, source, trakt_user, trakt_slug,
                     chronolists_id, fetched_at, content_hash, item_count,
-                    auto_discovered, poster_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    auto_discovered, poster_url, poster_urls)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (key, name, source, trakt_user, trakt_slug,
                  chronolists_id, fetched_at, content_hash, item_count,
-                 auto_discovered, poster_url),
+                 auto_discovered, poster_url, poster_urls),
             )
             return cur.lastrowid
 

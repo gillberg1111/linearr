@@ -600,6 +600,82 @@
 
   {% endif %}
 
+  <section class="card card-art">
+    <h2>Card artwork</h2>
+    <form method="post" action="{{ url_for('card_art', playlist_id=playlist.id) }}"
+          enctype="multipart/form-data" class="card-art-form">
+      <div class="pill-toggle card-art-modes">
+        <label class="pill {% if playlist.card_poster_mode == 'auto' %}is-active{% endif %}">
+          <input type="radio" name="mode" value="auto" {% if playlist.card_poster_mode == 'auto' %}checked{% endif %}> Automatic
+        </label>
+        <label class="pill {% if playlist.card_poster_mode == 'pick' %}is-active{% endif %}">
+          <input type="radio" name="mode" value="pick" {% if playlist.card_poster_mode == 'pick' %}checked{% endif %}> Pick posters
+        </label>
+        <label class="pill {% if playlist.card_poster_mode == 'custom' %}is-active{% endif %}">
+          <input type="radio" name="mode" value="custom" {% if playlist.card_poster_mode == 'custom' %}checked{% endif %}> Custom image
+        </label>
+      </div>
+
+      <div class="card-art-pick" {% if playlist.card_poster_mode != 'pick' %}hidden{% endif %}>
+        <p class="hint">Choose up to 5 — they appear on the home card in the order picked.</p>
+        <div class="card-art-grid">
+          {% if playlist.playlist_type != 'franchise' %}
+            {% for s in playlist.shows %}
+            <label class="card-art-tile">
+              <input type="checkbox" name="poster_key" value="{{ s.show_rating_key }}"
+                     {% if s.show_rating_key in playlist.card_poster_keys %}checked{% endif %}>
+              {% if s.show_thumb %}
+              <img loading="lazy" src="{{ url_for('thumb') }}?path={{ s.show_thumb|urlencode }}&w=120&h=180" alt="">
+              {% else %}
+              <div class="card-art-tile-noart">{{ s.show_title[:1] }}</div>
+              {% endif %}
+              <span>{{ s.show_title }}</span>
+            </label>
+            {% endfor %}
+          {% else %}
+            {% for t in franchise_pick_options %}
+            <label class="card-art-tile card-art-tile-text">
+              <input type="checkbox" name="poster_key" value="{{ t.id }}"
+                     {% if (t.id | string) in playlist.card_poster_keys %}checked{% endif %}>
+              <span>{{ t.title }}</span>
+            </label>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card-art-custom" {% if playlist.card_poster_mode != 'custom' %}hidden{% endif %}>
+        <input type="file" name="image" accept="image/png,image/jpeg,image/webp">
+        <span class="hint">PNG, JPEG, or WebP, up to 5&nbsp;MB.
+          {% if playlist.card_poster_mode == 'custom' %}Leave empty to keep the current image.{% endif %}</span>
+      </div>
+
+      <button type="submit" class="btn">Save artwork</button>
+    </form>
+    <script>
+      (function () {
+        var form = document.currentScript.closest("section").querySelector("form");
+        var pick = form.querySelector(".card-art-pick");
+        var custom = form.querySelector(".card-art-custom");
+        var checkboxes = pick ? pick.querySelectorAll("input[type=checkbox]") : [];
+        form.addEventListener("change", function (ev) {
+          if (ev.target.name === "mode") {
+            pick.hidden = ev.target.value !== "pick";
+            custom.hidden = ev.target.value !== "custom";
+          }
+          if (ev.target.name === "poster_key") {
+            var checked = pick.querySelectorAll("input[type=checkbox]:checked");
+            var cap = 5;
+            checkboxes.forEach(function (cb) {
+              if (checked.length >= cap && !cb.checked) cb.disabled = true;
+              else cb.disabled = false;
+            });
+          }
+        });
+      })();
+    </script>
+  </section>
+
   <section class="maintenance">
     <h2>Maintenance</h2>
     <div class="maintenance-row">

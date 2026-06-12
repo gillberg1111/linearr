@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.5.0"
+__version__ = "3.6.0"
 
 import logging
 import os
@@ -18,6 +18,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
@@ -97,6 +98,17 @@ def _is_cross_site(origin: str | None, referer: str | None, host: str) -> bool:
     if not netloc:
         return True  # malformed header — fail closed
     return netloc.lower() != host.lower()
+
+
+def _sniff_image(data: bytes) -> str | None:
+    """Return 'png' | 'jpg' | 'webp' | None from magic bytes."""
+    if data[:4] == b"\x89PNG":
+        return "png"
+    if data[:2] == b"\xff\xd8":
+        return "jpg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
 
 
 def _wants_json() -> bool:
@@ -1142,11 +1154,25 @@ def create_app() -> Flask:
 
         is_forked = False
         bundled_origin_name = None
+        franchise_pick_options = []
         if view.playlist_type == "franchise":
             row = db.get_playlist(playlist_id)
             row_d = dict(row) if row else {}
             defn_id = row_d.get("franchise_definition_id")
             if defn_id:
+                seen_titles: set[str] = set()
+                for fi in fi_list:
+                    if fi["item_type"] == "movie":
+                        franchise_pick_options.append({"id": fi["id"], "title": fi["title"]})
+                    else:
+                        # episode / season / show — one entry per distinct show
+                        key = str(fi.get("show_tmdb_id") or fi.get("show_title") or fi.get("title"))
+                        if key and key not in seen_titles:
+                            seen_titles.add(key)
+                            franchise_pick_options.append({
+                                "id": fi["id"],
+                                "title": fi.get("show_title") or fi["title"],
+                            })
                 fr_defn = db.get_franchise_definition_by_id(defn_id)
                 if fr_defn and fr_defn.get("forked_from_key"):
                     for f in _load_prebaked_franchises():
@@ -1164,6 +1190,7 @@ def create_app() -> Flask:
             missing_on=missing_on,
             rules=rules,
             franchise_items=franchise_items,
+            franchise_pick_options=franchise_pick_options,
             watched_keep=max(0, int(_os.environ.get("WATCHED_KEEP", "2"))),
             is_forked=is_forked,
             bundled_origin_name=bundled_origin_name,
@@ -2149,6 +2176,15 @@ def create_app() -> Flask:
             )
         else:
             flash("Playlist deleted.", "ok")
+        # The local row is deleted even when a backend failed, so always
+        # clean up any uploaded card art for this playlist id.
+        import os as _os, glob as _glob
+        try:
+            card_dir = _os.path.join(_os.path.dirname(db.DB_PATH) or ".", "card_art")
+            for f in _glob.glob(_os.path.join(card_dir, f"{playlist_id}.*")):
+                _os.remove(f)
+        except Exception:
+            pass
         return redirect(url_for("index"))
 
     @app.route("/playlist/<int:playlist_id>/sync", methods=["POST"])
@@ -2203,6 +2239,84 @@ def create_app() -> Flask:
             flash(f"Failed to link show: {e}", "error")
             return redirect(url_for("view_playlist", playlist_id=playlist_id))
         flash(f"Linked show to {backend.capitalize()} ({link_to_key}). Rebuilding…", "ok")
+        return redirect(url_for("view_playlist", playlist_id=playlist_id))
+
+    # -- v3.6.0 card artwork -------------------------------------------- #
+
+    @app.route("/card-art/<int:playlist_id>")
+    def serve_card_art(playlist_id: int):
+        import os as _os
+        row = db.get_playlist(playlist_id)
+        if not row:
+            abort(404)
+        fname = dict(row).get("card_poster_file")
+        if not fname:
+            abort(404)
+        fpath = _os.path.join(_os.path.dirname(db.DB_PATH) or ".", "card_art", fname)
+        if not _os.path.isfile(fpath):
+            abort(404)
+        ext = _os.path.splitext(fname)[1].lower()
+        mimes = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+        return send_file(fpath, mimetype=mimes.get(ext, "image/png"), max_age=3600)
+
+    @app.route("/playlist/<int:playlist_id>/card-art", methods=["POST"])
+    def card_art(playlist_id: int):
+        import os as _os
+        row = db.get_playlist(playlist_id)
+        if not row:
+            abort(404)
+        mode = (request.form.get("mode") or "auto").strip()
+        if mode not in ("auto", "pick", "custom"):
+            abort(400)
+
+        card_dir = _os.path.join(_os.path.dirname(db.DB_PATH) or ".", "card_art")
+        existing_file = dict(row).get("card_poster_file")
+
+        if mode == "pick":
+            keys = request.form.getlist("poster_key")[:5]
+            if not keys:
+                flash("Pick at least one poster.", "error")
+                return redirect(url_for("view_playlist", playlist_id=playlist_id))
+            posters = service.resolve_card_posters(playlist_id, keys)
+            if not posters:
+                flash("Couldn't resolve any posters for that selection.", "error")
+                return redirect(url_for("view_playlist", playlist_id=playlist_id))
+            db.set_card_art(playlist_id, "pick", _json.dumps(keys), _json.dumps(posters), existing_file)
+            flash("Card artwork updated.", "ok")
+
+        elif mode == "custom":
+            file = request.files.get("image")
+            if not file or not file.filename:
+                if not existing_file:
+                    flash("Select an image file.", "error")
+                    return redirect(url_for("view_playlist", playlist_id=playlist_id))
+                db.set_card_art(playlist_id, "custom", None, None, existing_file)
+            else:
+                data = file.read()
+                if len(data) > 5 * 1024 * 1024:
+                    flash("Image must be PNG, JPEG, or WebP (max 5 MB).", "error")
+                    return redirect(url_for("view_playlist", playlist_id=playlist_id))
+                ext = _sniff_image(data)
+                if not ext:
+                    flash("Image must be PNG, JPEG, or WebP (max 5 MB).", "error")
+                    return redirect(url_for("view_playlist", playlist_id=playlist_id))
+                _os.makedirs(card_dir, exist_ok=True)
+                # Remove any previous file for this playlist with a different extension
+                if existing_file and existing_file != f"{playlist_id}.{ext}":
+                    try:
+                        _os.remove(_os.path.join(card_dir, existing_file))
+                    except OSError:
+                        pass
+                fname = f"{playlist_id}.{ext}"
+                with open(_os.path.join(card_dir, fname), "wb") as f:
+                    f.write(data)
+                db.set_card_art(playlist_id, "custom", None, None, fname)
+            flash("Card artwork updated.", "ok")
+
+        else:  # auto
+            db.set_card_art(playlist_id, "auto", None, None, existing_file)
+            flash("Card artwork set to automatic.", "ok")
+
         return redirect(url_for("view_playlist", playlist_id=playlist_id))
 
     # -- v2.0.0 settings page ------------------------------------------- #

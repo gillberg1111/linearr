@@ -3865,6 +3865,404 @@ def test_ui_runtime_wired():
     check("ui: linearr.js has X-Linearr-Ajax", "X-Linearr-Ajax" in js)
 
 
+# --------------------------------------------------------------------------- #
+# v3.6.0 — Part A: pruning pill respects 0
+# --------------------------------------------------------------------------- #
+
+
+def test_pruning_pill_respects_zero():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, created_at, pruning_enabled) VALUES ('t','plex','','0')"
+            )
+        view = _svc.get_playlist_view(1)
+        check("prune pill: 0 in DB -> view 0", view is not None and view.pruning_enabled == 0)
+
+        _db_mod.set_pruning_enabled(1, True)
+        view2 = _svc.get_playlist_view(1)
+        check("prune pill: 1 in DB -> view 1", view2 is not None and view2.pruning_enabled == 1)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# v3.6.0 — Part B: franchise poster strip bug fixes
+# --------------------------------------------------------------------------- #
+
+
+def test_backfill_retries_frozen_strip():
+    import os, tempfile, json
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        # Create a definition with item_count=5, 1-poster strip
+        defn_id = _db_mod.upsert_franchise_definition(
+            key="jb", name="James Bond", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="cl1",
+            item_count=5,
+        )
+        _db_mod.set_franchise_definition_poster(defn_id, "u1", '["u1"]')
+        # Create a franchise playlist
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, playlist_type, franchise_definition_id, created_at) VALUES ('b','plex','franchise',?,'')",
+                (defn_id,),
+            )
+        # Patch poster_urls to return a bigger strip
+        _orig = _svc._franchise_poster_urls
+        _svc._franchise_poster_urls = lambda items, limit=5: ["u1", "u2", "u3"]
+        try:
+            filled = _svc.backfill_franchise_posters()
+            check("bb: backfill returned 1", filled == 1)
+            defn = _db_mod.get_franchise_definition_by_id(defn_id)
+            parsed = json.loads(defn["poster_urls"])
+            check("bb: strip now has 3 entries", len(parsed) == 3)
+        finally:
+            _svc._franchise_poster_urls = _orig
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_backfill_noop_when_tmdb_still_fails():
+    import os, tempfile, json
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        defn_id = _db_mod.upsert_franchise_definition(
+            key="jb", name="JB", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="cl1",
+            item_count=5,
+        )
+        _db_mod.set_franchise_definition_poster(defn_id, "u1", '["u1"]')
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, playlist_type, franchise_definition_id, created_at) VALUES ('b','plex','franchise',?,'')",
+                (defn_id,),
+            )
+        _orig = _svc._franchise_poster_urls
+        _svc._franchise_poster_urls = lambda items, limit=5: []
+        try:
+            filled = _svc.backfill_franchise_posters()
+            check("bb2: backfill returned 0", filled == 0)
+            defn = _db_mod.get_franchise_definition_by_id(defn_id)
+            parsed = json.loads(defn["poster_urls"])
+            check("bb2: strip unchanged", len(parsed) == 1)
+        finally:
+            _svc._franchise_poster_urls = _orig
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_backfill_skips_complete_strip():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        defn_id = _db_mod.upsert_franchise_definition(
+            key="mi", name="MI", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="cl2",
+            item_count=7,
+        )
+        _db_mod.set_franchise_definition_poster(defn_id, "a", '["a","b"]')
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, playlist_type, franchise_definition_id, created_at) VALUES ('b','plex','franchise',?,'')",
+                (defn_id,),
+            )
+        _orig = _svc._franchise_poster_urls
+        called = []
+        _svc._franchise_poster_urls = lambda items, limit=5: called.append(1) or []
+        try:
+            _svc.backfill_franchise_posters()
+            check("bb3: resolver not called for complete strip", len(called) == 0)
+        finally:
+            _svc._franchise_poster_urls = _orig
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_backfill_single_item_is_done():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        defn_id = _db_mod.upsert_franchise_definition(
+            key="solo", name="Solo", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="cl3",
+            item_count=1,
+        )
+        _db_mod.set_franchise_definition_poster(defn_id, "p", '["p"]')
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, playlist_type, franchise_definition_id, created_at) VALUES ('b','plex','franchise',?,'')",
+                (defn_id,),
+            )
+        _orig = _svc._franchise_poster_urls
+        called = []
+        _svc._franchise_poster_urls = lambda items, limit=5: called.append(1) or []
+        try:
+            _svc.backfill_franchise_posters()
+            check("bb4: single-item with 1 poster skipped", len(called) == 0)
+        finally:
+            _svc._franchise_poster_urls = _orig
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_upsert_poster_urls_roundtrip():
+    import os, tempfile, json
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        # Insert with poster_urls
+        did = _db_mod.upsert_franchise_definition(
+            key="t1", name="T1", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="c1",
+            poster_urls='["x","y"]',
+        )
+        defn = _db_mod.get_franchise_definition_by_id(did)
+        parsed = json.loads(defn["poster_urls"])
+        check("ups: insert stored list", parsed == ["x", "y"])
+
+        # Upsert with poster_urls=None — COALESCE keeps existing
+        _db_mod.upsert_franchise_definition(
+            key="t1", name="T1 v2", source="chronolists",
+            trakt_user=None, trakt_slug=None, chronolists_id="c1",
+            poster_urls=None,
+        )
+        defn2 = _db_mod.get_franchise_definition_by_id(did)
+        parsed2 = json.loads(defn2["poster_urls"])
+        check("ups: COALESCE kept existing strip", parsed2 == ["x", "y"])
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# v3.6.0 — Part C: card artwork control
+# --------------------------------------------------------------------------- #
+
+
+def test_set_card_art_roundtrip():
+    import os, tempfile
+    import db as _db_mod
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, created_at) VALUES ('t','')")
+        PID = 1
+        _db_mod.set_card_art(PID, "pick", '["k1","k2"]', '["p1","p2"]', "5.png")
+        with _db_mod.connection() as conn:
+            row = dict(conn.execute("SELECT * FROM managed_playlists WHERE id=?", (PID,)).fetchone())
+        check("ca: mode pick", row["card_poster_mode"] == "pick")
+        check("ca: keys", row["card_poster_keys"] == '["k1","k2"]')
+        check("ca: posters", row["card_posters"] == '["p1","p2"]')
+        check("ca: file", row["card_poster_file"] == "5.png")
+
+        _db_mod.set_card_art(PID, "auto", None, None, "5.png")
+        with _db_mod.connection() as conn:
+            row2 = dict(conn.execute("SELECT * FROM managed_playlists WHERE id=?", (PID,)).fetchone())
+        check("ca: mode auto", row2["card_poster_mode"] == "auto")
+        check("ca: null keys", row2["card_poster_keys"] is None)
+
+        try:
+            _db_mod.set_card_art(PID, "bogus", None, None, None)
+            check("ca: bogus mode raised", False)
+        except ValueError:
+            check("ca: bogus mode raised", True)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_resolve_card_posters_show_path():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, created_at) VALUES ('t','')")
+        PID = 1
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO playlist_shows (playlist_id, show_rating_key, show_title, show_thumb, position, start_season) VALUES (?,?,?,?,?,?)",
+                (PID, "sk1", "Show A", "/path/to/thumbA.jpg", 0, 1),
+            )
+            conn.execute(
+                "INSERT INTO playlist_shows (playlist_id, show_rating_key, show_title, show_thumb, position, start_season) VALUES (?,?,?,?,?,?)",
+                (PID, "sk2", "Show B", None, 1, 1),
+            )
+        result = _svc.resolve_card_posters(PID, ["sk1", "sk2", "sk3"])
+        check("rca: only thumbed show resolved", len(result) == 1)
+        check("rca: thumb url shape", "thumb?path=" in result[0] and "w=240" in result[0])
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_card_art_view_override():
+    import os, tempfile, json
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, created_at, card_poster_mode, card_posters) VALUES ('t','','pick','[\"u1\",\"u2\"]')")
+        PID = 1
+        view = _svc.get_playlist_view(PID)
+        check("cav: posters overridden", view.posters == ["u1", "u2"])
+        check("cav: single poster", view.poster == "u1")
+        check("cav: mode", view.card_poster_mode == "pick")
+
+        _db_mod.set_card_art(PID, "pick", None, '[]', None)
+        view2 = _svc.get_playlist_view(PID)
+        check("cav: empty pick falls back", view2.posters == [])
+
+        _db_mod.set_card_art(PID, "custom", None, None, "7.png")
+        view3 = _svc.get_playlist_view(PID)
+        check("cav: custom url", view3.posters == ["/card-art/1"])
+        check("cav: custom poster", view3.poster == "/card-art/1")
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_resolve_card_posters_franchise_path():
+    import os, sys, tempfile, types
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    fake = types.ModuleType("tmdb_client")
+    fake.get_movie = lambda tid: {"poster": f"https://img/t/p/w92/m{tid}.jpg"} if tid != 404 else None
+    fake.get_tv = lambda tid: {"poster": f"https://img/t/p/w92/t{tid}.jpg"}
+    orig_mod = sys.modules.get("tmdb_client")
+    sys.modules["tmdb_client"] = fake
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        defn_id = _db_mod.upsert_franchise_definition(
+            key="fx", name="FX", source="local",
+            trakt_user=None, trakt_slug=None, item_count=3,
+        )
+        _db_mod.replace_franchise_items(defn_id, [
+            {"rank": 1, "item_type": "movie", "title": "M1", "tmdb_id": 11},
+            {"rank": 2, "item_type": "episode", "title": "E1", "show_title": "S",
+             "show_tmdb_id": 22, "season_number": 1, "episode_number": 1},
+            {"rank": 3, "item_type": "movie", "title": "M404", "tmdb_id": 404},
+        ])
+        items = _db_mod.list_franchise_items(defn_id)
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO managed_playlists (name, backend, playlist_type, franchise_definition_id, created_at) VALUES ('f','plex','franchise',?,'')",
+                (defn_id,),
+            )
+        # Pick the episode's show first, then the movie, then an unresolvable one.
+        keys = [str(items[1]["id"]), str(items[0]["id"]), str(items[2]["id"])]
+        result = _svc.resolve_card_posters(1, keys)
+        check("rcf: two resolved, order kept",
+              result == ["https://img/t/p/w500/t22.jpg", "https://img/t/p/w500/m11.jpg"])
+        check("rcf: unknown key skipped", _svc.resolve_card_posters(1, ["999999"]) == [])
+    finally:
+        if orig_mod is not None:
+            sys.modules["tmdb_client"] = orig_mod
+        else:
+            sys.modules.pop("tmdb_client", None)
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_sniff_image():
+    from app import _sniff_image
+    check("sniff: png", _sniff_image(b"\x89PNG\r\n\x1a\n") == "png")
+    check("sniff: jpg", _sniff_image(b"\xff\xd8\xff\xe0") == "jpg")
+    check("sniff: webp", _sniff_image(b"RIFF....WEBP") == "webp")
+    check("sniff: unknown", _sniff_image(b"hello world") is None)
+    check("sniff: empty", _sniff_image(b"") is None)
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

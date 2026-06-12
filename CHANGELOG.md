@@ -3,6 +3,35 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.0] - 2026-06-12
+
+### Added
+
+- **Card artwork control.** Every playlist detail page gains a "Card artwork"
+  section that controls the home-page card art: **Automatic** (current
+  behaviour — first 5 member posters, or the franchise poster strip),
+  **Pick posters** (choose exactly which 1–5 members appear, in the order you
+  pick them — e.g. keep crossover-only shows like Chicago Fire off a
+  Law & Order card), or **Custom image** (upload a PNG/JPEG/WebP up to 5 MB
+  as the full card art). Uploads are validated by content, stored alongside
+  the database, and removed when the playlist is deleted.
+
+### Fixed
+
+- **Pruning toggle now renders its real state.** The playlist page coalesced
+  a disabled (`0`) pruning setting back to "On" when building the view, so
+  the pill always showed On even though the setting (and the prune behaviour)
+  had changed. Display-only bug; pruning itself always honoured the toggle.
+- **Franchise cards stuck on a single poster.** Two cooperating defects:
+  franchise playlists created from the picker never stored the up-to-5 poster
+  strip (only the Maker path did), and the startup backfill could permanently
+  freeze a strip at 1 poster if TMDB was unreachable during one boot (its
+  "already done" check treated any non-empty strip as complete). The strip is
+  now resolved at fetch time and at playlist creation, and the backfill
+  retries 1-poster strips on multi-item franchises until a real strip
+  resolves. Affected playlists (e.g. James Bond, John Wick) heal on the next
+  container start — no action needed.
+
 ## [3.5.0] - 2026-06-11
 
 ### Added

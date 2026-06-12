@@ -257,6 +257,9 @@ untouched; the future portion regenerates instantly.
   longer freeze the page. Works as a classic form post with JavaScript disabled.
 - **Home-page search & filters** — filter your playlists by name/show and by
   type (Show / Genre / Franchise); cards show when each playlist last synced.
+- **Card artwork control** — per playlist, choose which posters appear on its
+  home-page card (pick 1–5 members) or upload a custom image (PNG/JPEG/WebP),
+  instead of the automatic poster strip.
 - **No third-party requests** — the Inter font is bundled (was Google Fonts), so
   the UI loads fully offline and leaks nothing to a CDN.
 - **Hardened by default** — runs on a production WSGI server (waitress) and
@@ -774,7 +777,7 @@ static/                picker.js + linearr.js (toasts/AJAX) + style.css +
                        bundled Inter font (fonts/).
 defaults/              franchises.json registry + bundled franchise_data/ JSON.
 images/                Banner, logo, favicons, Unraid icon, screenshots.
-tests.py               Self-contained unit tests (634).
+tests.py               Self-contained unit tests (666).
 ```
 
 Linearr serves itself with **waitress** (production WSGI server) in a single

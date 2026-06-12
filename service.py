@@ -694,6 +694,9 @@ class PlaylistView:
     # v3.2.3 — up to 5 franchise posters for the home-page card strip (1→full …
     # 5→fifths). Empty for show/genre (those collage from per-show thumbs).
     posters: list[str] = field(default_factory=list)
+    # v3.6.0 — per-playlist card artwork control
+    card_poster_mode: str = "auto"
+    card_poster_keys: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -1754,9 +1757,21 @@ def backfill_franchise_posters() -> int:
             defn = db.get_franchise_definition_by_id(defn_id)
             if not defn:
                 continue
-            # Backfill when the strip list is missing (the single poster_url may
-            # already be set from an older version, but the up-to-5 strip is new).
-            if (defn.get("poster_urls") or "").strip():
+            # Backfill when the strip list is missing or frozen at 1 poster
+            # on a multi-item definition (a TMDB blip during boot can freeze
+            # the strip permanently under the old gate, which skipped any
+            # non-empty poster_urls).
+            raw = (defn.get("poster_urls") or "").strip()
+            existing_count = 0
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                    existing_count = len(parsed) if isinstance(parsed, list) else 0
+                except Exception:
+                    existing_count = 0
+            # Done when we already have a real strip (2+), or the franchise only
+            # has a single item so 1 poster IS the full strip.
+            if existing_count >= 2 or (existing_count >= 1 and (defn.get("item_count") or 0) <= 1):
                 continue
             poster_list = _franchise_poster_urls(db.list_franchise_items(defn_id), limit=5)
             poster_url = (
@@ -1767,7 +1782,7 @@ def backfill_franchise_posters() -> int:
             )
             if not poster_list and poster_url:
                 poster_list = [poster_url]
-            if poster_list:
+            if poster_list and len(poster_list) > existing_count:
                 db.set_franchise_definition_poster(
                     defn_id, poster_url, json.dumps(poster_list)
                 )
@@ -1942,12 +1957,14 @@ def _fetch_and_store_franchise_chronolists(
     # Resolve a representative TMDB poster so the franchise's picker card gets
     # frosted-glass art — including auto-discovered Chronolists lists, which
     # flow through here too.
-    poster_url = _franchise_poster_url(items)
+    poster_list = _franchise_poster_urls(items, limit=5)
+    poster_url = poster_list[0] if poster_list else None
     definition_id = db.upsert_franchise_definition(
         key=key, name=name, source="chronolists",
         trakt_user=None, trakt_slug=None, chronolists_id=chronolists_id,
         fetched_at=fetched_at, content_hash=new_hash, item_count=len(items),
-        auto_discovered=int(auto_discovered), poster_url=poster_url)
+        auto_discovered=int(auto_discovered), poster_url=poster_url,
+        poster_urls=json.dumps(poster_list) if poster_list else None)
     if existing is None or existing.get("content_hash") != new_hash:
         db.replace_franchise_items(definition_id, items)
         log.info("Franchise '%s' (chronolists): stored %d items", name, len(items))
@@ -2245,7 +2262,18 @@ def create_franchise_playlist(
     # Deterministic franchise cover (TMDB) — set after each backend create so
     # franchise playlists get a real poster rather than relying on the media
     # server's inconsistent auto-composite. Best-effort; never blocks creation.
-    poster_url = _franchise_poster_url(db.list_franchise_items(definition_id))
+    poster_list = _franchise_poster_urls(db.list_franchise_items(definition_id), limit=5)
+    poster_url = poster_list[0] if poster_list else None
+    if poster_list:
+        defn = db.get_franchise_definition_by_id(definition_id) or {}
+        raw = (defn.get("poster_urls") or "").strip()
+        try:
+            stored = len(json.loads(raw)) if raw else 0
+        except Exception:
+            stored = 0
+        if len(poster_list) > stored:
+            db.set_franchise_definition_poster(
+                definition_id, poster_url, json.dumps(poster_list))
 
     for tb, client, pl_id in _clients_for_playlist(row):
         backend_keys = {"plex": plex_keys, "jellyfin": jellyfin_keys, "emby": emby_keys}.get(tb, [])
@@ -2938,6 +2966,29 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
     else:
         badge_css = "is-multi"
 
+    # v3.6.0 — per-playlist card artwork override
+    mode = _row_get(row, "card_poster_mode", "auto") or "auto"
+    if mode == "custom" and _row_get(row, "card_poster_file", None):
+        franchise_posters = [f"/card-art/{row['id']}"]
+        franchise_poster = franchise_posters[0]
+    elif mode == "pick":
+        raw = _row_get(row, "card_posters", None)
+        try:
+            picked = [u for u in json.loads(raw) if u] if raw else []
+        except Exception:
+            picked = []
+        if picked:
+            franchise_posters = picked[:5]
+            franchise_poster = picked[0]
+    # card_poster_keys — parse from JSON column for the detail page UI
+    card_keys = []
+    raw_keys = _row_get(row, "card_poster_keys", None)
+    if raw_keys:
+        try:
+            card_keys = [k for k in json.loads(raw_keys) if k]
+        except Exception:
+            card_keys = []
+
     return PlaylistView(
         id=row["id"],
         name=row["name"],
@@ -2965,13 +3016,15 @@ def get_playlist_view(playlist_id: int) -> PlaylistView | None:
         rule_mode=_row_get(row, "rule_mode", "genre") or "genre",
         last_stats=(json.loads(_row_get(row, "last_stats", None) or ""
                               ) if _row_get(row, "last_stats", None) else None),
-        pruning_enabled=int(_row_get(row, "pruning_enabled", 1) or 1),
+        pruning_enabled=int(_pe) if (_pe := _row_get(row, "pruning_enabled", 1)) is not None else 1,
         movies_count=movies_count,
         episodes_count=episodes_count,
         badge_label=badge_label,
         badge_css=badge_css,
         poster=franchise_poster,
         posters=franchise_posters,
+        card_poster_mode=mode,
+        card_poster_keys=card_keys,
     )
 
 
@@ -2981,4 +3034,60 @@ def list_playlist_views() -> list[PlaylistView]:
         view = get_playlist_view(row["id"])
         if view:
             out.append(view)
+    return out
+
+
+def resolve_card_posters(playlist_id: int, keys: list[str]) -> list[str]:
+    """Resolve up to 5 picked member identifiers to poster URLs for the
+    home card, in the given order. Show/genre: keys are playlist_shows
+    .show_rating_key values -> '/thumb?path=<urlencoded thumb>&w=240&h=360'
+    (skip shows with no thumb). Franchise: keys are franchise_items.id values
+    (as strings) -> TMDB poster via the same per-item logic as
+    _franchise_poster_urls (movie+tmdb_id -> get_movie; show_tmdb_id ->
+    get_tv; w92->w500 swap). Unresolvable keys are skipped. Best-effort:
+    never raises; returns []."""
+    from urllib.parse import quote
+    row = db.get_playlist(playlist_id)
+    if not row:
+        return []
+    ptype = _row_get(row, "playlist_type", "manual") or "manual"
+    out: list[str] = []
+    if ptype == "franchise":
+        defn_id = dict(row).get("franchise_definition_id")
+        if not defn_id:
+            return []
+        items = {str(fi["id"]): fi for fi in db.list_franchise_items(defn_id)}
+        try:
+            import tmdb_client
+        except Exception:
+            return []
+        seen: set[str] = set()
+        for k in keys:
+            if len(out) >= 5:
+                break
+            fi = items.get(str(k))
+            if not fi:
+                continue
+            try:
+                poster = None
+                if fi.get("item_type") == "movie" and fi.get("tmdb_id"):
+                    poster = (tmdb_client.get_movie(int(fi["tmdb_id"])) or {}).get("poster")
+                elif fi.get("show_tmdb_id"):
+                    poster = (tmdb_client.get_tv(int(fi["show_tmdb_id"])) or {}).get("poster")
+                if poster:
+                    url = poster.replace("/t/p/w92/", "/t/p/w500/")
+                    if url not in seen:
+                        seen.add(url)
+                        out.append(url)
+            except Exception:
+                continue
+    else:
+        shows = [dict(s) for s in db.list_shows(playlist_id)]
+        thumb_by_key = {s["show_rating_key"]: s.get("show_thumb") for s in shows}
+        for k in keys:
+            if len(out) >= 5:
+                break
+            thumb = thumb_by_key.get(k)
+            if thumb:
+                out.append(f"/thumb?path={quote(thumb)}&w=240&h=360")
     return out
