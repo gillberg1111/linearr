@@ -489,6 +489,7 @@ def _rebuild_tail_on(
     crossover_map: dict[tuple[str, int, int], tuple[int, int]] | None = None,
     pruning_enabled: bool = False,
     keep_last_n: int | None = None,
+    reorder_flag: list | None = None,
 ) -> tuple[int, int]:
     """Recompute the future portion of a playlist on a single backend.
 
@@ -543,15 +544,40 @@ def _rebuild_tail_on(
         return (0, 0)
 
     kept_keys = {it.rating_key for it in kept}
-    to_remove = list((set(current_tail_keys) - set(new_tail_keys)) | set(head_removed_keys))
-    to_add = [k for k in new_tail_keys if k not in kept_keys]
+    current_set = set(current_tail_keys)
+    new_set = set(new_tail_keys)
+    leavers = list((current_set - new_set) | set(head_removed_keys))
+    newcomers = [k for k in new_tail_keys if k not in current_set and k not in kept_keys]
 
-    if to_remove:
-        client.remove_items_from_playlist(playlist_id_on_backend, to_remove)
-    if to_add:
-        client.add_items_to_playlist(playlist_id_on_backend, to_add)
+    # Cheap path: the surviving items keep their relative order and every
+    # newcomer belongs at the very end — we can patch with remove+append and
+    # never touch existing rows.
+    surviving_current = [k for k in current_tail_keys if k in new_set]
+    surviving_new = [k for k in new_tail_keys if k in current_set]
+    newcomers_are_suffix = new_tail_keys[len(new_tail_keys) - len(newcomers):] == newcomers
+    if surviving_current == surviving_new and newcomers_are_suffix:
+        if leavers:
+            client.remove_items_from_playlist(playlist_id_on_backend, leavers)
+        if newcomers:
+            client.add_items_to_playlist(playlist_id_on_backend, newcomers)
+        return (len(newcomers), len(leavers))
 
-    return (len(to_add), len(to_remove))
+    # Order changed (or a newcomer belongs mid-tail): rebuild the playlist in
+    # the exact computed order, preserving the kept head. Atomic on Jellyfin;
+    # the MediaClient default (remove-all + add-all) covers Plex/Emby.
+    kept_ordered = [it.rating_key for it in kept]
+    client.replace_playlist_items(
+        playlist_id_on_backend, kept_ordered + new_tail_keys
+    )
+    log.info(
+        "Reordered playlist tail on %s: %d kept + %d tail items "
+        "(+%d new, -%d removed)",
+        backend, len(kept_ordered), len(new_tail_keys),
+        len(newcomers), len(leavers),
+    )
+    if reorder_flag is not None:
+        reorder_flag.append(backend)
+    return (len(newcomers), len(leavers))
 
 
 def _row_get(row, key, default=None):
@@ -568,7 +594,7 @@ def _rebuild_playlist_tails(
     block_size: int | None = None,
     shuffle_seed: int | None = ...,  # sentinel — None is a valid value
     op_label: str = "tail rebuild",
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
     """Iterate every enabled backend for a playlist and rebuild its tail.
 
     Defaults all params from the row; callers that have JUST written a new
@@ -589,6 +615,7 @@ def _rebuild_playlist_tails(
     active_configs = [c for c in full_configs if not c.is_excluded]
     crossover_map = _build_crossover_map(row["id"]) if sm == "air_date" else None
     total_added = total_removed = 0
+    reordered: list[str] = []
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue
@@ -597,12 +624,13 @@ def _rebuild_playlist_tails(
                 tb, client, pl_id, active_configs, sm, uw,
                 block_size=bs, shuffle_seed=ss, crossover_map=crossover_map,
                 pruning_enabled=pe, keep_last_n=kln,
+                reorder_flag=reordered,
             )
             total_added += added
             total_removed += removed
         except Exception:
             log.exception("%s failed on %s for '%s'", op_label, tb, row["name"])
-    return (total_added, total_removed)
+    return (total_added, total_removed, reordered)
 
 
 # --------------------------------------------------------------------------- #
@@ -857,7 +885,7 @@ def add_shows_to_playlist(playlist_id: int, new_configs: list[ShowConfig]) -> No
     db.add_shows(playlist_id, [_config_to_db_dict(c) for c in new_configs])
 
     full_configs: list[ShowConfig] = [_config_from_row(r) for r in db.list_shows(playlist_id)]
-    added, removed = _rebuild_playlist_tails(row, full_configs, op_label="add_shows tail rebuild")
+    added, removed, _ = _rebuild_playlist_tails(row, full_configs, op_label="add_shows tail rebuild")
     log.info("Added shows to '%s': +%d -%d tail items", row["name"], added, removed)
 
 
@@ -1409,14 +1437,16 @@ def sync_playlist(playlist_id: int, force: bool = False) -> tuple[int, int]:
 
     _heal_missing_ids(playlist_id, row, full_configs)
 
-    added, removed = _rebuild_playlist_tails(row, full_configs, op_label="sync")
+    added, removed, reordered = _rebuild_playlist_tails(row, full_configs, op_label="sync")
+    if reordered and not added and not removed:
+        removed = -1  # sentinel: pure reorder, no membership change
     if added or removed:
-        log.info("Synced '%s': +%d, -%d", row["name"], added, removed)
+        log.info("Synced '%s': +%d, -%d", row["name"], added, max(removed, 0))
         try:
             _webhooks.fire(
                 "playlist.synced",
                 playlist=_webhooks._playlist_info(dict(row)),
-                data={"added": added, "removed": removed},
+                data={"added": added, "removed": max(removed, 0)},
             )
         except Exception:
             pass
@@ -3090,4 +3120,54 @@ def resolve_card_posters(playlist_id: int, keys: list[str]) -> list[str]:
             thumb = thumb_by_key.get(k)
             if thumb:
                 out.append(f"/thumb?path={quote(thumb)}&w=240&h=360")
+    return out
+
+
+def get_live_playlist_order(playlist_id: int, backend: str) -> list[dict] | None:
+    """Ordered live contents of this playlist on one backend, for display.
+    Returns None when the playlist/backend pairing is invalid (no row, the
+    backend isn't in the row's backend set, or no playlist id on that side).
+    Each dict: {pos, kind, title, show_title, season, episode, air_date,
+    watched}. Show titles map via the playlist's playlist_shows rows
+    (backend-keyed item id OR primary show_rating_key); fall back to '' when
+    unknown. Raises nothing; backend/API errors return None."""
+    row = db.get_playlist(playlist_id)
+    if not row:
+        return None
+    backend_cols = {"plex": "plex_show_item_id", "jellyfin": "jellyfin_show_item_id", "emby": "emby_show_item_id"}
+    if backend not in parse_backend_set(row["backend"] if "backend" in row.keys() else "plex"):
+        return None
+    client = None
+    pl_id = None
+    for be, cl, pid in _clients_for_playlist(row):
+        if be == backend:
+            client, pl_id = cl, pid
+            break
+    if not client or not pl_id:
+        return None
+    try:
+        items = client.get_playlist_items(pl_id)
+    except Exception:
+        return None
+    show_rows = [dict(s) for s in db.list_shows(playlist_id)]
+    col = backend_cols.get(backend, "plex_show_item_id")
+    show_title_map: dict[str, str] = {}
+    for s in show_rows:
+        bid = s.get(col) or s.get("show_rating_key")
+        if bid:
+            show_title_map[str(bid)] = s.get("show_title", "")
+    out: list[dict] = []
+    for i, it in enumerate(items[:500]):
+        title = it.title or ""
+        show_title = show_title_map.get(str(it.show_rating_key), "")
+        out.append({
+            "pos": i + 1,
+            "kind": it.kind,
+            "title": title,
+            "show_title": show_title,
+            "season": it.season,
+            "episode": it.episode,
+            "air_date": it.air_date or "",
+            "watched": it.view_count > 0,
+        })
     return out

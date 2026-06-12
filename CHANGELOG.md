@@ -3,6 +3,37 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.0] - 2026-06-12
+
+### Added
+
+- **Live "Current playlist order" view.** Show and Genre playlist pages gain a
+  collapsible section that loads the playlist's actual, current order straight
+  from your media server — numbered, with show + episode titles, air dates,
+  and watched items dimmed. Fix some metadata, hit Sync, expand the section,
+  and verify the new order without opening Plex/Jellyfin/Emby. Playlists on
+  multiple backends get a per-backend toggle.
+
+### Changed
+
+- **Playlist page layout.** The "Add another show" picker (often hundreds of
+  poster tiles) no longer pushes Stats, Card artwork, and Maintenance below
+  the fold: it moved to the bottom of the page and is collapsed behind an
+  expandable "Add another show — N available" header.
+
+### Fixed
+
+- **Sync now reorders playlists.** Sync applied changes as a membership diff —
+  remove what left, append what's new at the end — so it could never MOVE
+  existing items. If you fixed missing air dates (e.g. via Refresh metadata)
+  on an Air Date playlist, Sync reported "Already up to date." and the order
+  on the server never changed; recreating the playlist was the only fix.
+  Sync now detects order changes and rebuilds the playlist in the exact
+  computed order (atomically on Jellyfin), preserving the watched head
+  buffer. New episodes that belong mid-list are spliced into place instead
+  of appended at the end, and a pure reorder reports "Order updated to match
+  current air dates / settings."
+
 ## [3.6.0] - 2026-06-12
 
 ### Added

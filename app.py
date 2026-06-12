@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.6.0"
+__version__ = "3.7.0"
 
 import logging
 import os
@@ -880,6 +880,18 @@ def create_app() -> Flask:
             log.exception("api_preview failed")
             preview = []
         return render_template("_preview_partial.html", preview=preview)
+
+    # -- v3.7.0 live playlist order ----------------------------------- #
+    @app.route("/api/playlist/<int:playlist_id>/order")
+    def api_playlist_order(playlist_id: int):
+        row = db.get_playlist(playlist_id)
+        if not row:
+            abort(404)
+        backend = request.args.get("backend") or primary_backend(
+            row["backend"] if "backend" in row.keys() else "plex")
+        entries = service.get_live_playlist_order(playlist_id, backend)
+        return render_template("_order_partial.html", entries=entries,
+                               backend=backend, truncated=(entries is not None and len(entries) == 500))
 
     # ------------------------------------------------------------------ #
     # Index
@@ -2194,6 +2206,7 @@ def create_app() -> Flask:
             lambda: service.sync_playlist(playlist_id, force=True),
             ok_msg=lambda r: (
                 "Already up to date." if r == (0, 0)
+                else "Order updated to match current air dates / settings." if r == (0, -1)
                 else f"Synced: +{r[0]} added, -{r[1]} removed."
             ),
             fail_label="Sync",
@@ -2560,7 +2573,7 @@ def create_app() -> Flask:
         except Exception as exc:
             log.exception("api sync failed for playlist %d", playlist_id)
             return jsonify({"error": str(exc)}), 500
-        return jsonify({"added": added, "removed": removed})
+        return jsonify({"added": added, "removed": max(removed, 0)})
 
     @app.route("/api/v1/backends", methods=["GET"])
     @_api_key_required

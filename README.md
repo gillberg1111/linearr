@@ -260,6 +260,9 @@ untouched; the future portion regenerates instantly.
 - **Card artwork control** — per playlist, choose which posters appear on its
   home-page card (pick 1–5 members) or upload a custom image (PNG/JPEG/WebP),
   instead of the automatic poster strip.
+- **Live playlist order view** — expand "Current playlist order" on any Show
+  or Genre playlist page to see the playlist's actual server-side order (air
+  dates shown, watched items dimmed) without opening your media server.
 - **No third-party requests** — the Inter font is bundled (was Google Fonts), so
   the UI loads fully offline and leaks nothing to a CDN.
 - **Hardened by default** — runs on a production WSGI server (waitress) and
@@ -777,7 +780,7 @@ static/                picker.js + linearr.js (toasts/AJAX) + style.css +
                        bundled Inter font (fonts/).
 defaults/              franchises.json registry + bundled franchise_data/ JSON.
 images/                Banner, logo, favicons, Unraid icon, screenshots.
-tests.py               Self-contained unit tests (666).
+tests.py               Self-contained unit tests (694).
 ```
 
 Linearr serves itself with **waitress** (production WSGI server) in a single

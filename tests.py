@@ -4263,6 +4263,301 @@ def test_sniff_image():
     check("sniff: empty", _sniff_image(b"") is None)
 
 
+# --------------------------------------------------------------------------- #
+# v3.7.0 — Part A: sync reorder fix
+# --------------------------------------------------------------------------- #
+
+
+class _FakeOrderClient:
+    """Minimal fake client for testing _rebuild_tail_on reorder logic."""
+    def __init__(self, current_items=None):
+        self.items = list(current_items or [])
+        self.removed: list[str] = []
+        self.added: list[str] = []
+        self.replaced: list[str] | None = None
+
+    def get_playlist_items(self, pl_id):
+        return list(self.items)
+
+    def remove_items_from_playlist(self, pl_id, keys):
+        self.removed.extend(keys)
+
+    def add_items_to_playlist(self, pl_id, keys):
+        self.added.extend(keys)
+
+    def replace_playlist_items(self, pl_id, ordered):
+        self.replaced = list(ordered)
+
+
+def _watched(k, show="S1", season=1, episode=1, view_count=1, kind="episode"):
+    from rotation import PlaylistItem
+    return PlaylistItem(str(k), show, season, episode, view_count=view_count)
+
+
+def _unwatched(k, show="S1", season=1, episode=1, kind="episode"):
+    return _watched(k, show, season, episode, view_count=0)
+
+
+def _make_fake_episodes(*keys):
+    from rotation import PlaylistItem
+    return [PlaylistItem(str(k), "", 1, int(k)) for k in keys]
+
+
+def test_rebuild_tail_on_unchanged():
+    import service as _svc
+    items = [_watched("h1"), _watched("h2"), _unwatched("1", episode=1), _unwatched("2", episode=2)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1, 2)
+    try:
+        added, removed = _svc._rebuild_tail_on("plex", fake, "pl", [cfg], "rotation", False)
+        check("rt1: unchanged tail returns 0,0", (added, removed) == (0, 0))
+        check("rt1: no writes", not fake.removed and not fake.added and not fake.replaced)
+    finally:
+        _svc._episodes_for_config = _orig_ep
+
+
+def test_rebuild_tail_on_pure_reorder():
+    import service as _svc
+    # Current tail: 2, 1. New computed tail: 1, 2 (reordered).
+    items = [_watched("h"), _unwatched("2", episode=2), _unwatched("1", episode=1)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1, 2)
+    try:
+        flag: list[str] = []
+        added, removed = _svc._rebuild_tail_on("plex", fake, "pl", [cfg], "rotation", False, reorder_flag=flag)
+        check("rt2: pure reorder returns 0,0", (added, removed) == (0, 0))
+        check("rt2: replace called", fake.replaced is not None)
+        check("rt2: correct order h+1+2", fake.replaced == ["h", "1", "2"])
+        check("rt2: reorder_flag recorded", "plex" in flag)
+    finally:
+        _svc._episodes_for_config = _orig_ep
+
+
+def test_rebuild_tail_on_append_newcomer():
+    import service as _svc
+    items = [_watched("h"), _unwatched("1", episode=1)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    # New episode 2 sorts after 1 (suffix)
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1, 2)
+    try:
+        added, removed = _svc._rebuild_tail_on("plex", fake, "pl", [cfg], "rotation", False)
+        check("rt3: append newcomer returns 1,0", (added, removed) == (1, 0))
+        check("rt3: add called", fake.added == ["2"])
+        check("rt3: no replace", not fake.replaced)
+    finally:
+        _svc._episodes_for_config = _orig_ep
+
+
+def test_rebuild_tail_on_leaver_only():
+    import service as _svc
+    items = [_watched("h"), _unwatched("1", episode=1), _unwatched("2", episode=2)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    # Only key 1 remains in config
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1)
+    try:
+        added, removed = _svc._rebuild_tail_on("plex", fake, "pl", [cfg], "rotation", False)
+        check("rt4: leaver returns 0,1", (added, removed) == (0, 1))
+        check("rt4: remove called", fake.removed == ["2"])
+        check("rt4: no replace", not fake.replaced)
+    finally:
+        _svc._episodes_for_config = _orig_ep
+
+
+def test_rebuild_tail_on_mid_tail_newcomer():
+    import service as _svc
+    # 0 is in head, 2 is in tail. New 1 sorts between them.
+    items = [_watched("0", episode=0), _unwatched("2", episode=2)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1, 2)
+    try:
+        added, removed = _svc._rebuild_tail_on("plex", fake, "pl", [cfg], "rotation", False)
+        check("rt5: mid-tail newcomer returns 1,0", (added, removed) == (1, 0))
+        check("rt5: replace called", fake.replaced is not None)
+        check("rt5: correct order 0+1+2", fake.replaced == ["0", "1", "2"])
+    finally:
+        _svc._episodes_for_config = _orig_ep
+
+
+def test_rebuild_tail_on_pruning_reorder():
+    import service as _svc
+    # 3 head items all watched; keep_last_n=1 so h0/h1 should be pruned
+    items = [_watched("h0", episode=0), _watched("h1", episode=1), _watched("h2", episode=2),
+             _unwatched("2", episode=2), _unwatched("1", episode=1)]
+    fake = _FakeOrderClient(items)
+    cfg = _svc.ShowConfig(rating_key="S1", plex_rating_key="S1", title="S1", thumb="")
+    _orig_ep = _svc._episodes_for_config
+    _svc._episodes_for_config = lambda c, be, unwatched_only=False: _make_fake_episodes(1, 2)
+    _orig_wk = _svc._watched_keep
+    _svc._watched_keep = lambda: 1
+    try:
+        added, removed = _svc._rebuild_tail_on(
+            "plex", fake, "pl", [cfg], "rotation", False, pruning_enabled=True, keep_last_n=1)
+        check("rt6: pruning+reorder returns 0,2 membership", (added, removed) == (0, 2))
+        check("rt6: replace called", fake.replaced is not None)
+        # h2 is the last watched (kept), h0/h1 pruned. Expected: [h2, 1, 2]
+        check("rt6: kept head is h2 then 1+2", fake.replaced == ["h2", "1", "2"])
+    finally:
+        _svc._episodes_for_config = _orig_ep
+        _svc._watched_keep = _orig_wk
+
+
+def test_sync_playlist_sentinel():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, backend, created_at, sort_mode, auto_sync) VALUES ('t','plex','','rotation',1)")
+        PID = 1
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO playlist_shows (playlist_id, show_rating_key, show_title, position, start_season) VALUES (?,?,?,?,?)",
+                (PID, "S1", "S1", 0, 1))
+        # Patch _rebuild_playlist_tails to simulate a pure reorder
+        _orig_rpt = _svc._rebuild_playlist_tails
+        _svc._rebuild_playlist_tails = lambda r, cfgs, **kw: (0, 0, ["plex"])
+        try:
+            added, removed = _svc.sync_playlist(PID, force=True)
+            check("sps: pure reorder sentinel", (added, removed) == (0, -1))
+        finally:
+            _svc._rebuild_playlist_tails = _orig_rpt
+        # No-op sync still returns (0,0)
+        _svc._rebuild_playlist_tails = lambda r, cfgs, **kw: (0, 0, [])
+        try:
+            added2, removed2 = _svc.sync_playlist(PID, force=True)
+            check("sps: no-op returns 0,0", (added2, removed2) == (0, 0))
+        finally:
+            _svc._rebuild_playlist_tails = _orig_rpt
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# v3.7.0 — Part C: live playlist order
+# --------------------------------------------------------------------------- #
+
+
+def test_live_playlist_order_happy_path():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+    from rotation import PlaylistItem
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, backend, plex_rating_key, created_at) VALUES ('t','plex','pl1','')")
+        PID = 1
+        with _db_mod.connection() as conn:
+            conn.execute(
+                "INSERT INTO playlist_shows (playlist_id, show_rating_key, plex_show_item_id, show_title, position, start_season) VALUES (?,?,?,?,?,?)",
+                (PID, "10", "10", "Show A", 0, 1))
+
+        class _FakePLClient:
+            def get_playlist_items(self, pl_id):
+                return [
+                    PlaylistItem("e1", "10", 1, 1, view_count=1, title="Pilot", kind="episode", air_date="2020-01-01"),
+                    PlaylistItem("e2", "10", 1, 2, view_count=0, title="Ep 2", kind="episode", air_date="2020-01-08"),
+                ]
+
+        _orig_cl = _svc._clients_for_playlist
+        _svc._clients_for_playlist = lambda row: [("plex", _FakePLClient(), "pl1")]
+        try:
+            entries = _svc.get_live_playlist_order(PID, "plex")
+            check("glo: two entries", len(entries) == 2)
+            check("glo: order preserved", entries[0]["pos"] == 1)
+            check("glo: show title mapped", entries[0]["show_title"] == "Show A")
+            check("glo: watched True", entries[0]["watched"] is True)
+            check("glo: watched False", entries[1]["watched"] is False)
+            check("glo: air date present", entries[0]["air_date"] == "2020-01-01")
+        finally:
+            _svc._clients_for_playlist = _orig_cl
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_live_playlist_order_invalid_backend():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, backend, created_at) VALUES ('t','plex','')")
+        PID = 1
+        check("glo: invalid backend -> None", _svc.get_live_playlist_order(PID, "jellyfin") is None)
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def test_live_playlist_order_cap():
+    import os, tempfile
+    import db as _db_mod
+    import service as _svc
+    from rotation import PlaylistItem
+
+    orig_path = _db_mod.DB_PATH
+    tmp = tempfile.mktemp(suffix=".db")
+    try:
+        _db_mod.DB_PATH = tmp
+        _db_mod.init_db()
+        with _db_mod.connection() as conn:
+            conn.execute("INSERT INTO managed_playlists (name, backend, plex_rating_key, created_at) VALUES ('t','plex','pl1','')")
+        PID = 1
+
+        class _FakePLClient:
+            def get_playlist_items(self, pl_id):
+                return [PlaylistItem(f"e{i}", "s", 1, 1) for i in range(600)]
+
+        _orig_cl = _svc._clients_for_playlist
+        _svc._clients_for_playlist = lambda row: [("plex", _FakePLClient(), "pl1")]
+        try:
+            entries = _svc.get_live_playlist_order(PID, "plex")
+            check("glo: capped at 500", len(entries) == 500)
+        finally:
+            _svc._clients_for_playlist = _orig_cl
+    finally:
+        _db_mod.DB_PATH = orig_path
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def main() -> int:
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for t in tests:

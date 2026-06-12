@@ -2547,3 +2547,51 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   font-size: 1.4rem;
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* ---------------- collapsible sections (v3.7.0) ---------------- */
+.collapse-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  background: rgba(31, 34, 43, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  list-style: none;
+}
+.collapse-section > summary::-webkit-details-marker { display: none; }
+.collapse-section > summary::before {
+  content: "+";
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 1.2em;
+  text-align: center;
+  transition: transform 0.2s;
+}
+.collapse-section[open] > summary::before { content: "\2013"; }
+.collapse-section > summary:hover { border-color: #4d96ff; }
+.collapse-section > summary h2 { display: inline; margin: 0; font-size: 1rem; }
+.collapse-section > summary .hint { margin-left: auto; }
+.add-show-section { margin-bottom: 1rem; }
+
+/* ---------------- live playlist order (v3.7.0) ---------------- */
+.order-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 2px; }
+.order-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.89rem;
+}
+.order-row:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+.order-row.is-watched { opacity: 0.45; }
+.order-pos { min-width: 2.5ch; text-align: right; opacity: 0.5; font-variant-numeric: tabular-nums; font-size: 0.82rem; }
+.order-date { opacity: 0.55; font-size: 0.82rem; white-space: nowrap; }
+.order-backend-pills { display: flex; gap: 0.35rem; margin: 0.5rem 0 0; }
+.order-backend-pill { padding: 0.3rem 0.75rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(31,34,43,.7); color: inherit; font: inherit; font-size: 0.82rem; cursor: pointer; }
+.order-backend-pill.is-active { border-color: #4d96ff; background: rgba(77,150,255,.16); }
+.order-preview-section { margin-bottom: 1rem; }
+.order-target { min-height: 2em; }

@@ -453,70 +453,19 @@
   </section>
   {% endif %}
 
-  <section>
-    <h2>Add another show</h2>
-    {% if not available %}
-      <p class="empty-state">No other shows available to add.</p>
-    {% else %}
-      <form method="post" action="{{ url_for('add_configure', playlist_id=playlist.id) }}" class="builder" id="addForm">
-        <div class="builder-toolbar">
-          <input type="text" id="addFilterInput" placeholder="Filter shows…" class="filter-input">
-          <span class="counter"><span id="addSelectedCount">0</span> selected</span>
-          <button type="button" id="addClearBtn" class="btn btn-sm">Clear selection</button>
-          <button type="submit" class="btn btn-primary">Next: configure →</button>
-        </div>
-        <p class="hint">
-          You'll pick the season range and specials for each show on the next step.
-        </p>
-
-        <section class="selected-tray" id="addSelectedWrapper" hidden>
-          <div class="selected-tray-head">
-            <span class="tray-title">Selected to add</span>
-            <span class="tray-count" id="addTrayCount">0</span>
-            <span class="hint">Click a tile to deselect.</span>
-          </div>
-          <div class="poster-grid poster-grid-tray" id="addSelectedTray"></div>
-        </section>
-
-        <div class="poster-grid" id="addShowList">
-          {% for s in available %}
-            {% set thumb_b = s.thumb_backend if s is mapping else None %}
-            {% set show_backends = s.backends if s is mapping else None %}
-            {% set both = show_backends and (show_backends|length) > 1 %}
-            {% set only_jf = show_backends and (show_backends|length == 1) and ('jellyfin' in show_backends) %}
-            {% set only_px = show_backends and (show_backends|length == 1) and ('plex' in show_backends) %}
-            {% set only_emby = show_backends and (show_backends|length == 1) and ('emby' in show_backends) %}
-            <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
-              <input type="checkbox" name="shows" value="{{ s.rating_key }}"
-                     {% if selected and s.rating_key in selected %}checked{% endif %}>
-              <div class="poster">
-                {% if s.thumb %}
-                  <img loading="lazy"
-                       src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}{% if thumb_b %}&b={{ thumb_b }}{% endif %}&w=240&h=360"
-                       alt="{{ s.title }}">
-                {% else %}
-                  <div class="poster-fallback">{{ s.title[:1] }}</div>
-                {% endif %}
-                <div class="check"></div>
-                {% if AVAILABLE_BACKENDS|length > 1 and show_backends and not both %}
-                  <div class="backend-badge {% if only_jf %}is-jellyfin{% elif only_emby %}is-emby{% else %}is-plex{% endif %}">
-                    {% if only_jf %}Jellyfin only{% elif only_emby %}Emby only{% else %}Plex only{% endif %}
-                  </div>
-                {% endif %}
-              </div>
-              <div class="show-meta">
-                <div class="title">{{ s.title }}</div>
-                <div class="sub">
-                  {% if s.year %}{{ s.year }} · {% endif %}{{ s.library or '' }}
-                </div>
-              </div>
-            </label>
+  <section class="order-preview-section">
+    <details class="collapse-section" data-lazy-url="{{ url_for('api_playlist_order', playlist_id=playlist.id) }}">
+      <summary><h2>Current playlist order</h2><span class="hint">live from the server</span></summary>
+      <div class="order-backend-pills">
+        {% set bes = playlist.backend.replace('both', 'plex,jellyfin').split(',') %}
+        {% if bes|length > 1 %}
+          {% for be in bes %}
+          <button type="button" class="pill order-backend-pill {% if loop.first %}is-active{% endif %}" data-backend="{{ be }}">{{ be|capitalize }}</button>
           {% endfor %}
-        </div>
-
-        <p class="empty-state" id="addEmptyResults" hidden>No shows match that filter.</p>
-      </form>
-    {% endif %}
+        {% endif %}
+      </div>
+      <div class="order-target"><p class="hint">Loading…</p></div>
+    </details>
   </section>
 
   {% if playlist.last_stats %}
@@ -713,6 +662,76 @@
       </form>
     </div>
   </section>
+
+  {% if playlist.playlist_type != 'franchise' %}
+  <section class="add-show-section">
+    <details class="collapse-section">
+      <summary><h2>Add another show</h2><span class="hint">{{ available|length }} available</span></summary>
+      {% if not available %}
+        <p class="empty-state">No other shows available to add.</p>
+      {% else %}
+        <form method="post" action="{{ url_for('add_configure', playlist_id=playlist.id) }}" class="builder" id="addForm">
+          <div class="builder-toolbar">
+            <input type="text" id="addFilterInput" placeholder="Filter shows…" class="filter-input">
+            <span class="counter"><span id="addSelectedCount">0</span> selected</span>
+            <button type="button" id="addClearBtn" class="btn btn-sm">Clear selection</button>
+            <button type="submit" class="btn btn-primary">Next: configure →</button>
+          </div>
+          <p class="hint">
+            You'll pick the season range and specials for each show on the next step.
+          </p>
+
+          <section class="selected-tray" id="addSelectedWrapper" hidden>
+            <div class="selected-tray-head">
+              <span class="tray-title">Selected to add</span>
+              <span class="tray-count" id="addTrayCount">0</span>
+              <span class="hint">Click a tile to deselect.</span>
+            </div>
+            <div class="poster-grid poster-grid-tray" id="addSelectedTray"></div>
+          </section>
+
+          <div class="poster-grid" id="addShowList">
+            {% for s in available %}
+              {% set thumb_b = s.thumb_backend if s is mapping else None %}
+              {% set show_backends = s.backends if s is mapping else None %}
+              {% set both = show_backends and (show_backends|length) > 1 %}
+              {% set only_jf = show_backends and (show_backends|length == 1) and ('jellyfin' in show_backends) %}
+              {% set only_px = show_backends and (show_backends|length == 1) and ('plex' in show_backends) %}
+              {% set only_emby = show_backends and (show_backends|length == 1) and ('emby' in show_backends) %}
+              <label class="show-tile" data-label="{{ (s.title + ' ' + (s.library or ''))|lower }}">
+                <input type="checkbox" name="shows" value="{{ s.rating_key }}"
+                       {% if selected and s.rating_key in selected %}checked{% endif %}>
+                <div class="poster">
+                  {% if s.thumb %}
+                    <img loading="lazy"
+                         src="{{ url_for('thumb') }}?path={{ s.thumb|urlencode }}{% if thumb_b %}&b={{ thumb_b }}{% endif %}&w=240&h=360"
+                         alt="{{ s.title }}">
+                  {% else %}
+                    <div class="poster-fallback">{{ s.title[:1] }}</div>
+                  {% endif %}
+                  <div class="check"></div>
+                  {% if AVAILABLE_BACKENDS|length > 1 and show_backends and not both %}
+                    <div class="backend-badge {% if only_jf %}is-jellyfin{% elif only_emby %}is-emby{% else %}is-plex{% endif %}">
+                      {% if only_jf %}Jellyfin only{% elif only_emby %}Emby only{% else %}Plex only{% endif %}
+                    </div>
+                  {% endif %}
+                </div>
+                <div class="show-meta">
+                  <div class="title">{{ s.title }}</div>
+                  <div class="sub">
+                    {% if s.year %}{{ s.year }} · {% endif %}{{ s.library or '' }}
+                  </div>
+                </div>
+              </label>
+            {% endfor %}
+          </div>
+
+          <p class="empty-state" id="addEmptyResults" hidden>No shows match that filter.</p>
+        </form>
+      {% endif %}
+    </details>
+  </section>
+  {% endif %}
 
   <script src="{{ url_for('static', filename='picker.js') }}"></script>
   <script>

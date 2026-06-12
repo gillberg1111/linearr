@@ -201,11 +201,47 @@
     });
   }
 
+  /* ---------------- lazy <details> sections ---------------- */
+  function wireLazyDetails() {
+    document.querySelectorAll("details[data-lazy-url]").forEach(function (det) {
+      var target = det.querySelector(".order-target") || det;
+      var loadedFor = null;
+      function load(backend) {
+        var url = det.getAttribute("data-lazy-url") +
+                  (backend ? "?backend=" + encodeURIComponent(backend) : "");
+        if (loadedFor === url) return;
+        loadedFor = url;
+        target.innerHTML = '<p class="hint">Loading…</p>';
+        fetch(url, { credentials: "same-origin" })
+          .then(function (r) { return r.text(); })
+          .then(function (html) { target.innerHTML = html; })
+          .catch(function () {
+            loadedFor = null;
+            target.innerHTML = '<p class="hint">Failed to load — try again.</p>';
+          });
+      }
+      det.addEventListener("toggle", function () {
+        if (det.open) {
+          var active = det.querySelector(".order-backend-pill.is-active");
+          load(active ? active.getAttribute("data-backend") : null);
+        }
+      });
+      det.querySelectorAll(".order-backend-pill").forEach(function (p) {
+        p.addEventListener("click", function () {
+          det.querySelectorAll(".order-backend-pill").forEach(function (x) { x.classList.remove("is-active"); });
+          p.classList.add("is-active");
+          load(p.getAttribute("data-backend"));
+        });
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     adoptFlashes();
     showPendingToast();
     wireAjaxForms();
     renderTimestamps();
     wireCardFilter();
+    wireLazyDetails();
   });
 })();

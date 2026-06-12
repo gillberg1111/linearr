@@ -1,0 +1,19 @@
+{% if entries is none %}
+  <p class="hint">Couldn't load the playlist from {{ backend|capitalize }} — is it reachable?</p>
+{% elif not entries %}
+  <p class="hint">The playlist is empty on {{ backend|capitalize }}.</p>
+{% else %}
+  <ol class="order-list">
+    {% for e in entries %}
+    <li class="order-row{% if e.watched %} is-watched{% endif %}">
+      <span class="order-pos">{{ loop.index }}</span>
+      <span class="order-title">
+        {% if e.kind == 'movie' %}{{ e.title }} <span class="hint">(movie)</span>
+        {% else %}{{ e.show_title }}{% if e.show_title %} {% endif %}S{{ '%02d'|format(e.season) }}E{{ '%02d'|format(e.episode) }} — {{ e.title }}{% endif %}
+      </span>
+      {% if e.air_date %}<span class="order-date">{{ e.air_date }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% if truncated %}<p class="hint">Showing the first 500 items.</p>{% endif %}
+{% endif %}
