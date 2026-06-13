@@ -4541,13 +4541,13 @@ def test_live_playlist_order_cap():
 
         class _FakePLClient:
             def get_playlist_items(self, pl_id):
-                return [PlaylistItem(f"e{i}", "s", 1, 1) for i in range(600)]
+                return [PlaylistItem(f"e{i}", "s", 1, 1) for i in range(2100)]
 
         _orig_cl = _svc._clients_for_playlist
         _svc._clients_for_playlist = lambda row: [("plex", _FakePLClient(), "pl1")]
         try:
             entries = _svc.get_live_playlist_order(PID, "plex")
-            check("glo: capped at 500", len(entries) == 500)
+            check("glo: capped at 2000", len(entries) == 2000)
         finally:
             _svc._clients_for_playlist = _orig_cl
     finally:

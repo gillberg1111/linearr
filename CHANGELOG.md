@@ -3,6 +3,19 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.1] - 2026-06-12
+
+### Changed
+
+- **Playlist order view polish.** The collapsible section is now labelled
+  "Show current playlist order" with a chevron (▸/▾) instead of a +/–, since a
+  "+" next to a reveal toggle read like the "Add" action in the add-show
+  section below it. The order list now paginates (25 / 50 / 100 / 250 / All
+  per page, default 50) like the builder preview, so long playlists (e.g. a
+  500-episode Law & Order) no longer dump every row at once. Both the order
+  view and the "Add another show" picker get proper vertical spacing so they
+  no longer butt up against the Crossover and Maintenance sections.
+
 ## [3.7.0] - 2026-06-12
 
 ### Added

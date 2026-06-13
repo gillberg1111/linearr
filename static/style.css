@@ -2570,10 +2570,14 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
   transition: transform 0.2s;
 }
 .collapse-section[open] > summary::before { content: "\2013"; }
+/* Chevron variant — for sections that REVEAL content rather than add
+   something ("+" reads as "add" next to the Add-another-show section). */
+.collapse-chevron > summary::before { content: "\25B8"; }
+.collapse-chevron[open] > summary::before { content: "\25BE"; }
 .collapse-section > summary:hover { border-color: #4d96ff; }
 .collapse-section > summary h2 { display: inline; margin: 0; font-size: 1rem; }
 .collapse-section > summary .hint { margin-left: auto; }
-.add-show-section { margin-bottom: 1rem; }
+.add-show-section { margin: 2.2rem 0; }
 
 /* ---------------- live playlist order (v3.7.0) ---------------- */
 .order-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 2px; }
@@ -2593,5 +2597,6 @@ input.rules-add-value-text { width: 320px; max-width: 100%; text-align: left; }
 .order-backend-pills { display: flex; gap: 0.35rem; margin: 0.5rem 0 0; }
 .order-backend-pill { padding: 0.3rem 0.75rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(31,34,43,.7); color: inherit; font: inherit; font-size: 0.82rem; cursor: pointer; }
 .order-backend-pill.is-active { border-color: #4d96ff; background: rgba(77,150,255,.16); }
-.order-preview-section { margin-bottom: 1rem; }
+.order-preview-section { margin: 2.2rem 0; }
 .order-target { min-height: 2em; }
+.order-pagination { margin-top: 0.6rem; }

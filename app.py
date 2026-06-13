@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.7.0"
+__version__ = "3.7.1"
 
 import logging
 import os
@@ -891,7 +891,7 @@ def create_app() -> Flask:
             row["backend"] if "backend" in row.keys() else "plex")
         entries = service.get_live_playlist_order(playlist_id, backend)
         return render_template("_order_partial.html", entries=entries,
-                               backend=backend, truncated=(entries is not None and len(entries) == 500))
+                               backend=backend, truncated=(entries is not None and len(entries) == 2000))
 
     # ------------------------------------------------------------------ #
     # Index

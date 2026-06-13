@@ -3,6 +3,24 @@
 {% elif not entries %}
   <p class="hint">The playlist is empty on {{ backend|capitalize }}.</p>
 {% else %}
+  <div class="pagination-bar order-pagination">
+    <label class="page-size-label">
+      Show
+      <select class="page-size-select order-page-size">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="250">250</option>
+        <option value="all">All</option>
+      </select>
+      per page
+    </label>
+    <span class="page-info order-page-info"></span>
+    <div class="pagination-buttons">
+      <button type="button" class="btn btn-sm order-prev">← Prev</button>
+      <button type="button" class="btn btn-sm order-next">Next →</button>
+    </div>
+  </div>
   <ol class="order-list">
     {% for e in entries %}
     <li class="order-row{% if e.watched %} is-watched{% endif %}">
@@ -15,5 +33,5 @@
     </li>
     {% endfor %}
   </ol>
-  {% if truncated %}<p class="hint">Showing the first 500 items.</p>{% endif %}
+  {% if truncated %}<p class="hint">Showing the first 2000 items.</p>{% endif %}
 {% endif %}

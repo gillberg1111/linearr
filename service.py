@@ -3157,7 +3157,7 @@ def get_live_playlist_order(playlist_id: int, backend: str) -> list[dict] | None
         if bid:
             show_title_map[str(bid)] = s.get("show_title", "")
     out: list[dict] = []
-    for i, it in enumerate(items[:500]):
+    for i, it in enumerate(items[:2000]):
         title = it.title or ""
         show_title = show_title_map.get(str(it.show_rating_key), "")
         out.append({

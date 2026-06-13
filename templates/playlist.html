@@ -454,8 +454,8 @@
   {% endif %}
 
   <section class="order-preview-section">
-    <details class="collapse-section" data-lazy-url="{{ url_for('api_playlist_order', playlist_id=playlist.id) }}">
-      <summary><h2>Current playlist order</h2><span class="hint">live from the server</span></summary>
+    <details class="collapse-section collapse-chevron" data-lazy-url="{{ url_for('api_playlist_order', playlist_id=playlist.id) }}">
+      <summary><h2>Show current playlist order</h2><span class="hint">live from the server</span></summary>
       <div class="order-backend-pills">
         {% set bes = playlist.backend.replace('both', 'plex,jellyfin').split(',') %}
         {% if bes|length > 1 %}

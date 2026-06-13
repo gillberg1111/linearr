@@ -201,6 +201,51 @@
     });
   }
 
+  /* ---------------- order-list pagination ---------------- */
+  var ORDER_SIZE_KEY = "linearr.orderPageSize";
+  function paginateOrderList(scope) {
+    var list = scope.querySelector(".order-list");
+    var sizeSel = scope.querySelector(".order-page-size");
+    if (!list || !sizeSel) return;
+    var info = scope.querySelector(".order-page-info");
+    var prev = scope.querySelector(".order-prev");
+    var next = scope.querySelector(".order-next");
+    var rows = Array.prototype.slice.call(list.children);
+
+    var saved = sessionStorage.getItem(ORDER_SIZE_KEY);
+    if (saved && Array.prototype.some.call(sizeSel.options, function (o) { return o.value === saved; })) {
+      sizeSel.value = saved;
+    }
+    var page = 0;
+
+    function render() {
+      var size = sizeSel.value === "all" ? rows.length : (parseInt(sizeSel.value, 10) || 50);
+      if (size >= rows.length) size = rows.length;
+      var totalPages = Math.max(1, Math.ceil(rows.length / Math.max(size, 1)));
+      if (page > totalPages - 1) page = totalPages - 1;
+      var start = page * size;
+      var end = start + size;
+      rows.forEach(function (li, i) {
+        li.style.display = (i >= start && i < end) ? "" : "none";
+      });
+      if (info) {
+        info.textContent = "Page " + (page + 1) + " of " + totalPages +
+                           " · " + rows.length + " total";
+      }
+      if (prev) prev.disabled = page === 0;
+      if (next) next.disabled = page >= totalPages - 1;
+    }
+
+    sizeSel.addEventListener("change", function () {
+      sessionStorage.setItem(ORDER_SIZE_KEY, sizeSel.value);
+      page = 0;
+      render();
+    });
+    if (prev) prev.addEventListener("click", function () { if (page > 0) { page--; render(); } });
+    if (next) next.addEventListener("click", function () { page++; render(); });
+    render();
+  }
+
   /* ---------------- lazy <details> sections ---------------- */
   function wireLazyDetails() {
     document.querySelectorAll("details[data-lazy-url]").forEach(function (det) {
@@ -214,7 +259,10 @@
         target.innerHTML = '<p class="hint">Loading…</p>';
         fetch(url, { credentials: "same-origin" })
           .then(function (r) { return r.text(); })
-          .then(function (html) { target.innerHTML = html; })
+          .then(function (html) {
+            target.innerHTML = html;
+            paginateOrderList(target);
+          })
           .catch(function () {
             loadedFor = null;
             target.innerHTML = '<p class="hint">Failed to load — try again.</p>';
