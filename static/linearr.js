@@ -202,8 +202,9 @@
   }
 
   /* ---------------- order-list pagination ---------------- */
-  var ORDER_SIZE_KEY = "linearr.orderPageSize";
-  function paginateOrderList(scope) {
+  // Page size is remembered per playlist (keyed off the lazy-load URL, which
+  // carries the playlist id) and persists across reloads via localStorage.
+  function paginateOrderList(scope, storeKey) {
     var list = scope.querySelector(".order-list");
     var sizeSel = scope.querySelector(".order-page-size");
     if (!list || !sizeSel) return;
@@ -212,14 +213,14 @@
     var next = scope.querySelector(".order-next");
     var rows = Array.prototype.slice.call(list.children);
 
-    var saved = sessionStorage.getItem(ORDER_SIZE_KEY);
+    var saved = storeKey ? localStorage.getItem(storeKey) : null;
     if (saved && Array.prototype.some.call(sizeSel.options, function (o) { return o.value === saved; })) {
       sizeSel.value = saved;
     }
     var page = 0;
 
     function render() {
-      var size = sizeSel.value === "all" ? rows.length : (parseInt(sizeSel.value, 10) || 50);
+      var size = sizeSel.value === "all" ? rows.length : (parseInt(sizeSel.value, 10) || 25);
       if (size >= rows.length) size = rows.length;
       var totalPages = Math.max(1, Math.ceil(rows.length / Math.max(size, 1)));
       if (page > totalPages - 1) page = totalPages - 1;
@@ -237,7 +238,7 @@
     }
 
     sizeSel.addEventListener("change", function () {
-      sessionStorage.setItem(ORDER_SIZE_KEY, sizeSel.value);
+      if (storeKey) localStorage.setItem(storeKey, sizeSel.value);
       page = 0;
       render();
     });
@@ -261,7 +262,10 @@
           .then(function (r) { return r.text(); })
           .then(function (html) {
             target.innerHTML = html;
-            paginateOrderList(target);
+            paginateOrderList(
+              target,
+              "linearr.orderPageSize:" + det.getAttribute("data-lazy-url")
+            );
           })
           .catch(function () {
             loadedFor = null;

@@ -3,6 +3,15 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.2] - 2026-06-12
+
+### Changed
+
+- **Playlist order page size is now per-playlist.** The "Show current playlist
+  order" list defaults to 25 per page and remembers the size you last chose
+  for that specific playlist (persisted across browser restarts), instead of
+  sharing one global setting across every playlist.
+
 ## [3.7.1] - 2026-06-12
 
 ### Changed
