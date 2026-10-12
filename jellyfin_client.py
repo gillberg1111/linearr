@@ -437,6 +437,7 @@ class JellyfinClient(MediaClient):
                 "enableImages": "true",
                 "imageTypeLimit": 1,
                 "enableImageTypes": "Primary",
+                "CollapseBoxSetItems": False,
             }
             params.update(extra_params)
             resp = self._request("GET", "/Items", params=params)

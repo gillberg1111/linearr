@@ -3169,8 +3169,8 @@ def test_jellyfin_find_associated_movies():
     check("jf assoc: one /Items query per movie library",
           [p["parentId"] for p in item_calls] == ["LA", "LB"])
     check("jf assoc: passes searchTerm", all(p["searchTerm"] == "Star Trek" for p in item_calls))
-    check("jf assoc: box sets collapsed",
-          all(p.get("CollapseBoxSetItems") is True for p in item_calls))
+    check("jf assoc: box sets NOT collapsed",
+          all(p.get("CollapseBoxSetItems") is False for p in item_calls))
 
     # Undated sorts first ("" < "1979"), then by date.
     check("jf assoc: filtered, deduped, sorted by air_date",

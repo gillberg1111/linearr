@@ -3,7 +3,7 @@ FROM python:3.12-slim AS runtime
 LABEL org.opencontainers.image.title="Linearr" \
       org.opencontainers.image.description="The missing show sequencer for Plex. Automated round-robin rotation and chronological crossover alignment for your episodes (and their movies)." \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.source="https://github.com/gillberg1111/linearr"
+      org.opencontainers.image.source="https://github.com/simoneklundh/linearr"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
