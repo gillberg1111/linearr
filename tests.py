@@ -3067,6 +3067,125 @@ def test_jellyfin_remove_chunking():
     check("jf remove: empty ids → no-op", len(rec2.calls) == 0)
 
 
+class _MovieRecorder:
+    """Stub for the Jellyfin movie readers: serves canned /UserViews and /Items
+    payloads and records every _request call. items_by_lib maps a movie
+    library id (parentId) to its Items; None key = unscoped /Items query."""
+    _user_id = "u1"
+
+    def __init__(self, items_by_lib=None, views=None, status=200):
+        self.calls = []
+        self._items_by_lib = items_by_lib or {}
+        self._views = views if views is not None else [
+            {"Id": lib, "CollectionType": "movies"}
+            for lib in self._items_by_lib if lib is not None
+        ]
+        self._status = status
+
+    def _ensure_authenticated(self):
+        pass
+
+    def _request(self, method, path, *, params=None, **kwargs):
+        self.calls.append((method, path, params))
+        import json as _j
+        import requests as _r
+        r = _r.Response()
+        r.status_code = self._status
+        if path == "/UserViews":
+            body = {"Items": self._views}
+        elif path == "/Items":
+            body = {"Items": self._items_by_lib.get((params or {}).get("parentId"), [])}
+        else:
+            body = {}
+        r._content = _j.dumps(body).encode()
+        return r
+
+
+def test_jellyfin_list_all_movies():
+    import jellyfin_client as _jc
+    items = [
+        {"Id": "m1", "Name": "Alien", "ProductionYear": 1979,
+         "PremiereDate": "1979-05-25T00:00:00.0000000Z", "HasPrimaryImage": True,
+         "ProviderIds": {"Tmdb": "348", "Imdb": "tt0078748"},
+         "UserData": {"PlayCount": 2}},
+        # Junk provider id, no date, no image, no UserData — must not blow up.
+        {"Id": "m2", "Name": "Aliens", "ProviderIds": {"Tmdb": "not-a-number"}},
+    ]
+    rec = _MovieRecorder(items_by_lib={None: items})
+    _add_recorder_method(rec, _jc.JellyfinClient, "list_all_movies")
+    movies = rec.list_all_movies()
+
+    _, path, params = rec.calls[0]
+    check("jf list_all_movies: hits /Items", path == "/Items")
+    check("jf list_all_movies: movies only, recursive",
+          params["IncludeItemTypes"] == "Movie" and params["Recursive"] == "true")
+    check("jf list_all_movies: box sets NOT collapsed",
+          params.get("CollapseBoxSetItems") is False, f"got {params.get('CollapseBoxSetItems')!r}")
+
+    check("jf list_all_movies: returns all items", [m.rating_key for m in movies] == ["m1", "m2"])
+    a = movies[0]
+    check("jf list_all_movies: fields mapped",
+          (a.title, a.year, a.air_date, a.view_count, a.tmdb_id, a.imdb_id, a.thumb)
+          == ("Alien", 1979, "1979-05-25", 2, 348, "tt0078748", "m1"), f"got {a}")
+    b = movies[1]
+    check("jf list_all_movies: junk tmdb → None", b.tmdb_id is None)
+    check("jf list_all_movies: missing optional fields default",
+          (b.air_date, b.view_count, b.thumb, b.imdb_id) == (None, 0, None, None), f"got {b}")
+
+    # Server error → [] (swallowed, logged).
+    rec_err = _MovieRecorder(items_by_lib={None: items}, status=404)
+    _add_recorder_method(rec_err, _jc.JellyfinClient, "list_all_movies")
+    check("jf list_all_movies: non-ok response → []", rec_err.list_all_movies() == [])
+
+
+def test_jellyfin_find_associated_movies():
+    import jellyfin_client as _jc
+    lib_a = [
+        {"Id": "m2", "Name": "Star Trek II: The Wrath of Khan",
+         "PremiereDate": "1982-06-04T00:00:00Z", "ImageTags": {"Primary": "x"},
+         "UserData": {"PlayCount": 1}},
+        {"Id": "m1", "Name": "Star Trek: The Motion Picture",
+         "PremiereDate": "1979-12-07T00:00:00Z"},
+        # searchTerm is fuzzy server-side; word-boundary filter must drop this.
+        {"Id": "mx", "Name": "Star Trekkies"},
+    ]
+    lib_b = [
+        # Same movie visible in two libraries → deduped.
+        {"Id": "m1", "Name": "Star Trek: The Motion Picture",
+         "PremiereDate": "1979-12-07T00:00:00Z"},
+        {"Id": "m0", "Name": "Star Trek Undated"},
+    ]
+    views = [
+        {"Id": "LA", "CollectionType": "movies"},
+        {"Id": "TV", "CollectionType": "tvshows"},
+        {"Id": "LB", "CollectionType": "movies"},
+    ]
+    rec = _MovieRecorder(items_by_lib={"LA": lib_a, "LB": lib_b}, views=views)
+    _add_recorder_method(rec, _jc.JellyfinClient, "_movie_library_ids")
+    _add_recorder_method(rec, _jc.JellyfinClient, "find_associated_movies")
+    movies = rec.find_associated_movies("Star Trek")
+
+    item_calls = [p for _, path, p in rec.calls if path == "/Items"]
+    check("jf assoc: one /Items query per movie library",
+          [p["parentId"] for p in item_calls] == ["LA", "LB"])
+    check("jf assoc: passes searchTerm", all(p["searchTerm"] == "Star Trek" for p in item_calls))
+    check("jf assoc: box sets NOT collapsed",
+          all(p.get("CollapseBoxSetItems") is False for p in item_calls))
+
+    # Undated sorts first ("" < "1979"), then by date.
+    check("jf assoc: filtered, deduped, sorted by air_date",
+          [m.rating_key for m in movies] == ["m0", "m1", "m2"], f"got {[m.rating_key for m in movies]}")
+    khan = movies[-1]
+    check("jf assoc: fields mapped",
+          (khan.air_date, khan.view_count, khan.thumb) == ("1982-06-04", 1, "m2"), f"got {khan}")
+    check("jf assoc: no Primary image tag → thumb None", movies[1].thumb is None)
+
+    rec2 = _MovieRecorder(items_by_lib={"LA": lib_a})
+    _add_recorder_method(rec2, _jc.JellyfinClient, "find_associated_movies")
+    check("jf assoc: empty title → [] with no requests",
+          rec2.find_associated_movies("") == [] and rec2.calls == [])
+
+
 def test_emby_add_chunking():
     """Emby add_items_to_playlist chunks large id lists."""
     import emby_client as _ec
