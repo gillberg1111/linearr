@@ -461,8 +461,14 @@
     // create: no "Push to" backend selected, or the preview is empty (no shows
     // / every episode excluded). Mirrors the show-picker's Configure button.
     function anyBackendSelected() {
-      if (document.querySelector('input[type="hidden"][name="backend"]')) return true;
-      return document.querySelectorAll('input[name="backend"]:checked').length > 0;
+      const form = document.getElementById('configForm');
+      const root = form || document;
+      const inputs = root.querySelectorAll('input[name="backend"]');
+      // Add-to-existing has no Push-to control. The playlist already has a
+      // backend, so the button follows the preview only (issue #22).
+      if (!inputs.length) return true;
+      if (root.querySelector('input[type="hidden"][name="backend"]')) return true;
+      return root.querySelectorAll('input[name="backend"]:checked').length > 0;
     }
     function updateCommitBtn() {
       const btn = document.getElementById('commitBtn');

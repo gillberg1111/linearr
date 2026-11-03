@@ -3,6 +3,17 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.1] - 2026-11-03
+
+### Fixed
+
+- **Adding a show to an existing playlist works again**
+  ([#22](https://github.com/gillberg1111/linearr/issues/22)). After Next:
+  configure, Add to Playlist stayed grey. That page has no "Push to" picker
+  because the show joins the playlist you already have, and the button was
+  waiting for a server to be selected. It now turns on once the preview has
+  episodes. Creating a new playlist is unchanged.
+
 ## [3.9.0] - 2026-11-03
 
 ### Removed
