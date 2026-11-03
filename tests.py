@@ -3057,6 +3057,193 @@ def test_plex_playlist_item_count_uses_leaf_count():
     check("plex count: bad leafCount is 0", rec_bad.playlist_item_count("1") == 0)
 
 
+def test_plex_replace_clears_duplicate_entries():
+    """Issue #20: a second copy of the same episode must be deleted, and a
+    failed delete must not be followed by appending the whole list."""
+    import plex_client as _pc
+
+    class _Entry:
+        def __init__(self, rk, pid):
+            self.ratingKey = rk
+            self.playlistItemID = pid
+            self.type = "episode"
+            self.grandparentRatingKey = "show"
+            self.seasonNumber = 1
+            self.index = 1
+            self.viewCount = 0
+            self.viewOffset = 0
+            self.title = rk
+            self.originallyAvailableAt = None
+
+    class _Server:
+        def __init__(self, pl):
+            self.pl = pl
+            self._session = self
+            self.deleted = []
+
+        def delete(self, *args, **kwargs):
+            return None
+
+        def query(self, key, method=None):
+            pid = int(key.rsplit("/", 1)[-1])
+            if pid in self.pl.fail:
+                raise RuntimeError("timeout")
+            self.deleted.append(pid)
+            if self.pl.drop:
+                self.pl.entries = [
+                    e for e in self.pl.entries if e.playlistItemID != pid
+                ]
+
+    class _Pl:
+        def __init__(self, keys):
+            self.key = "/playlists/9"
+            self.entries = [_Entry(k, i) for i, k in enumerate(keys)]
+            self._items = None
+            self._server = _Server(self)
+            self.fail = set()
+            self.drop = True
+            self.added = []
+
+        def items(self):
+            if self._items is None:
+                self._items = list(self.entries)
+            return self._items
+
+        def addItems(self, items):
+            self.added.extend(items)
+
+    class _Rec:
+        def __init__(self, keys):
+            self.pl = _Pl(keys)
+
+        def _get_playlist(self, rating_key):
+            return self.pl if rating_key else None
+
+        def _fetch_episode_items(self, keys):
+            return list(keys)
+
+    def _bind(rec):
+        rec._ep_to_playlist_item = _pc.PlexClient._ep_to_playlist_item
+        for name in (
+            "get_playlist_items",
+            "remove_items_from_playlist",
+            "add_items_to_playlist",
+            "replace_playlist_items",
+        ):
+            _add_recorder_method(rec, _pc.PlexClient, name)
+
+    rec = _Rec(["a", "b", "c", "a", "b", "c"])
+    # Stale cache holding only the first copy of each episode. removeItem()
+    # would delete those and leave the second copy.
+    rec.pl._items = list(rec.pl.entries[:3])
+    _bind(rec)
+    rec.replace_playlist_items("9", ["a", "b", "c"])
+    check(
+        "plex replace: both copies of each episode are deleted",
+        rec.pl._server.deleted == [0, 1, 2, 3, 4, 5],
+    )
+    check(
+        "plex replace: one ordered list is added",
+        rec.pl.added == ["a", "b", "c"],
+    )
+
+    stuck = _Rec(["a", "b", "c"])
+    stuck.pl.drop = False
+    _bind(stuck)
+    try:
+        stuck.replace_playlist_items("9", ["a", "b", "c"])
+        check("plex replace: leftover entries block the add", False)
+    except RuntimeError:
+        check("plex replace: leftover entries block the add", True)
+    check("plex replace: leftover entries are not appended", stuck.pl.added == [])
+
+    partial = _Rec(["a", "b", "c"])
+    partial.pl.fail.add(1)
+    _bind(partial)
+    try:
+        partial.replace_playlist_items("9", ["a", "b", "c"])
+        check("plex replace: a failed delete blocks the add", False)
+    except RuntimeError:
+        check("plex replace: a failed delete blocks the add", True)
+    check("plex replace: a failed delete does not append", partial.pl.added == [])
+
+
+def test_franchise_sync_rebuilds_duplicate_copies():
+    """Issue #20: duplicate copies compare equal as a set, so sync used to
+    leave them. The ordered list has to be rebuilt."""
+    import service as _svc
+    from rotation import PlaylistItem
+
+    replaced = []
+
+    class _Client:
+        def __init__(self, keys):
+            self.keys = keys
+
+        def get_playlist_items(self, pl_id):
+            return [
+                PlaylistItem(rating_key=k, show_rating_key="s", season=1, episode=i)
+                for i, k in enumerate(self.keys)
+            ]
+
+        def replace_playlist_items(self, pl_id, ordered):
+            replaced.append(list(ordered))
+
+    row = {
+        "id": 7,
+        "name": "Star Trek",
+        "auto_sync": 1,
+        "franchise_definition_id": 1,
+        "pruning_enabled": 0,
+    }
+    saved = (
+        _svc.db.get_playlist,
+        _svc._match_franchise_to_library,
+        _svc._clients_for_playlist,
+        _svc.db.list_franchise_items,
+        _svc.db.list_franchise_match_state,
+        _svc._build_backend_ordered_keys,
+        _svc._apply_franchise_poster,
+    )
+
+    def _run(keys):
+        replaced.clear()
+        _svc.db.get_playlist = lambda pid: row
+        _svc._match_franchise_to_library = lambda *a, **k: ([], [], [], 0)
+        _svc._clients_for_playlist = lambda row: [("plex", _Client(keys), "pl")]
+        _svc.db.list_franchise_items = lambda i: []
+        _svc.db.list_franchise_match_state = lambda i: {}
+        _svc._build_backend_ordered_keys = lambda *a, **k: ["a", "b"]
+        _svc._apply_franchise_poster = lambda row: None
+        return _svc.sync_franchise_playlist(7, force=True)
+
+    try:
+        dup = _run(["a", "b", "a", "b"])
+        check("franchise sync: duplicate copies are replaced",
+              replaced == [["a", "b"]])
+        check("franchise sync: duplicate rebuild reports an order update",
+              dup == (0, -1))
+
+        same = _run(["a", "b"])
+        check("franchise sync: matching order is left alone", replaced == [])
+        check("franchise sync: matching order reports up to date", same == (0, 0))
+
+        grown = _run(["a"])
+        check("franchise sync: a new episode still replaces",
+              replaced == [["a", "b"]])
+        check("franchise sync: a new episode counts as added", grown == (1, 0))
+    finally:
+        (
+            _svc.db.get_playlist,
+            _svc._match_franchise_to_library,
+            _svc._clients_for_playlist,
+            _svc.db.list_franchise_items,
+            _svc.db.list_franchise_match_state,
+            _svc._build_backend_ordered_keys,
+            _svc._apply_franchise_poster,
+        ) = saved
+
+
 def test_health_skips_login_and_backends():
     """Issue #21: /health is a cheap 200, including when login is on."""
     import os, tempfile, importlib

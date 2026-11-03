@@ -3,6 +3,19 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.2] - 2026-11-03
+
+### Fixed
+
+- **A large franchise playlist no longer grows a second copy on Plex**
+  ([#20](https://github.com/gillberg1111/linearr/issues/20)). Rebuilding a
+  playlist the size of Star Trek could stop partway through the deletes. The
+  episodes already there stayed put, and the full watch order was added on
+  the end, so the original start showed up again in the middle. The next
+  sync left that extra copy in place. Sync now deletes every copy and
+  rebuilds the playlist as one watch order. After you update, open the
+  playlist and hit Sync now.
+
 ## [3.9.1] - 2026-11-03
 
 ### Fixed

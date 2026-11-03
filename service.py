@@ -2354,6 +2354,7 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
     )
 
     added = removed = 0
+    order_only = False
     for tb, client, pl_id in _clients_for_playlist(row):
         if not pl_id:
             continue
@@ -2374,14 +2375,27 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
                     row["name"], tb, _before, len(pruned), len(be_keys),
                 )
 
-            added_keys = [k for k in be_keys if k not in set(current_keys)]
-            removed_keys = [k for k in current_keys if k not in set(be_keys)]
-            if added_keys or removed_keys:
+            current_set = set(current_keys)
+            desired_set = set(be_keys)
+            added_keys = [k for k in be_keys if k not in current_set]
+            removed_keys = [k for k in current_keys if k not in desired_set]
+            # A set compare treats a second copy of the same episodes as
+            # "already up to date", so duplicates never got cleaned and the
+            # next membership change appended another copy (issue #20).
+            if current_keys != be_keys:
                 client.replace_playlist_items(pl_id, be_keys)
                 added += len(added_keys)
                 removed += len(removed_keys)
-                log.info("Franchise sync '%s' on %s: +%d, -%d",
-                         row["name"], tb, len(added_keys), len(removed_keys))
+                if added_keys or removed_keys:
+                    log.info("Franchise sync '%s' on %s: +%d, -%d",
+                             row["name"], tb, len(added_keys), len(removed_keys))
+                else:
+                    order_only = True
+                    log.info(
+                        "Franchise sync '%s' on %s: rebuilt %d items "
+                        "(duplicate or out-of-order entries)",
+                        row["name"], tb, len(be_keys),
+                    )
         except Exception:
             log.warning(
                 "Franchise sync failed for backend=%s playlist=%d",
@@ -2391,6 +2405,8 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
     # Heal cover art when the playlist changed, or on any forced sync (the
     # "Sync Now" button) — the latter backfills posters on franchise playlists
     # created before deterministic covers existed.
+    if order_only and not added and not removed:
+        removed = -1  # sentinel: rebuilt order, no membership change
     if added or removed or force:
         _apply_franchise_poster(row)
     if added or removed:
@@ -2398,7 +2414,7 @@ def sync_franchise_playlist(playlist_id: int, force: bool = False) -> tuple[int,
             _webhooks.fire(
                 "playlist.synced",
                 playlist=_webhooks._playlist_info(dict(row)),
-                data={"added": added, "removed": removed},
+                data={"added": added, "removed": max(removed, 0)},
             )
         except Exception:
             pass

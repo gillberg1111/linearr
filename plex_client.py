@@ -5,8 +5,12 @@ SAFETY GUARANTEE — this app NEVER deletes media files from Plex.
 ============================================================================
 The only Plex destructive operations this app performs are:
   * Playlist.delete()      — removes the playlist (metadata only)
-  * Playlist.removeItem()  — removes an item FROM a playlist (does NOT touch
-                             the underlying Episode/Show or its file on disk)
+  * DELETE /playlists/{id}/items/{playlistItemID}
+                           — removes one entry FROM a playlist (does NOT touch
+                             the underlying Episode/Show or its file on disk).
+                             This is the same call Playlist.removeItem() makes.
+                             We issue it ourselves so every copy of an episode
+                             is removed; removeItem() only deletes the first.
 
 Below, on import, we monkey-patch Episode/Show/Season/Movie.delete() to raise
 RuntimeError. Even if a future bug accidentally tries to delete library items
@@ -554,12 +558,64 @@ class PlexClient(MediaClient):
         pl = self._get_playlist(rating_key)
         if pl is None:
             return
-        eps = self._fetch_episode_items(item_rating_keys)
-        for ep in eps:
-            try:
-                pl.removeItem(ep)
-            except Exception:
+        wanted = {str(k) for k in item_rating_keys}
+        # plexapi caches Playlist.items() and removeItem() deletes only the
+        # first playlistItemID for a rating key. The extra copies stay, and
+        # a following add appends the whole list again (issue #20).
+        pl._items = None
+        entry_ids: list[str] = []
+        for ep in pl.items():
+            if str(getattr(ep, "ratingKey", "")) not in wanted:
                 continue
+            pid = getattr(ep, "playlistItemID", None)
+            if pid is None:
+                raise RuntimeError(
+                    f"Plex playlist {rating_key} entry {ep.ratingKey} "
+                    "has no playlistItemID"
+                )
+            entry_ids.append(str(pid))
+        failed = 0
+        for pid in entry_ids:
+            try:
+                pl._server.query(
+                    f"{pl.key}/items/{pid}",
+                    method=pl._server._session.delete,
+                )
+            except Exception:
+                _log.warning(
+                    "Plex playlist %s: failed to remove entry %s",
+                    rating_key, pid, exc_info=True,
+                )
+                failed += 1
+        pl._items = None
+        if failed:
+            raise RuntimeError(
+                f"Plex playlist {rating_key}: {failed} of {len(entry_ids)} "
+                "entries could not be removed"
+            )
+
+    def replace_playlist_items(
+        self, rating_key: str, ordered_rating_keys: list[str]
+    ) -> None:
+        """Clear the playlist, then add the ordered list.
+
+        Does not add if any entry is still present. The shared remove-then-add
+        left the old items in place and appended a second copy when a delete
+        failed (issue #20).
+        """
+        current = self.get_playlist_items(rating_key)
+        if current:
+            self.remove_items_from_playlist(
+                rating_key, [it.rating_key for it in current]
+            )
+            leftover = self.get_playlist_items(rating_key)
+            if leftover:
+                raise RuntimeError(
+                    f"Plex playlist {rating_key} still has {len(leftover)} "
+                    "items after remove; not appending another copy"
+                )
+        if ordered_rating_keys:
+            self.add_items_to_playlist(rating_key, ordered_rating_keys)
 
     def get_view_counts(self, rating_keys):
         out: dict[str, int] = {}
@@ -593,10 +649,6 @@ class PlexClient(MediaClient):
             pl.uploadPoster(url=image_url)
         except Exception:
             _log.warning("set_playlist_image failed for Plex playlist %s", rating_key, exc_info=True)
-
-    # replace_playlist_items: default impl from MediaClient ABC works for Plex
-    # (remove all then add all). Plex doesn't have a native atomic-replace
-    # endpoint; the default impl is what we'd hand-roll anyway.
 
     # ----- images -----------------------------------------------------------
 

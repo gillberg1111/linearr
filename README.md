@@ -672,7 +672,7 @@ required.
 
 ```bash
 python tests.py
-# expected: 758 passed, 0 failed, 758 total
+# expected: 770 passed, 0 failed, 770 total
 ```
 
 It covers the pure rotation/sequencing logic (all five sort modes, splice,
@@ -783,7 +783,7 @@ static/                picker.js + linearr.js (toasts/AJAX) + style.css +
                        bundled Inter font (fonts/).
 defaults/              franchises.json registry + bundled franchise_data/ JSON.
 images/                Banner, logo, favicons, Unraid icon, screenshots.
-tests.py               Self-contained unit tests (758).
+tests.py               Self-contained unit tests (770).
 ```
 
 Linearr serves itself with **waitress** (production WSGI server) in a single
