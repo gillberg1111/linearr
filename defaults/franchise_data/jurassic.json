@@ -1,0 +1,101 @@
+{
+  "_info": {
+    "name": "Jurassic Park",
+    "description": "Snapshot of the public Trakt list Strangerer/jurassic-park-jurassic-world-trilogies on 2026-11-03.",
+    "maintained_by": "linearrapp",
+    "last_updated": "2026-11-03"
+  },
+  "items": [
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic Park",
+      "year": 1993,
+      "rank": 1
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Lost World: Jurassic Park",
+      "year": 1997,
+      "rank": 2
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic Park III",
+      "year": 2001,
+      "rank": 3
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic World",
+      "year": 2015,
+      "rank": 4
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic World: Fallen Kingdom",
+      "year": 2018,
+      "rank": 5
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic World Dominion",
+      "year": 2022,
+      "rank": 6
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Jurassic World Rebirth",
+      "year": 2025,
+      "rank": 7
+    }
+  ]
+}

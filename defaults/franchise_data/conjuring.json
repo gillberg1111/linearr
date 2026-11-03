@@ -1,0 +1,140 @@
+{
+  "_info": {
+    "name": "Conjuring Universe",
+    "description": "Snapshot of the public Trakt list zviznemte/the-conjuring-universe-timeline on 2026-11-03.",
+    "maintained_by": "linearrapp",
+    "last_updated": "2026-11-03"
+  },
+  "items": [
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Nun",
+      "year": 2018,
+      "rank": 1
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Nun II",
+      "year": 2023,
+      "rank": 2
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Annabelle: Creation",
+      "year": 2017,
+      "rank": 3
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Annabelle",
+      "year": 2014,
+      "rank": 4
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Conjuring",
+      "year": 2013,
+      "rank": 5
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Annabelle Comes Home",
+      "year": 2019,
+      "rank": 6
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Curse of La Llorona",
+      "year": 2019,
+      "rank": 7
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Conjuring 2",
+      "year": 2016,
+      "rank": 8
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Conjuring: The Devil Made Me Do It",
+      "year": 2021,
+      "rank": 9
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "The Conjuring: Last Rites",
+      "year": 2025,
+      "rank": 10
+    }
+  ]
+}

@@ -501,9 +501,12 @@ class PlexClient(MediaClient):
         pl = self._get_playlist(rating_key)
         if pl is None:
             return 0
+        # leafCount is on the playlist record itself. items() downloads every
+        # child, which made the dashboard take seconds per large playlist
+        # (issue #21, reported by skeketo).
         try:
-            return len(pl.items())
-        except Exception:
+            return int(getattr(pl, "leafCount", 0) or 0)
+        except (TypeError, ValueError):
             return 0
 
     def create_playlist(self, title: str, ordered_rating_keys: list[str]) -> str:

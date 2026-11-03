@@ -18,7 +18,7 @@
             data-trakt-slug="{{ f.trakt_slug }}"
             data-franchise-key="{{ f.key }}"
             data-franchise-name="{{ f.name }}"
-            data-franchise-source="{{ f.source | default('trakt') }}"
+            data-franchise-source="{{ f.source | default('local') }}"
             data-chronolists-id="{{ f.chronolists_id | default('') }}">
         {% if f.poster %}
           <div class="franchise-card-poster" style="background-image:url('{{ f.poster }}')"></div>
@@ -125,7 +125,7 @@
       previewCont.innerHTML = '<p class="hint franchise-preview-summary">Loading preview…</p>';
       createBtn.disabled = true;
       if (editBtn) editBtn.disabled = true;
-      var src = document.getElementById('hiddenFranchiseSource').value || 'trakt';
+      var src = document.getElementById('hiddenFranchiseSource').value || 'local';
       var fkey = document.getElementById('hiddenFranchiseKey').value || '';
       var clId = document.getElementById('hiddenChronolistsId').value || '';
       fetch('/api/franchise/preview?trakt_user=' + encodeURIComponent(user)
@@ -148,9 +148,7 @@
     if (editBtn) {
       editBtn.addEventListener('click', function() {
         var key = document.getElementById('hiddenFranchiseKey').value || '';
-        var traktUser = document.getElementById('hiddenTraktUser').value || '';
-        var traktSlug = document.getElementById('hiddenTraktSlug').value || '';
-        var src = document.getElementById('hiddenFranchiseSource').value || 'trakt';
+        var src = document.getElementById('hiddenFranchiseSource').value || 'local';
 
         var params = new URLSearchParams();
         var isCustom = key.indexOf('custom_') === 0 || key.indexOf('_override') >= 0;
@@ -160,9 +158,6 @@
           } else {
             params.set('import_local', key);
           }
-        } else if (traktUser && traktSlug) {
-          params.set('import_trakt_user', traktUser);
-          params.set('import_trakt_slug', traktSlug);
         }
         window.location.href = '/franchise-maker' + (params.toString() ? '?' + params.toString() : '');
       });
@@ -178,7 +173,7 @@
         defaultSlug = card.dataset.traktSlug;
 
         setHidden(defaultUser, defaultSlug, card.dataset.franchiseKey, card.dataset.franchiseName);
-        document.getElementById('hiddenFranchiseSource').value = card.dataset.franchiseSource || 'trakt';
+        document.getElementById('hiddenFranchiseSource').value = card.dataset.franchiseSource || 'local';
         document.getElementById('hiddenChronolistsId').value = card.dataset.chronolistsId || '';
 
         fetchPreview(defaultUser, defaultSlug);
@@ -193,9 +188,12 @@
         if (pill) pill.classList.toggle('is-active', e.target.checked);
         // Immediate feedback: no backend selected → Create stays disabled.
         createBtn.disabled = !anyBackendSelected();
-        var tu = document.getElementById('hiddenTraktUser').value;
-        var ts = document.getElementById('hiddenTraktSlug').value;
-        if (tu && ts) fetchPreview(tu, ts);
+        if (document.getElementById('hiddenFranchiseKey').value) {
+          fetchPreview(
+            document.getElementById('hiddenTraktUser').value,
+            document.getElementById('hiddenTraktSlug').value
+          );
+        }
       });
     }
 

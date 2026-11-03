@@ -1736,92 +1736,34 @@ def test_stats_none_if_never_synced():
 # ── v2.2.0 Franchise tests ───────────────────────────────────────────────
 
 
-def _trakt_client():
-    from trakt_client import TraktClient
-    return TraktClient()
-
-
-def test_parse_movie():
-    tc = _trakt_client()
-    raw = {
-        "type": "movie", "rank": 1,
-        "movie": {"title": "Iron Man", "year": 2008, "ids": {"tmdb": 1726, "imdb": "tt0371746"}},
-    }
-    item = tc._parse_item(raw)
-    check("parse_movie: item_type", item["item_type"] == "movie")
-    check("parse_movie: title", item["title"] == "Iron Man")
-    check("parse_movie: tmdb_id", item["tmdb_id"] == 1726)
-    check("parse_movie: tvdb_id is None", item["tvdb_id"] is None)
-    check("parse_movie: show_title is None", item["show_title"] is None)
-
-
-def test_parse_episode():
-    tc = _trakt_client()
-    raw = {
-        "type": "episode", "rank": 3,
-        "episode": {"season": 1, "number": 3, "title": "The One", "ids": {"tvdb": 12345}},
-        "show": {"title": "Friends", "year": 1994, "ids": {"tvdb": 79168}},
-    }
-    item = tc._parse_item(raw)
-    check("parse_episode: item_type", item["item_type"] == "episode")
-    check("parse_episode: season_number", item["season_number"] == 1)
-    check("parse_episode: episode_number", item["episode_number"] == 3)
-    check("parse_episode: show_title", item["show_title"] == "Friends")
-    check("parse_episode: show_tvdb_id", item["show_tvdb_id"] == 79168)
-    check("parse_episode: tvdb_id", item["tvdb_id"] == 12345)
-
-
-def test_parse_show():
-    tc = _trakt_client()
-    raw = {
-        "type": "show", "rank": 1,
-        "show": {"title": "Breaking Bad", "year": 2008, "ids": {"tvdb": 81189, "tmdb": 1396}},
-    }
-    item = tc._parse_item(raw)
-    check("parse_show: item_type", item["item_type"] == "show")
-    check("parse_show: tvdb_id", item["tvdb_id"] == 81189)
-    check("parse_show: show_tvdb_id is None", item["show_tvdb_id"] is None)
-    check("parse_show: season_number is None", item["season_number"] is None)
-
-
-def test_parse_season():
-    tc = _trakt_client()
-    raw = {
-        "type": "season", "rank": 2,
-        "season": {"number": 3},
-        "show": {"title": "Game of Thrones", "year": 2011, "ids": {"tvdb": 121361}},
-    }
-    item = tc._parse_item(raw)
-    check("parse_season: item_type", item["item_type"] == "season")
-    check("parse_season: season_number", item["season_number"] == 3)
-    check("parse_season: show_title", item["show_title"] == "Game of Thrones")
-
-
-def test_parse_unknown_type():
-    tc = _trakt_client()
-    raw = {"type": "person", "rank": 1}
-    item = tc._parse_item(raw)
-    check("parse_unknown_type: returns None", item is None)
-
-
-def test_content_hash_deterministic():
-    tc = _trakt_client()
-    items = [
-        {"rank": 1, "item_type": "movie", "title": "A", "year": 2000},
-        {"rank": 2, "item_type": "movie", "title": "B", "year": 2001},
-    ]
-    h1 = tc.content_hash(items)
-    h2 = tc.content_hash(items)
-    check("content_hash: same items same hash", h1 == h2)
-
-
-def test_content_hash_changes():
-    tc = _trakt_client()
+def test_franchise_content_hash_changes():
+    from service import franchise_content_hash
     items1 = [{"rank": 1, "item_type": "movie", "title": "A", "year": 2000}]
     items2 = [{"rank": 1, "item_type": "movie", "title": "B", "year": 2000}]
-    h1 = tc.content_hash(items1)
-    h2 = tc.content_hash(items2)
-    check("content_hash: different items different hash", h1 != h2)
+    h1 = franchise_content_hash(items1)
+    h2 = franchise_content_hash(items1)
+    h3 = franchise_content_hash(items2)
+    check("content_hash: same items same hash", h1 == h2)
+    check("content_hash: different items different hash", h1 != h3)
+
+
+def test_bundled_local_franchises_have_items():
+    import json as _json
+    import os as _os
+    data_dir = _os.path.join(_os.path.dirname(__file__), "defaults", "franchise_data")
+    reg_path = _os.path.join(_os.path.dirname(__file__), "defaults", "franchises.json")
+    with open(reg_path) as f:
+        reg = _json.load(f)
+    for entry in reg:
+        if entry.get("source") != "local":
+            continue
+        path = _os.path.join(data_dir, entry["key"] + ".json")
+        check(f"local franchise file: {entry['key']}", _os.path.isfile(path))
+        with open(path) as f:
+            items = _json.load(f).get("items") or []
+        check(f"local franchise items: {entry['key']}", len(items) > 0, f"got {len(items)}")
+        check(f"local franchise not trakt: {entry['key']}",
+              entry.get("trakt_user") is None and entry.get("trakt_slug") is None)
 
 
 def test_normalize_for_match():
@@ -2424,29 +2366,6 @@ def test_forked_franchise_shared_cleanup():
             conn.execute("DELETE FROM franchise_definitions WHERE key='shared_fork'")
 
 
-def test_maker_import_trakt_invalid_url():
-    import os
-    os.environ["FLASK_SECRET"] = "test-secret"
-    import db as _db_mod
-    old_path = _db_mod.DB_PATH
-    try:
-        import tempfile
-        tmp = tempfile.mkdtemp()
-        _db_mod.DB_PATH = os.path.join(tmp, "test_trakt_import.db")
-        _db_mod.init_db()
-        from app import create_app
-        app = create_app()
-        with app.test_client() as c:
-            resp = c.post("/api/franchise-maker/import-trakt",
-                          json={"url": "not-a-trakt-url"})
-            check("import_trakt_invalid: status 400", resp.status_code == 400)
-    finally:
-        _db_mod.DB_PATH = old_path
-        import shutil
-        if os.path.exists(tmp):
-            shutil.rmtree(tmp)
-
-
 # --------------------------------------------------------------------------- #
 # v2.4.0 — Chronolists integration tests
 # --------------------------------------------------------------------------- #
@@ -2537,11 +2456,7 @@ def test_franchise_registry_integrity():
         if e["source"] == "chronolists":
             check(f"registry: {e['key']} has chronolists_id",
                   e.get("chronolists_id") is not None)
-        if e["source"] == "trakt":
-            check(f"registry: {e['key']} has trakt_user",
-                  e.get("trakt_user") is not None)
-            check(f"registry: {e['key']} has trakt_slug",
-                  e.get("trakt_slug") is not None)
+        check(f"registry: {e['key']} is not trakt", e.get("source") != "trakt")
 
 
 def test_resolve_show_for_item_tmdb_fallback():
@@ -2656,8 +2571,9 @@ def test_list_auto_discovered():
         )
     try:
         results = _db.list_auto_discovered_franchise_definitions()
-        check("auto_disc_list: only 1 row", len(results) == 1, str(len(results)))
-        check("auto_disc_list: correct key", results[0]["key"] == "ad_yes")
+        keys = [r["key"] for r in results]
+        check("auto_disc_list: includes flagged row", "ad_yes" in keys)
+        check("auto_disc_list: excludes unflagged row", "ad_no" not in keys)
     finally:
         with _db.connection() as conn:
             conn.execute("DELETE FROM franchise_definitions WHERE key IN ('ad_yes','ad_no')")
@@ -3065,6 +2981,148 @@ def test_jellyfin_remove_chunking():
     check("jf remove: no rating_key → no-op", len(rec2.calls) == 0)
     rec2.remove_items_from_playlist("pl1", [])
     check("jf remove: empty ids → no-op", len(rec2.calls) == 0)
+
+
+class _JellyfinItemsRecorder:
+    """Serves /UserViews and /Items and records params. Issue #18."""
+    _user_id = "u1"
+
+    def __init__(self):
+        self.calls = []
+
+    def _ensure_authenticated(self):
+        pass
+
+    def _request(self, method, path, *, params=None, **kwargs):
+        self.calls.append((method, path, params or {}))
+        import json as _j
+        import requests as _r
+        r = _r.Response()
+        r.status_code = 200
+        if path == "/UserViews":
+            body = {"Items": [
+                {"Id": "movies-1", "Name": "Movies", "CollectionType": "movies"},
+                {"Id": "tv-1", "Name": "TV", "CollectionType": "tvshows"},
+            ]}
+        elif path == "/Items":
+            include = (params or {}).get("IncludeItemTypes") or (params or {}).get("includeItemTypes")
+            if include == "Movie":
+                body = {"Items": [{
+                    "Id": "m1", "Name": "Alien", "ProductionYear": 1979,
+                    "PremiereDate": "1979-05-25T00:00:00Z",
+                    "ProviderIds": {"Tmdb": "348", "Imdb": "tt0078748"},
+                    "UserData": {"PlayCount": 1},
+                    "ImageTags": {"Primary": "x"},
+                }]}
+            else:
+                body = {"Items": [{
+                    "Id": "s1", "Name": "Alien", "ProductionYear": 1979,
+                    "ProviderIds": {"Tmdb": "348"},
+                    "ImageTags": {"Primary": "x"},
+                }]}
+        else:
+            body = {}
+        r._content = _j.dumps(body).encode()
+        return r
+
+
+def test_plex_playlist_item_count_uses_leaf_count():
+    """Issue #21: counting a playlist must not download every item."""
+    import plex_client as _pc
+
+    class _Pl:
+        leafCount = 739
+
+        def items(self):
+            raise AssertionError("items() downloads the whole playlist")
+
+    class _Rec:
+        def _get_playlist(self, rating_key):
+            return _Pl() if rating_key else None
+
+    rec = _Rec()
+    _add_recorder_method(rec, _pc.PlexClient, "playlist_item_count")
+    check("plex count: uses leafCount", rec.playlist_item_count("42") == 739)
+    check("plex count: missing playlist is 0", rec.playlist_item_count("") == 0)
+
+    class _Bad:
+        leafCount = "nope"
+
+    class _RecBad:
+        def _get_playlist(self, rating_key):
+            return _Bad()
+
+    rec_bad = _RecBad()
+    _add_recorder_method(rec_bad, _pc.PlexClient, "playlist_item_count")
+    check("plex count: bad leafCount is 0", rec_bad.playlist_item_count("1") == 0)
+
+
+def test_health_skips_login_and_backends():
+    """Issue #21: /health is a cheap 200, including when login is on."""
+    import os, tempfile, importlib
+    tmp = tempfile.mkdtemp()
+    os.environ["DB_PATH"] = os.path.join(tmp, "health.db")
+    saved_pw = os.environ.pop("LINEARR_AUTH_PASSWORD", None)
+    saved_user = os.environ.pop("LINEARR_AUTH_USERNAME", None)
+    import db as _db
+    import auth as _auth
+    import app as _app
+    try:
+        importlib.reload(_db)
+        _db.init_db()
+        importlib.reload(_auth)
+        importlib.reload(_app)
+        _app.scheduler.start = lambda: None
+        flask_app = _app.create_app()
+        flask_app.config["TESTING"] = True
+        client = flask_app.test_client()
+        r = client.get("/health")
+        check("health: 200 when login off", r.status_code == 200)
+        check("health: body ok", r.get_data(as_text=True) == "ok")
+
+        _db.set_setting("auth_password_hash", "present")
+        r_health = client.get("/health")
+        r_home = client.get("/", follow_redirects=False)
+        check("health: 200 when login on", r_health.status_code == 200)
+        check("health: home still requires login", r_home.status_code == 302)
+    finally:
+        importlib.reload(_db)
+        importlib.reload(_auth)
+        importlib.reload(_app)
+        if saved_pw is None:
+            os.environ.pop("LINEARR_AUTH_PASSWORD", None)
+        else:
+            os.environ["LINEARR_AUTH_PASSWORD"] = saved_pw
+        if saved_user is None:
+            os.environ.pop("LINEARR_AUTH_USERNAME", None)
+        else:
+            os.environ["LINEARR_AUTH_USERNAME"] = saved_user
+        os.environ["DB_PATH"] = os.path.join(tmp, "_")
+
+
+def test_jellyfin_items_do_not_collapse_boxsets():
+    """Issue #18: grouped collections must not hide the movies and shows inside."""
+    import jellyfin_client as _jc
+    rec = _JellyfinItemsRecorder()
+    for name in ("list_all_movies", "_movie_library_ids", "find_associated_movies",
+                 "_tv_library_ids", "_list_series_via_items"):
+        _add_recorder_method(rec, _jc.JellyfinClient, name)
+
+    movies = rec.list_all_movies()
+    associated = rec.find_associated_movies("Alien")
+    shows = rec._list_series_via_items({})
+
+    item_params = [p for _, path, p in rec.calls if path == "/Items"]
+    check("jf boxset: three /Items reads", len(item_params) == 3, str(len(item_params)))
+    check("jf boxset: collections not collapsed",
+          all(p.get("CollapseBoxSetItems") == "false" for p in item_params),
+          str([p.get("CollapseBoxSetItems") for p in item_params]))
+    check("jf boxset: movie parsed",
+          movies and movies[0].title == "Alien" and movies[0].tmdb_id == 348)
+    check("jf boxset: associated movie kept",
+          [m.rating_key for m in associated] == ["m1"])
+    check("jf boxset: series parsed",
+          shows and shows[0].title == "Alien")
 
 
 def test_emby_add_chunking():

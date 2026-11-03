@@ -62,6 +62,11 @@ _log = logging.getLogger(__name__)
 _CLIENT_NAME = "Linearr"
 _CLIENT_VERSION = "1.8.0"
 
+# When a library groups movies or shows into collections, Jellyfin's /Items
+# response swaps those titles for the box set and matching breaks. Keep the
+# members. Reported by Simon Eklundh (issue #18).
+_NO_BOXSET_COLLAPSE = {"CollapseBoxSetItems": "false"}
+
 # Episode/movie metadata fields we always request from /Items and friends so
 # the response carries the data we need to build PlaylistItem / EpisodeRef.
 _EPISODE_FIELDS = "PremiereDate,Overview,ProviderIds"
@@ -437,6 +442,7 @@ class JellyfinClient(MediaClient):
                 "enableImages": "true",
                 "imageTypeLimit": 1,
                 "enableImageTypes": "Primary",
+                **_NO_BOXSET_COLLAPSE,
             }
             params.update(extra_params)
             resp = self._request("GET", "/Items", params=params)
@@ -604,6 +610,7 @@ class JellyfinClient(MediaClient):
                 "Recursive": "true",
                 "Fields": "ProviderIds,PremiereDate,UserData",
                 "UserId": self._user_id,
+                **_NO_BOXSET_COLLAPSE,
             })
             if not resp.ok:
                 return []
@@ -663,6 +670,7 @@ class JellyfinClient(MediaClient):
                 "enableUserData": "true",
                 "enableImages": "true",
                 "imageTypeLimit": 1,
+                **_NO_BOXSET_COLLAPSE,
             })
             for m in resp.json().get("Items") or []:
                 mid = str(m.get("Id") or "")

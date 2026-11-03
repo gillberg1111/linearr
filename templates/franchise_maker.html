@@ -32,15 +32,6 @@
     <input type="text" class="name-input" id="searchInput" placeholder="Search by title…" style="width:100%; margin-top:0.6rem" {% if not has_tmdb_key %}disabled{% endif %}>
     <p class="hint" id="searchHint" style="text-align:center;margin-top:0.5rem">Start typing to search TMDB</p>
     <div class="maker-results" id="resultsList"></div>
-    <div style="margin-top:1rem; padding-top:0.8rem; border-top:1px solid var(--border)">
-      <button type="button" class="btn btn-sm" id="importTraktBtn">Import from Trakt URL…</button>
-      <p class="hint" style="margin-top:0.5rem;display:flex;align-items:center;gap:0.3rem">
-        Powered by
-        <a href="https://trakt.tv" target="_blank" rel="noopener" style="line-height:0">
-          <img src="{{ url_for('static', filename='trakt-logo-dark.svg') }}" alt="Trakt.tv" height="12" style="opacity:0.7">
-        </a>
-      </p>
-    </div>
   </div>
 
   <div class="maker-panel" id="orderPanel">
@@ -73,21 +64,6 @@
       <a href="{{ url_for('index') if mode == 'new' else url_for('view_playlist', playlist_id=playlist_id) }}" class="btn">Cancel</a>
       <span class="status-msg" id="saveStatus"></span>
     </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="traktModal">
-  <div class="modal-card">
-    <h3>Import from Trakt</h3>
-    <p class="hint" style="margin-bottom:0.8rem">Paste a Trakt list URL to replace the current items.</p>
-    <input type="text" class="name-input" id="traktUrlInput"
-           placeholder="https://trakt.tv/users/username/lists/list-slug"
-           style="width:100%">
-    <div class="modal-actions" style="margin-top:1rem; display:flex; gap:0.5rem; justify-content:flex-end">
-      <button type="button" class="btn" id="traktCancelBtn">Cancel</button>
-      <button type="button" class="btn btn-primary" id="traktImportBtn">Import</button>
-    </div>
-    <span class="hint" id="traktStatus" style="display:none; margin-top:0.5rem"></span>
   </div>
 </div>
 
@@ -583,65 +559,6 @@ function addSeries(tmdbId, btn) {
     });
 }
 
-// Trakt import modal
-var traktModal = document.getElementById('traktModal');
-document.getElementById('importTraktBtn').addEventListener('click', function() {
-  traktModal.classList.add('show');
-  document.getElementById('traktUrlInput').focus();
-});
-document.getElementById('traktCancelBtn').addEventListener('click', function() {
-  traktModal.classList.remove('show');
-  document.getElementById('traktUrlInput').value = '';
-  document.getElementById('traktStatus').style.display = 'none';
-});
-document.getElementById('traktImportBtn').addEventListener('click', function() {
-  var url = document.getElementById('traktUrlInput').value.trim();
-  if (!url) return;
-  if (makerState.items.length && !confirm('This will replace the current ' + makerState.items.length + ' items. Continue?')) return;
-
-  var statusEl = document.getElementById('traktStatus');
-  statusEl.textContent = 'Importing…';
-  statusEl.style.display = '';
-  document.getElementById('traktImportBtn').disabled = true;
-
-  fetch('/api/franchise-maker/import-trakt', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({url: url})
-  })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.error) {
-        statusEl.textContent = data.error;
-        statusEl.style.color = 'var(--accent-warn)';
-        document.getElementById('traktImportBtn').disabled = false;
-        return;
-      }
-      makerState.items = data.items.map(function(item) {
-        item = Object.assign({}, item);
-        item.tmdb_id = item.tmdb_id || null;
-        item.tvdb_id = item.tvdb_id || null;
-        item.imdb_id = item.imdb_id || null;
-        item.year = item.year || null;
-        item.season_number = item.season_number || null;
-        item.episode_number = item.episode_number || null;
-        item.show_title = item.show_title || null;
-        item.show_tvdb_id = item.show_tvdb_id || null;
-        return item;
-      });
-      renderItems();
-      traktModal.classList.remove('show');
-      document.getElementById('traktUrlInput').value = '';
-      statusEl.style.display = 'none';
-      document.getElementById('traktImportBtn').disabled = false;
-    })
-    .catch(function() {
-      statusEl.textContent = 'Import failed.';
-      statusEl.style.color = 'var(--accent-warn)';
-      document.getElementById('traktImportBtn').disabled = false;
-    });
-});
-
 // Backend picker
 var backendPicker = document.getElementById('backendPicker');
 if (backendPicker) {
@@ -654,15 +571,6 @@ if (backendPicker) {
 
 // Save button
 document.getElementById('saveBtn').addEventListener('click', saveFranchise);
-
-// Click backdrop to close modal
-traktModal.addEventListener('click', function(e) {
-  if (e.target === traktModal) {
-    traktModal.classList.remove('show');
-    document.getElementById('traktUrlInput').value = '';
-    document.getElementById('traktStatus').style.display = 'none';
-  }
-});
 
 // Initial render
 renderItems();

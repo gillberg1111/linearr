@@ -146,26 +146,26 @@
   {
     "key": "dcu",
     "name": "DC (DCU)",
-    "source": "trakt",
-    "trakt_user": "FistyTristy",
-    "trakt_slug": "dc-universe-james-gunn-s-dcu",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null
   },
   {
     "key": "jurassic",
     "name": "Jurassic Park",
-    "source": "trakt",
-    "trakt_user": "Strangerer",
-    "trakt_slug": "jurassic-park-jurassic-world-trilogies",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null,
     "poster": "https://image.tmdb.org/t/p/w500/maFjKnJ62hDQ9E66dKqDZgbUy0H.jpg"
   },
   {
     "key": "monsterverse",
     "name": "MonsterVerse",
-    "source": "trakt",
-    "trakt_user": "superfabio",
-    "trakt_slug": "monsterverse",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null,
     "poster": "https://image.tmdb.org/t/p/w500/tphkjmQq8WebuVwNXelmjLUXuPJ.jpg"
   },
@@ -181,27 +181,27 @@
   {
     "key": "alien_predator",
     "name": "Alien & Predator",
-    "source": "trakt",
-    "trakt_user": "prey33",
-    "trakt_slug": "alien-predator-timeline",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null,
     "poster": "https://image.tmdb.org/t/p/w500/2XDQa6EmFHSA37j1t0w88vpWqj9.jpg"
   },
   {
     "key": "conjuring",
     "name": "Conjuring Universe",
-    "source": "trakt",
-    "trakt_user": "zviznemte",
-    "trakt_slug": "the-conjuring-universe-timeline",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null,
     "poster": "https://image.tmdb.org/t/p/w500/sFC1ElvoKGdHJIWRpNB3xWJ9lJA.jpg"
   },
   {
     "key": "james_bond",
     "name": "James Bond",
-    "source": "trakt",
-    "trakt_user": "Trakt",
-    "trakt_slug": "james-bond-collection",
+    "source": "local",
+    "trakt_user": null,
+    "trakt_slug": null,
     "chronolists_id": null,
     "poster": "https://image.tmdb.org/t/p/w500/f9HsemSsBEHN5eoMble1bj6fDxs.jpg"
   }

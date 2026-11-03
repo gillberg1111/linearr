@@ -98,7 +98,7 @@ untouched; the future portion regenerates instantly.
 
 <p align="center">
   <img src="images/07-buildyourown.png" alt="Franchise Playlist Maker" width="900">
-  <br><sub><em>Build your own franchise (or any style really) playlist, import an existing list from Trakt to use or edit, or edit one of the existing franchise playlists.</em></sub>
+  <br><sub><em>Build your own franchise playlist, or start from one of the bundled watch orders and edit a copy.</em></sub>
 </p>
 
 ---
@@ -178,22 +178,21 @@ untouched; the future portion regenerates instantly.
   post-filters.
 - **By Franchise** — a chronologically ordered playlist mixing movies, full
   series, individual seasons, and individual episodes — for MCU watch orders,
-  Star Wars timelines, Star Trek chronology, etc. **23 franchises ship
-  pre-baked** (sourced from [Chronolists](https://chronolists.com) and curated
-  community Trakt lists): MCU, Star Wars, DCEU, DCU, Arrowverse, Star Trek,
+  Star Wars timelines, Star Trek chronology, etc.   **23 franchises ship
+  pre-baked** (16 from [Chronolists](https://chronolists.com), which keep
+  updating, plus 7 watch orders bundled in the app and refreshed only when
+  Linearr itself updates): MCU, Star Wars, DCEU, DCU, Arrowverse, Star Trek,
   Stargate, Doctor Who, Buffy & Angel, X-Men (two timelines), Mission:
   Impossible, Harry Potter, One Chicago, Battlestar Galactica, The Walking Dead,
   Underworld, Jurassic Park, MonsterVerse, John Wick, Alien & Predator,
   Conjuring Universe, James Bond. The picker **grows automatically** as
   Chronolists expands — new lists appear (with cover art) without a release
-  update — and a franchise Linearr tracks under Trakt auto-switches to
-  Chronolists when it shows up there.
+  update.
 - **Franchise Playlist Maker** (`/franchise-maker`) — a visual builder for fully
   custom watch orders. Search TMDB for movies/TV, browse seasons & episodes
   inline, **+ Add Series** to drop all seasons at once, **+ Add all eps** to drop
   every episode of a season or series as individual, reorderable rows (perfect
-  for interleaving overlapping shows), drag to reorder, and **Import from Trakt
-  URL** to seed from any public list. Editing a bundled
+  for interleaving overlapping shows), and drag to reorder. Editing a bundled
   franchise spawns a custom copy (the original is never touched) with a
   **Restore default** button. Needs a free TMDB API key (set on Settings).
 
@@ -527,7 +526,7 @@ set on the Settings page). **At least one backend must be configured.**
 | `DB_PATH`                | no           | `./data/rotator.db`    | SQLite file. Docker overrides to `/data/rotator.db`.                                           |
 | `WATCHED_KEEP`           | no           | `2`                    | Recently-watched episodes left in each playlist as a fall-asleep buffer.                       |
 | `PRUNE_INTERVAL_MINUTES` | no           | `10`                   | How often the prune + auto-sync sweep runs.                                                    |
-| `FRANCHISE_REFRESH_DAYS` | no           | `7`                    | How often franchise definitions refresh from upstream (Chronolists/Trakt).                     |
+| `FRANCHISE_REFRESH_DAYS` | no           | `7`                    | How often Chronolists franchise definitions refresh from upstream.                              |
 | `AUTO_SYNC`              | no           | `true`                 | When true, new episodes/seasons splice into managed playlists every sweep. `false` locks them. |
 | `TV_LIBRARIES`           | no           | *(all show libs)*      | Comma-separated library names to source shows from. Applies to all backends.                   |
 | `FLASK_SECRET`           | no           | *(auto-generated)*     | Flask session cookie secret. Auto-generated and persisted if unset; set explicitly (`openssl rand -hex 32`) only to pin/share it.  |
@@ -536,7 +535,6 @@ set on the Settings page). **At least one backend must be configured.**
 | `LINEARR_AUTH_USERNAME`  | no           | `admin`                | Optional web-UI login username. Normally set in Settings; env is the reset path.               |
 | `LINEARR_AUTH_PASSWORD`  | no           | —                      | Set + restart to (re)set the web-UI login password (no-email reset), then clear it.            |
 | `LINEARR_DISABLE_ORIGIN_CHECK` | no     | `0`                    | Set `1` only if a reverse proxy rewrites the Host header and form posts start failing with 403. |
-| `TRAKT_CLIENT_ID`        | no           | *(bundled)*            | Override the bundled Trakt application key for public-list access.                             |
 | `CHRONOLISTS_BASE_URL`   | no           | *(public API)*         | Override the Chronolists API base URL.                                                         |
 
 ---
@@ -674,7 +672,7 @@ required.
 
 ```bash
 python tests.py
-# expected: 384 passed, 0 failed, 384 total
+# expected: 758 passed, 0 failed, 758 total
 ```
 
 It covers the pure rotation/sequencing logic (all five sort modes, splice,
@@ -739,6 +737,10 @@ playback) on the backend.
 
 **"Address already in use"** — change `WEB_PORT` and the published port.
 
+**Container reports unhealthy** — the image healthcheck calls `/health`, which
+only checks that the web server answers. It does not load the dashboard or
+contact Plex, Jellyfin, or Emby.
+
 **Form posts fail with 403 "Cross-site request blocked"** — Linearr rejects
 browser posts whose `Origin`/`Referer` doesn't match the host it was reached
 on. This only false-positives when a reverse proxy rewrites the `Host` header;
@@ -772,7 +774,6 @@ rotation.py            Pure interleave / air-date-sort / splice / prune logic.
 db.py                  SQLite schema, introspection migrations, helpers.
 scheduler.py           APScheduler: prune + sync + genre-cache + franchise refresh.
 webhooks.py            Outbound webhook delivery (fire-and-forget).
-trakt_client.py        Trakt list fetch (bundled app key).
 tmdb_client.py         TMDB client for the Franchise Maker (v3 key / v4 token).
 chronolists_client.py  Chronolists public API + parser.
 templates/             Jinja pages (index, new, configure, playlist, new_genre,
@@ -782,7 +783,7 @@ static/                picker.js + linearr.js (toasts/AJAX) + style.css +
                        bundled Inter font (fonts/).
 defaults/              franchises.json registry + bundled franchise_data/ JSON.
 images/                Banner, logo, favicons, Unraid icon, screenshots.
-tests.py               Self-contained unit tests (694).
+tests.py               Self-contained unit tests (758).
 ```
 
 Linearr serves itself with **waitress** (production WSGI server) in a single
@@ -821,12 +822,10 @@ Linearr was built collaboratively with [Claude Code](https://claude.com/claude-c
 Architecture, naming, brand identity, and testing against real Plex / Jellyfin /
 Emby / Unraid setups are the maintainer's.
 
-Franchise watch orders are powered by [Chronolists](https://chronolists.com) and
-community-maintained lists on [Trakt.tv](https://trakt.tv), via the Chronolists
-public API and the Trakt API (under a registered application key). Movie/TV
-metadata for the Franchise Maker comes from [TMDB](https://www.themoviedb.org)
-(this product uses the TMDB API but is not endorsed or certified by TMDB).
-Trakt® is a trademark of Trakt, LLC.
+Franchise watch orders are powered by [Chronolists](https://chronolists.com)
+and by watch orders bundled with the app. Movie/TV metadata for the Franchise
+Maker comes from [TMDB](https://www.themoviedb.org) (this product uses the TMDB
+API but is not endorsed or certified by TMDB).
 
 ---
 

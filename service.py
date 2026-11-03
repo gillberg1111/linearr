@@ -17,6 +17,7 @@ Dual-backend (v1.1.0):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -36,9 +37,14 @@ from media_client import (
 )
 from media_client import parse_backend_set, ALL_BACKENDS, primary_backend
 from rotation import PlaylistItem
-from trakt_client import get_trakt_client
 
 log = logging.getLogger(__name__)
+
+
+def franchise_content_hash(items: list[dict]) -> str:
+    """SHA-256 of a normalized franchise item list. Detects definition changes."""
+    canonical = json.dumps(items, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _compute_playlist_stats(
@@ -1861,7 +1867,7 @@ def _apply_franchise_poster(row) -> None:
 def _fetch_and_store_franchise(
     key: str,
     name: str,
-    source: str = "trakt",
+    source: str = "local",
     trakt_user: str | None = None,
     trakt_slug: str | None = None,
     chronolists_id: str | None = None,
@@ -1880,39 +1886,9 @@ def _fetch_and_store_franchise(
             return defn["id"]
         raise ValueError(f"User franchise '{key}' not found in DB")
 
-    if source != "trakt":
-        raise ValueError(f"Unknown franchise source: {source}")
-
-    if not trakt_user or not trakt_slug:
-        raise ValueError("trakt_user and trakt_slug are required for source='trakt'")
-
-    from datetime import datetime, timezone
-
-    trakt = get_trakt_client()
-    items = trakt.fetch_list_items(trakt_user, trakt_slug)
-    new_hash = trakt.content_hash(items)
-
-    existing = db.get_franchise_definition(key)
-    fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    definition_id = db.upsert_franchise_definition(
-        key=key,
-        name=name,
-        source="trakt",
-        trakt_user=trakt_user,
-        trakt_slug=trakt_slug,
-        fetched_at=fetched_at,
-        content_hash=new_hash,
-        item_count=len(items),
+    raise ValueError(
+        f"Unknown franchise source: {source}. Trakt lists are no longer fetched."
     )
-
-    if existing is None or existing.get("content_hash") != new_hash:
-        db.replace_franchise_items(definition_id, items)
-        log.info("Franchise '%s': stored %d items (hash changed)", name, len(items))
-    else:
-        log.debug("Franchise '%s': no changes (hash match)", name)
-
-    return definition_id
 
 
 def _fetch_and_store_franchise_local(key: str, name: str) -> int:
@@ -1948,7 +1924,7 @@ def _fetch_and_store_franchise_local(key: str, name: str) -> int:
         item.setdefault("show_tmdb_id", None)
         normalised.append(item)
 
-    new_hash = get_trakt_client().content_hash(normalised)
+    new_hash = franchise_content_hash(normalised)
     existing = db.get_franchise_definition(key)
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -2264,7 +2240,7 @@ def create_franchise_playlist(
     name: str,
     backend: str,
     franchise_key: str,
-    source: str = "trakt",
+    source: str = "local",
     trakt_user: str | None = None,
     trakt_slug: str | None = None,
     chronolists_id: str | None = None,
@@ -2486,7 +2462,7 @@ def save_user_franchise_playlist(
         item.setdefault("show_tmdb_id", None)
         normalised.append(item)
 
-    new_hash = get_trakt_client().content_hash(normalised)
+    new_hash = franchise_content_hash(normalised)
     # Persist TMDB posters on the definition so the home-page card shows the
     # up-to-5 strip for user-built / forked franchises (the media-server cover is
     # set separately by _apply_franchise_poster below). Best-effort: empty if
@@ -2678,30 +2654,32 @@ def restore_bundled_franchise(playlist_id: int) -> bool:
 
 
 def migrate_bundled_franchise_sources() -> None:
-    """Auto-migrate existing franchise playlists from Trakt to Chronolists when
-    the bundled registry has switched sources. Runs once on refresh cycles.
+    """Move stored bundled franchises onto the source in defaults/franchises.json.
 
-    Only upgrades definitions that are currently trakt-sourced; user and local
-    definitions are left alone. Chronolists-sourced definitions are already
-    migrated — skip them.
+    Covers the old Trakt -> Chronolists switch and the later Trakt -> local
+    snapshots. User-built definitions are not in the registry and are left alone.
     """
     registry = {f["key"]: f for f in _load_prebaked_franchises()}
     for defn in db.list_franchise_definitions():
         reg = registry.get(defn["key"])
-        if not reg or reg.get("source") != "chronolists":
+        if not reg:
             continue
-        if defn["source"] == "chronolists":
+        target = reg.get("source")
+        if target not in ("chronolists", "local") or defn["source"] == target:
             continue
         try:
-            definition_id = _fetch_and_store_franchise(
-                defn["key"], reg["name"], source="chronolists",
-                chronolists_id=reg["chronolists_id"])
+            if target == "chronolists":
+                definition_id = _fetch_and_store_franchise(
+                    defn["key"], reg["name"], source="chronolists",
+                    chronolists_id=reg["chronolists_id"])
+            else:
+                definition_id = _fetch_and_store_franchise_local(defn["key"], reg["name"])
             for pl in db.get_playlists_by_franchise_definition(definition_id):
                 try:
                     sync_franchise_playlist(pl["id"], force=True)
                 except Exception:
                     log.warning("migrate: re-sync failed for pl=%s", pl["id"], exc_info=True)
-            log.info("Migrated franchise '%s' Trakt -> Chronolists", defn["key"])
+            log.info("Migrated franchise '%s' %s -> %s", defn["key"], defn["source"], target)
         except Exception:
             log.warning("Source migration failed for '%s'", defn["key"], exc_info=True)
 
@@ -2781,10 +2759,9 @@ def refresh_franchise_definitions() -> None:
         try:
             old_hash = defn.get("content_hash")
             if src == "trakt":
-                definition_id = _fetch_and_store_franchise(
-                    key=defn["key"], name=defn["name"],
-                    source="trakt", trakt_user=defn["trakt_user"],
-                    trakt_slug=defn["trakt_slug"])
+                # Stored items stay as they are. Bundled keys are rewritten
+                # to local/chronolists by migrate_bundled_franchise_sources.
+                continue
             elif src == "chronolists":
                 cid = defn.get("chronolists_id")
                 if not cl_index or cid not in cl_index:

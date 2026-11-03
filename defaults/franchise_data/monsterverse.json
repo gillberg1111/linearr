@@ -1,0 +1,114 @@
+{
+  "_info": {
+    "name": "MonsterVerse",
+    "description": "Snapshot of the public Trakt list superfabio/monsterverse on 2026-11-03.",
+    "maintained_by": "linearrapp",
+    "last_updated": "2026-11-03"
+  },
+  "items": [
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Godzilla",
+      "year": 2014,
+      "rank": 1
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Kong: Skull Island",
+      "year": 2017,
+      "rank": 2
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Godzilla: King of the Monsters",
+      "year": 2019,
+      "rank": 3
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Godzilla vs. Kong",
+      "year": 2021,
+      "rank": 4
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "show",
+      "title": "Skull Island",
+      "year": 2023,
+      "rank": 5
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "show",
+      "title": "Monarch: Legacy of Monsters",
+      "year": 2023,
+      "rank": 6
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Godzilla x Kong: The New Empire",
+      "year": 2024,
+      "rank": 7
+    },
+    {
+      "tmdb_id": null,
+      "imdb_id": null,
+      "tvdb_id": null,
+      "season_number": null,
+      "episode_number": null,
+      "show_title": null,
+      "show_tvdb_id": null,
+      "item_type": "movie",
+      "title": "Godzilla x Kong: Supernova",
+      "year": null,
+      "rank": 8
+    }
+  ]
+}

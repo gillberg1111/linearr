@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.8.2"
+__version__ = "3.9.0"
 
 import logging
 import os
@@ -289,25 +289,6 @@ def _franchise_library_cache(backend: str) -> tuple[dict | None, str | None]:
         return None, _backend_unreachable_message(backend, exc)
     _franchise_lib_cache[backend] = (now, data)
     return data, None
-
-
-# Module-level cache of fetched Trakt list items. TTL = 5 minutes.
-_trakt_list_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
-_TRAKT_LIST_CACHE_TTL = 300.0
-
-
-def _cached_trakt_list_items(user: str, slug: str) -> list[dict]:
-    """Fetch a Trakt list via TraktClient, caching results for 5 minutes."""
-    import time as _time
-    now = _time.monotonic()
-    key = (user, slug)
-    cached = _trakt_list_cache.get(key)
-    if cached and (now - cached[0]) < _TRAKT_LIST_CACHE_TTL:
-        return cached[1]
-    from trakt_client import get_trakt_client
-    items = get_trakt_client().fetch_list_items(user, slug)
-    _trakt_list_cache[key] = (now, items)
-    return items
 
 
 def _load_prebaked_franchises() -> list[dict]:
@@ -670,13 +651,14 @@ def create_app() -> Flask:
     # ------------------------------------------------------------------ #
     # Optional web-UI login (v3.3.0). Default off — active only once a
     # password is set. Protects every page except the login/logout routes,
-    # static assets, and /api/* (which keeps its own API-key auth).
+    # static assets, /health (Docker healthcheck), and /api/v1/* (which
+    # keeps its own API-key auth).
     # ------------------------------------------------------------------ #
     @app.before_request
     def _require_login():
         if not auth.auth_enabled():
             return
-        if request.endpoint in ("login", "logout", "static"):
+        if request.endpoint in ("login", "logout", "static", "health"):
             return
         # Only the keyed REST API bypasses the session (it has its own Bearer
         # auth and is called by external scripts). Internal /api/ endpoints
@@ -892,6 +874,14 @@ def create_app() -> Flask:
         entries = service.get_live_playlist_order(playlist_id, backend)
         return render_template("_order_partial.html", entries=entries,
                                backend=backend, truncated=(entries is not None and len(entries) == 2000))
+
+    # ------------------------------------------------------------------ #
+    # Health (Docker). Must stay cheap: the dashboard counts playlist
+    # items, and a healthcheck that hits "/" times out on large libraries.
+    # ------------------------------------------------------------------ #
+    @app.route("/health")
+    def health():
+        return "ok", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
     # ------------------------------------------------------------------ #
     # Index
@@ -1544,9 +1534,7 @@ def create_app() -> Flask:
         name = request.form.get("name", "").strip()
         backend = _backend_from_form(request.form, backends)
         franchise_key = request.form.get("franchise_key", "").strip()
-        franchise_source = request.form.get("franchise_source", "trakt").strip()
-        trakt_user = request.form.get("trakt_user", "").strip()
-        trakt_slug = request.form.get("trakt_slug", "").strip()
+        franchise_source = request.form.get("franchise_source", "local").strip()
         chronolists_id = request.form.get("chronolists_id", "").strip() or None
         franchise_name = request.form.get("franchise_name", "").strip()
 
@@ -1558,12 +1546,10 @@ def create_app() -> Flask:
             if not chronolists_id:
                 flash("Please select a franchise.")
                 return redirect(url_for("new_franchise"))
-        elif not trakt_user or not trakt_slug:
-            flash("Please select a franchise or enter a valid Trakt list URL.")
+        elif franchise_source != "local" or not franchise_key:
+            flash("Please select a franchise.")
             return redirect(url_for("new_franchise"))
 
-        if not franchise_key:
-            franchise_key = f"custom_{trakt_user}_{trakt_slug}"
         if not franchise_name:
             franchise_name = name
 
@@ -1573,8 +1559,6 @@ def create_app() -> Flask:
                 backend=backend,
                 franchise_key=franchise_key,
                 source=franchise_source,
-                trakt_user=trakt_user,
-                trakt_slug=trakt_slug,
                 chronolists_id=chronolists_id,
                 franchise_name=franchise_name,
             )
@@ -1586,10 +1570,8 @@ def create_app() -> Flask:
 
     @app.route("/api/franchise/preview")
     def api_franchise_preview():
-        trakt_user = request.args.get("trakt_user", "").strip()
-        trakt_slug = request.args.get("trakt_slug", "").strip()
         backend = request.args.get("backend", "plex")
-        source = request.args.get("source", "trakt").strip()
+        source = request.args.get("source", "local").strip()
         franchise_key = request.args.get("franchise_key", "").strip()
         chronolists_id = request.args.get("chronolists_id", "").strip()
 
@@ -1618,20 +1600,11 @@ def create_app() -> Flask:
                     items=[], found_count=0, total_count=0, missing_count=0,
                 )
         else:
-            if not trakt_user or not trakt_slug or trakt_user == "null" or trakt_slug == "null":
-                return render_template(
-                    "_franchise_preview_partial.html",
-                    error="Missing trakt_user or trakt_slug.",
-                    items=[], found_count=0, total_count=0, missing_count=0,
-                )
-            try:
-                raw_items = _cached_trakt_list_items(trakt_user, trakt_slug)
-            except Exception as e:
-                return render_template(
-                    "_franchise_preview_partial.html",
-                    error=f"Could not fetch Trakt list: {e}",
-                    items=[], found_count=0, total_count=0, missing_count=0,
-                )
+            return render_template(
+                "_franchise_preview_partial.html",
+                error="Select a franchise to preview.",
+                items=[], found_count=0, total_count=0, missing_count=0,
+            )
 
         # "both" is not a valid client key — check each configured backend
         backends_to_check = [b for b in parse_backend_set(backend) if b in available_backends()]
@@ -1713,7 +1686,7 @@ def create_app() -> Flask:
         has_key = bool(db.get_setting("tmdb_api_key") or os.environ.get("TMDB_API_KEY"))
         tmdb_key_set_in_db = bool(db.get_setting("tmdb_api_key"))
 
-        # v2.3.0 — optional preload from a bundled franchise or Trakt URL
+        # Optional preload from a bundled franchise.
         items: list[dict] = []
         franchise_name = ""
         forked_from_key = None
@@ -1721,8 +1694,6 @@ def create_app() -> Flask:
         is_bundled = False
 
         import_local = (request.args.get("import_local") or "").strip()
-        import_trakt_user = (request.args.get("import_trakt_user") or "").strip()
-        import_trakt_slug = (request.args.get("import_trakt_slug") or "").strip()
         import_chronolists = (request.args.get("import_chronolists") or "").strip()
 
         if import_local:
@@ -1732,19 +1703,13 @@ def create_app() -> Flask:
                     forked_from_key = import_local
                     bundled_origin_name = f.get("name")
                     is_bundled = True
-                    src = (f.get("source") or "trakt")
                     try:
-                        if src == "local":
-                            path = os.path.join(
-                                os.path.dirname(__file__), "defaults", "franchise_data",
-                                f"{import_local}.json",
-                            )
-                            with open(path) as _f:
-                                items = _json.load(_f).get("items", [])
-                        elif src == "trakt":
-                            items = _cached_trakt_list_items(
-                                f.get("trakt_user", ""), f.get("trakt_slug", "")
-                            )
+                        path = os.path.join(
+                            os.path.dirname(__file__), "defaults", "franchise_data",
+                            f"{import_local}.json",
+                        )
+                        with open(path) as _f:
+                            items = _json.load(_f).get("items", [])
                     except Exception as e:
                         log.warning("franchise maker preload from %s failed: %s",
                                     import_local, e)
@@ -1765,12 +1730,6 @@ def create_app() -> Flask:
                         log.warning("franchise maker preload from chronolists %s failed: %s",
                                     import_chronolists, e)
                     break
-        elif import_trakt_user and import_trakt_slug:
-            try:
-                items = _cached_trakt_list_items(import_trakt_user, import_trakt_slug)
-                franchise_name = f"{import_trakt_user}/{import_trakt_slug}"
-            except Exception as e:
-                log.warning("franchise maker preload from Trakt failed: %s", e)
 
         return render_template(
             "franchise_maker.html",
@@ -1868,22 +1827,6 @@ def create_app() -> Flask:
         from tmdb_client import get_season
         try:
             return jsonify(get_season(tmdb_id, season_number))
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-    @app.route("/api/franchise-maker/import-trakt", methods=["POST"])
-    def api_fm_import_trakt():
-        payload = request.json or {}
-        url = (payload.get("url") or "").strip()
-        import re
-        m = re.search(r"trakt\.tv/users/([^/]+)/lists/([^/?#]+)", url)
-        if not m:
-            return jsonify({"error": "Invalid Trakt list URL"}), 400
-        user, slug = m.group(1), m.group(2)
-        try:
-            from trakt_client import get_trakt_client
-            items = get_trakt_client().fetch_list_items(user, slug)
-            return jsonify({"items": items})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 

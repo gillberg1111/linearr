@@ -3,6 +3,38 @@
 All notable changes to Linearr. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.0] - 2026-11-03
+
+### Removed
+
+- **Trakt is no longer fetched**
+  ([#17](https://github.com/gillberg1111/linearr/issues/17)). Trakt rejected
+  the bundled client id, so the six franchise lists that still came from Trakt
+  now ship inside the app, snapshotted on 2026-11-03: DCU, Jurassic Park,
+  MonsterVerse, Alien & Predator, the Conjuring Universe, and James Bond
+  (the Bond list no longer resolves publicly, so that one is the 25-film Eon
+  theatrical order). Existing installs switch those playlists over on startup.
+  **Import from Trakt URL** is gone. A custom playlist that was built from a
+  Trakt list keeps the items already saved and simply stops refreshing from
+  Trakt. Franchise Maker search and building stay on TMDB. Chronolists is
+  unchanged.
+
+### Fixed
+
+- **Jellyfin collections no longer hide the movies and shows inside them**
+  ([#18](https://github.com/gillberg1111/linearr/issues/18), reported by
+  Simon Eklundh). When a library groups titles into collections, Jellyfin was
+  returning the box set in place of the films and series, so franchise
+  matching and associated-movie lookup missed them. Those item reads now ask
+  Jellyfin not to collapse box sets.
+- **The home page no longer downloads every Plex playlist just to count it**
+  ([#21](https://github.com/gillberg1111/linearr/issues/21), reported by
+  skeketo). Opening the dashboard with about 2,000 playlist items took 10–15
+  seconds, and the Docker healthcheck called that same page with a 3-second
+  timeout, so the container stayed unhealthy. Plex counts now use the
+  playlist's own `leafCount`. The healthcheck calls `/health`, which only
+  checks that the web server answers and stays available when login is on.
+
 ## [3.8.2] - 2026-08-06
 
 ### Fixed
